@@ -24,37 +24,32 @@ function injectStyles(): void {
     /* ---- Floating icon button (top-right fallback) ---- */
     #${BUTTON_ID}.cam-floating {
       position: fixed;
-      top: 16px;
-      right: 16px;
-      z-index: 2147483647;
-      display: inline-flex;
-      align-items: center;
-      justify-content: center;
-      padding: 10px;
+      bottom: 24px;
+      right: 24px;
+      width: 44px;
+      height: 44px;
+      padding: 0;
       border: none;
-      border-radius: 50%;
-      background: linear-gradient(135deg, #6366f1, #8b5cf6, #a855f7);
-      color: #fff;
+      background: none;
+      border-radius: 12px;
+      box-shadow: 0 4px 14px rgba(0,0,0,0.15);
       cursor: pointer;
-      box-shadow: 0 2px 12px rgba(99, 102, 241, 0.35);
-      transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
-      user-select: none;
-      -webkit-user-select: none;
-      line-height: 0;
-      font-size: 0;
+      z-index: 999999;
+      opacity: 0.8;
+      transition: all 0.2s cubic-bezier(0.175, 0.885, 0.32, 1.275);
     }
     #${BUTTON_ID}.cam-floating:hover {
       transform: scale(1.1);
-      box-shadow: 0 4px 20px rgba(99, 102, 241, 0.5), 0 0 0 3px rgba(139, 92, 246, 0.15);
-      background: linear-gradient(135deg, #818cf8, #a78bfa, #c084fc);
+      opacity: 1;
+      box-shadow: 0 6px 20px rgba(0,0,0,0.25);
     }
     #${BUTTON_ID}.cam-floating:active {
       transform: scale(0.95);
-      box-shadow: 0 1px 6px rgba(99, 102, 241, 0.3);
+      box-shadow: 0 2px 8px rgba(0,0,0,0.15);
     }
     #${BUTTON_ID}.cam-floating .cam-icon {
-      width: 20px;
-      height: 20px;
+      width: 100%;
+      height: 100%;
     }
 
     /* ---- Inline: pill (compact gradient pill) ---- */
@@ -160,6 +155,10 @@ function injectStyles(): void {
     }
 
     #${BUTTON_ID}.cam-success {
+      background: none !important;
+      transform: scale(0.95);
+    }
+    #${BUTTON_ID}.cam-pill.cam-success {
       background: linear-gradient(135deg, #22c55e, #16a34a) !important;
       color: #fff !important;
       opacity: 1 !important;
@@ -213,11 +212,24 @@ function injectStyles(): void {
 }
 
 function getIcon(): string {
-  return `<svg class="cam-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-    <rect x="9" y="2" width="6" height="4" rx="1" ry="1"/>
-    <path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/>
-    <path d="M9 14l2 2 4-4"/>
-  </svg>`;
+  return `<svg class="cam-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128">
+  <defs>
+    <linearGradient id="cam-bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#4f46e5"/>
+      <stop offset="100%" stop-color="#10b981"/>
+    </linearGradient>
+    <linearGradient id="cam-fold" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#ffffff" stop-opacity="0.9"/>
+      <stop offset="100%" stop-color="#e2e8f0" stop-opacity="0.9"/>
+    </linearGradient>
+  </defs>
+  <rect x="0" y="0" width="128" height="128" rx="28" fill="url(#cam-bg)"/>
+  <path d="M 28 24 C 24 24 20 28 20 32 L 20 80 C 20 84 24 88 28 88 L 84 88 C 88 88 92 84 92 80 L 92 52 L 64 24 Z" fill="#ffffff" opacity="0.95"/>
+  <path d="M 92 52 L 68 52 C 65.79 52 64 50.21 64 48 L 64 24 Z" fill="url(#cam-fold)"/>
+  <path d="M 30 68 L 30 48 L 37 48 L 42 58 L 47 48 L 54 48 L 54 68 L 48 68 L 48 56 L 43 64 L 41 64 L 36 56 L 36 68 Z" fill="#1e293b"/>
+  <rect x="66" y="48" width="14" height="14" rx="2.5" fill="#1e293b"/>
+  <rect x="60" y="54" width="14" height="14" rx="2.5" fill="#1e293b" stroke="#ffffff" stroke-width="2.5"/>
+</svg>`;
 }
 
 function getCheckIcon(): string {
