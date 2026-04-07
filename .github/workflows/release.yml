@@ -60,7 +60,7 @@ jobs:
             ## Install
 
             ### Userscript (Tampermonkey / Violentmonkey)
-            Download **copy-as-markdown.user.js** below, or [click here to install directly](https://raw.githubusercontent.com/${{ github.repository }}/main/dist/userscript/copy-as-markdown.user.js).
+            Download **copy-as-markdown.user.js** below, or [click here to install directly](https://github.com/${{ github.repository }}/releases/download/v${{ steps.version.outputs.version }}/copy-as-markdown.user.js).
 
             ### Chrome Extension
             1. Download **copy-as-markdown-chrome.zip** below

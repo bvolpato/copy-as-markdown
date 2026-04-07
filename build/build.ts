@@ -17,12 +17,18 @@ import { buildSync, type BuildResult } from 'esbuild';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { execSync } from 'node:child_process';
+import { createRequire } from 'node:module';
+
+const require = createRequire(import.meta.url);
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const ROOT = path.resolve(__dirname, '..');
 const SRC = path.join(ROOT, 'src');
 const DIST = path.join(ROOT, 'dist');
+const pkg = require('../package.json');
+const VERSION = pkg.version;
 
 // ---------- Types ----------
 
@@ -97,7 +103,7 @@ function buildUserscript(code: string): string {
   const header = `// ==UserScript==
 // @name         Copy as Markdown
 // @namespace    https://github.com/bvolpato/copy-as-markdown
-// @version      1.0.0
+// @version      ${VERSION}
 // @description  Context-aware "Copy as Markdown" button for sharing web pages with LLMs
 // @author       Bruno Volpato
 // @license      MIT
@@ -107,8 +113,8 @@ ${matchLines}
 // @icon         data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Crect width='100' height='100' rx='20' fill='%236366f1'/%3E%3Ctext x='50' y='68' font-size='52' font-weight='bold' text-anchor='middle' fill='white'%3EMd%3C/text%3E%3C/svg%3E
 // @homepageURL  https://github.com/bvolpato/copy-as-markdown
 // @supportURL   https://github.com/bvolpato/copy-as-markdown/issues
-// @downloadURL  https://raw.githubusercontent.com/bvolpato/copy-as-markdown/main/dist/userscript/copy-as-markdown.user.js
-// @updateURL    https://raw.githubusercontent.com/bvolpato/copy-as-markdown/main/dist/userscript/copy-as-markdown.user.js
+// @downloadURL  https://github.com/bvolpato/copy-as-markdown/releases/latest/download/copy-as-markdown.user.js
+// @updateURL    https://github.com/bvolpato/copy-as-markdown/releases/latest/download/copy-as-markdown.user.js
 // ==/UserScript==
 `;
 
@@ -121,7 +127,7 @@ function buildChromeManifest(patterns: string[]): ChromeManifest {
   return {
     manifest_version: 3,
     name: 'Copy as Markdown',
-    version: '1.0.0',
+    version: VERSION,
     description: 'Context-aware "Copy as Markdown" button — the fastest way to share web content with LLMs like ChatGPT, Claude, and Gemini.',
     permissions: ['activeTab', 'clipboardWrite'],
     icons: { '16': 'icons/icon-16.png', '48': 'icons/icon-48.png', '128': 'icons/icon-128.png' },
@@ -136,7 +142,7 @@ function buildFirefoxManifest(patterns: string[]): FirefoxManifest {
   return {
     manifest_version: 2,
     name: 'Copy as Markdown',
-    version: '1.0.0',
+    version: VERSION,
     description: 'Context-aware "Copy as Markdown" button — the fastest way to share web content with LLMs like ChatGPT, Claude, and Gemini.',
     permissions: ['activeTab', 'clipboardWrite'],
     icons: { '16': 'icons/icon-16.png', '48': 'icons/icon-48.png', '128': 'icons/icon-128.png' },
@@ -152,16 +158,53 @@ function generateSVGIcon(): string {
   return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128">
   <defs>
     <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%" style="stop-color:#6366f1"/>
-      <stop offset="50%" style="stop-color:#8b5cf6"/>
-      <stop offset="100%" style="stop-color:#a855f7"/>
+      <stop offset="0%" stop-color="#4f46e5"/>
+      <stop offset="100%" stop-color="#10b981"/>
     </linearGradient>
+    <linearGradient id="foldGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#ffffff" stop-opacity="0.9"/>
+      <stop offset="100%" stop-color="#e2e8f0" stop-opacity="0.9"/>
+    </linearGradient>
+    <filter id="shadow" x="-10%" y="-10%" width="130%" height="130%">
+      <feDropShadow dx="2" dy="4" stdDeviation="4" flood-opacity="0.3"/>
+    </filter>
+    <filter id="foldShadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="-2" dy="2" stdDeviation="2" flood-opacity="0.2"/>
+    </filter>
   </defs>
-  <rect width="128" height="128" rx="24" fill="url(#bg)"/>
-  <rect x="30" y="24" width="68" height="84" rx="8" fill="rgba(255,255,255,0.15)"/>
-  <rect x="44" y="16" width="40" height="14" rx="7" fill="rgba(255,255,255,0.25)"/>
-  <text x="64" y="82" font-size="40" font-weight="800" text-anchor="middle" fill="white" font-family="-apple-system,BlinkMacSystemFont,sans-serif" letter-spacing="-1">Md</text>
+  
+  <!-- App Icon Base -->
+  <rect x="8" y="8" width="112" height="112" rx="28" fill="url(#bg)" filter="url(#shadow)"/>
+  
+  <!-- Markdown file body -->
+  <path d="M 36 32 C 32 32 28 36 28 40 L 28 88 C 28 92 32 96 36 96 L 92 96 C 96 96 100 92 100 88 L 100 60 L 72 32 Z" fill="#ffffff" opacity="0.95"/>
+  
+  <!-- Document Fold -->
+  <path d="M 100 60 L 76 60 C 73.79 60 72 58.21 72 56 L 72 32 Z" fill="url(#foldGradient)" filter="url(#foldShadow)"/>
+  
+  <!-- "M" (Markdown mark) -->
+  <path d="M 38 80 L 38 56 L 46 56 L 52 68 L 58 56 L 66 56 L 66 80 L 59 80 L 59 65 L 54 75 L 50 75 L 45 65 L 45 80 Z" fill="#1e293b"/>
+  
+  <!-- Down arrow (Markdown mark) -->
+  <path d="M 74 80 L 74 65 L 68 65 L 78 55 L 88 65 L 82 65 L 82 80 Z" fill="#1e293b"/>
 </svg>`;
+}
+
+function generatePngs(svgPath: string, outDir: string): void {
+  const sizes = [16, 48, 128];
+  for (const size of sizes) {
+    const outPath = path.join(outDir, `icon-${size}.png`);
+    try {
+      // Try ImageMagick v7 (magick) first, then v6 (convert)
+      try {
+        execSync(`magick -background none "${svgPath}" -resize ${size}x${size} "${outPath}"`, { stdio: 'ignore' });
+      } catch {
+        execSync(`convert -background none "${svgPath}" -resize ${size}x${size} "${outPath}"`, { stdio: 'ignore' });
+      }
+    } catch (e) {
+      console.warn(`⚠️ Failed to generate ${outPath}. Make sure ImageMagick is installed.`);
+    }
+  }
 }
 
 // ---------- Main ----------
@@ -194,6 +237,7 @@ function main(): void {
   fs.writeFileSync(path.join(chromeDir, 'manifest.json'), JSON.stringify(buildChromeManifest(patterns), null, 2));
   fs.writeFileSync(path.join(chromeDir, 'content.js'), code);
   fs.writeFileSync(path.join(chromeDir, 'icons', 'icon.svg'), generateSVGIcon());
+  generatePngs(path.join(chromeDir, 'icons', 'icon.svg'), path.join(chromeDir, 'icons'));
   console.log('  ✅ Chrome Extension → dist/chrome/ (Manifest V3)');
 
   // 3. Firefox Extension
@@ -202,6 +246,7 @@ function main(): void {
   fs.writeFileSync(path.join(firefoxDir, 'manifest.json'), JSON.stringify(buildFirefoxManifest(patterns), null, 2));
   fs.writeFileSync(path.join(firefoxDir, 'content.js'), code);
   fs.writeFileSync(path.join(firefoxDir, 'icons', 'icon.svg'), generateSVGIcon());
+  generatePngs(path.join(firefoxDir, 'icons', 'icon.svg'), path.join(firefoxDir, 'icons'));
   console.log('  ✅ Firefox Extension → dist/firefox/ (Manifest V2)');
 
   // Summary
