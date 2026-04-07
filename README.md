@@ -74,19 +74,25 @@ The fastest way to get started. Works in any browser with a userscript manager.
 | Site | Button Placement | What's Extracted |
 | --- | --- | --- |
 | **Wikipedia** | Tab bar (*Read · Edit · View history · **Copy as Markdown***) | Article body, tables, infoboxes — edit buttons and references stripped |
-| **Grokipedia** | Header nav | Full article content with metadata |
-| **Google Search** | Search tools bar | Query, featured snippets, knowledge panel, ranked results, "People Also Ask" |
+| **Grokipedia** | Header toolbar (icon) | Full article content with metadata |
+| **Google Search** | After "Tools" toggle (icon) | Query, featured snippets, knowledge panel, ranked results, "People Also Ask" |
 | **Bing Search** | Scope bar | Query, search results, knowledge sidebar, related searches |
 | **Reddit** | Post actions bar | Post title, body, subreddit, author, score, threaded comments with depth |
 | **YouTube** | Like/Share action bar | Video title, channel, views, likes, description, chapters, comments, transcript |
 | **WhatsApp Web** | Chat header (icon) | Chat name, all messages with sender, timestamp, media indicators |
-| **X (Twitter)** | Tweet action bar (icon) | Single posts with replies, or full timelines with engagement stats |
+| **X (Twitter)** | Profile action bar / post engagement bar (icon) | Single posts with replies, or full timelines with engagement stats |
 | **Polymarket** | Below event header | Market title, description, outcome probabilities, volume, resolution rules |
+| **GitHub** | Repo/issue/PR header | Issues & PRs (with comments, labels, state), repos (README, topics, languages), code files |
+| **Stack Overflow** | Question header | Question with votes & tags, all answers (✅ accepted marked), comment threads |
+| **Hacker News** | Post meta bar | Post title, link, score, author, nested comment threads with depth |
+| **LinkedIn** | Post/profile action area | Profiles (experience, education, about), posts (with reactions and comments), articles |
+| **Amazon** | Product title area | Product title, ASIN, price, rating, feature bullets, tech specs, reviews (top 10) |
+| **arXiv** | Paper header | Paper title, authors, abstract, subjects, DOI, links; full body from HTML pages |
 | **News sites** | Below article headline | Fox News, CNN, BBC, NYT, Reuters, and 20+ others — article body, author, date; paywall detection |
 
 Every extractor is purpose-built to separate **signal from noise**: no ads, no navigation menus, no cookie banners, no related-articles sidebars. Just the content that matters.
 
-If the anchor element isn't found (e.g. site redesign), the button automatically falls back to a floating pill in the top-right corner.
+If the anchor element isn't found (e.g. site redesign), the button automatically falls back to a floating icon in the top-right corner.
 
 ---
 
@@ -257,14 +263,6 @@ If the anchor selector isn't found, the button falls back to a floating FAB.
 ## Contributing
 
 PRs welcome! See [CONTRIBUTING.md](CONTRIBUTING.md) for details.
-
-**Ideas for new extractors:**
-- GitHub (issues, PRs, repos, READMEs)
-- Stack Overflow (questions + answers)
-- Hacker News (posts + comments)
-- LinkedIn (posts, profiles)
-- Amazon product pages
-- Arxiv papers
 
 ---
 

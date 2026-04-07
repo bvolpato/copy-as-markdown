@@ -19,6 +19,12 @@ import './extractors/whatsapp';
 import './extractors/polymarket';
 import './extractors/x-twitter';
 import './extractors/news';
+import './extractors/github';
+import './extractors/stackoverflow';
+import './extractors/hackernews';
+import './extractors/linkedin';
+import './extractors/amazon';
+import './extractors/arxiv';
 
 (function () {
   if ((window as any).__copyAsMarkdownInit) return;

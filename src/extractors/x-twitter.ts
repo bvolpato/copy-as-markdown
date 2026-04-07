@@ -23,7 +23,6 @@ register({
       '[data-testid="userActions"]',                                 // profile: More ••• button
       'article[data-testid="tweet"]:first-of-type [role="group"]',   // post: engagement bar
       'article [data-testid="caret"]',                               // post: ••• scoped to article
-      'header[role="banner"] nav',                                   // fallback: banner nav
     ].join(', '),
     position: 'after',
     style: 'icon',
