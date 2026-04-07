@@ -7,6 +7,7 @@
 
 import { findExtractor } from './core/registry';
 import { showButton } from './core/ui';
+import { buildPageMarkdown, elementToMarkdown, htmlToMarkdown } from './core/markdown';
 
 // Import extractors — each auto-registers on import
 import './extractors/wikipedia';
@@ -31,14 +32,39 @@ import './extractors/arxiv';
   (window as any).__copyAsMarkdownInit = true;
 
   function init(): void {
-    const extractor = findExtractor(window.location.href);
-    if (!extractor) return;
+    let extractor = findExtractor(window.location.href);
+    
+    if (!extractor) {
+      // Fallback best-effort extractor for unlisted pages
+      extractor = {
+        name: 'Fallback',
+        anchor: null,
+        extract: async () => {
+          // If the user has highlighted text, extract just that
+          const selection = window.getSelection();
+          if (selection && selection.rangeCount > 0 && selection.toString().trim() !== '') {
+            const container = document.createElement('div');
+            for (let i = 0; i < selection.rangeCount; i++) {
+              container.appendChild(selection.getRangeAt(i).cloneContents());
+            }
+            return buildPageMarkdown({ url: window.location.href }, htmlToMarkdown(container.innerHTML));
+          }
 
-    console.log(`[Copy as Markdown] Active extractor: ${extractor.name}`);
+          // Otherwise, find the richest content container on the page
+          const contentEl = document.querySelector('article, main, [role="main"]') || document.body;
+          return buildPageMarkdown(
+            { title: document.title, url: window.location.href },
+            elementToMarkdown(contentEl)
+          );
+        }
+      } as any;
+    } else {
+      console.log(`[Copy as Markdown] Active extractor: ${extractor.name}`);
+    }
 
     showButton(
-      () => extractor.extract(),
-      extractor.anchor,
+      () => extractor!.extract(),
+      extractor!.anchor,
     );
   }
 

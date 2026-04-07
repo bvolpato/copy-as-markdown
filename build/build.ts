@@ -98,7 +98,7 @@ function getExtractorCount(): number {
 
 function buildUserscript(code: string): string {
   const patterns = collectMatchPatterns();
-  const matchLines = patterns.map((p) => `// @match        ${p}`).join('\n');
+  const matchLines = patterns.map((p) => `// @match        ${p}`).join('\n') + '\n// @match        *://*/*';
 
   const header = `// ==UserScript==
 // @name         Copy as Markdown
@@ -131,7 +131,7 @@ function buildChromeManifest(patterns: string[]): ChromeManifest {
     description: 'Context-aware "Copy as Markdown" button — the fastest way to share web content with LLMs like ChatGPT, Claude, and Gemini.',
     permissions: ['activeTab', 'clipboardWrite'],
     icons: { '16': 'icons/icon-16.png', '48': 'icons/icon-48.png', '128': 'icons/icon-128.png' },
-    content_scripts: [{ matches: patterns, js: ['content.js'], run_at: 'document_idle' }],
+    content_scripts: [{ matches: ['<all_urls>'], js: ['content.js'], run_at: 'document_idle' }],
     action: { default_icon: { '16': 'icons/icon-16.png', '48': 'icons/icon-48.png' }, default_title: 'Copy as Markdown' },
   };
 }
@@ -146,7 +146,7 @@ function buildFirefoxManifest(patterns: string[]): FirefoxManifest {
     description: 'Context-aware "Copy as Markdown" button — the fastest way to share web content with LLMs like ChatGPT, Claude, and Gemini.',
     permissions: ['activeTab', 'clipboardWrite'],
     icons: { '16': 'icons/icon-16.png', '48': 'icons/icon-48.png', '128': 'icons/icon-128.png' },
-    content_scripts: [{ matches: patterns, js: ['content.js'], run_at: 'document_idle' }],
+    content_scripts: [{ matches: ['<all_urls>'], js: ['content.js'], run_at: 'document_idle' }],
     browser_action: { default_icon: { '16': 'icons/icon-16.png', '48': 'icons/icon-48.png' }, default_title: 'Copy as Markdown' },
     browser_specific_settings: { gecko: { id: 'copy-as-markdown@bvolpato', strict_min_version: '57.0' } },
   };
