@@ -6,7 +6,7 @@
  */
 
 import { findExtractor } from './core/registry';
-import { showButton } from './core/ui';
+import { showButton, copyToClipboard, showToast } from './core/ui';
 import { buildPageMarkdown, elementToMarkdown, htmlToMarkdown } from './core/markdown';
 
 // Import extractors — each auto-registers on import
@@ -66,6 +66,24 @@ import './extractors/arxiv';
       () => extractor!.extract(),
       extractor!.anchor,
     );
+
+    // Listen for Extension Toolbar Icon clicks
+    if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.onMessage) {
+      chrome.runtime.onMessage.addListener((request) => {
+        if (request.action === 'copy-as-markdown') {
+          Promise.resolve(extractor!.extract())
+            .then(md => {
+              copyToClipboard(md).then(() => {
+                showToast('✅ Copied as Markdown!');
+              });
+            })
+            .catch(err => {
+              console.error('[Copy as Markdown] Extraction error', err);
+              showToast('❌ Error copying markdown');
+            });
+        }
+      });
+    }
   }
 
   if (document.readyState === 'loading') {

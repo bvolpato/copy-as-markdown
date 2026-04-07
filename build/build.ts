@@ -48,12 +48,14 @@ interface ManifestBase {
 interface ChromeManifest extends ManifestBase {
   manifest_version: 3;
   action: { default_icon: Record<string, string>; default_title: string };
+  background: { service_worker: string };
 }
 
 interface FirefoxManifest extends ManifestBase {
   manifest_version: 2;
   browser_action: { default_icon: Record<string, string>; default_title: string };
   browser_specific_settings: { gecko: { id: string; strict_min_version: string } };
+  background: { scripts: string[] };
 }
 
 // ---------- esbuild: TypeScript → single IIFE bundle ----------
@@ -66,6 +68,20 @@ function bundle(): string {
     target: 'es2020',
     write: false,
     minify: false,       // keep readable for userscript installs
+    sourcemap: false,
+    logLevel: 'warning',
+  });
+  return result.outputFiles![0].text;
+}
+
+function bundleBackground(): string {
+  const result: BuildResult = buildSync({
+    entryPoints: [path.join(SRC, 'background.ts')],
+    bundle: true,
+    format: 'iife',
+    target: 'es2020',
+    write: false,
+    minify: true,
     sourcemap: false,
     logLevel: 'warning',
   });
@@ -131,6 +147,7 @@ function buildChromeManifest(patterns: string[]): ChromeManifest {
     description: 'Context-aware "Copy as Markdown" button — the fastest way to share web content with LLMs like ChatGPT, Claude, and Gemini.',
     permissions: ['activeTab', 'clipboardWrite'],
     icons: { '16': 'icons/icon-16.png', '48': 'icons/icon-48.png', '128': 'icons/icon-128.png' },
+    background: { service_worker: 'background.js' },
     content_scripts: [{ matches: ['<all_urls>'], js: ['content.js'], run_at: 'document_idle' }],
     action: { default_icon: { '16': 'icons/icon-16.png', '48': 'icons/icon-48.png' }, default_title: 'Copy as Markdown' },
   };
@@ -146,6 +163,7 @@ function buildFirefoxManifest(patterns: string[]): FirefoxManifest {
     description: 'Context-aware "Copy as Markdown" button — the fastest way to share web content with LLMs like ChatGPT, Claude, and Gemini.',
     permissions: ['activeTab', 'clipboardWrite'],
     icons: { '16': 'icons/icon-16.png', '48': 'icons/icon-48.png', '128': 'icons/icon-128.png' },
+    background: { scripts: ['background.js'] },
     content_scripts: [{ matches: ['<all_urls>'], js: ['content.js'], run_at: 'document_idle' }],
     browser_action: { default_icon: { '16': 'icons/icon-16.png', '48': 'icons/icon-48.png' }, default_title: 'Copy as Markdown' },
     browser_specific_settings: { gecko: { id: 'copy-as-markdown@bvolpato', strict_min_version: '57.0' } },
@@ -204,6 +222,7 @@ function main(): void {
   ensureDir(path.join(chromeDir, 'icons'));
   fs.writeFileSync(path.join(chromeDir, 'manifest.json'), JSON.stringify(buildChromeManifest(patterns), null, 2));
   fs.writeFileSync(path.join(chromeDir, 'content.js'), code);
+  fs.writeFileSync(path.join(chromeDir, 'background.js'), bundleBackground());
   fs.writeFileSync(path.join(chromeDir, 'icons', 'icon.svg'), getSVGIcon());
   generatePngs(path.join(chromeDir, 'icons', 'icon.svg'), path.join(chromeDir, 'icons'));
   console.log('  ✅ Chrome Extension → dist/chrome/ (Manifest V3)');
@@ -213,6 +232,7 @@ function main(): void {
   ensureDir(path.join(firefoxDir, 'icons'));
   fs.writeFileSync(path.join(firefoxDir, 'manifest.json'), JSON.stringify(buildFirefoxManifest(patterns), null, 2));
   fs.writeFileSync(path.join(firefoxDir, 'content.js'), code);
+  fs.writeFileSync(path.join(firefoxDir, 'background.js'), bundleBackground());
   fs.writeFileSync(path.join(firefoxDir, 'icons', 'icon.svg'), getSVGIcon());
   generatePngs(path.join(firefoxDir, 'icons', 'icon.svg'), path.join(firefoxDir, 'icons'));
   console.log('  ✅ Firefox Extension → dist/firefox/ (Manifest V2)');
