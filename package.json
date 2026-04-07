@@ -1,0 +1,32 @@
+{
+  "name": "copy-as-markdown",
+  "version": "1.0.0",
+  "description": "Context-aware Copy as Markdown buttons — the fastest way to share web content with LLMs",
+  "type": "module",
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "build": "node build/build.js",
+    "clean": "rm -rf dist",
+    "rebuild": "pnpm clean && pnpm build",
+    "package:chrome": "pnpm build && cd dist/chrome && zip -r ../copy-as-markdown-chrome.zip .",
+    "package:firefox": "pnpm build && cd dist/firefox && zip -r ../copy-as-markdown-firefox.zip .",
+    "package:all": "pnpm package:chrome && pnpm package:firefox"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/bvolpato/copy-as-markdown"
+  },
+  "keywords": [
+    "markdown", "copy", "clipboard", "userscript",
+    "browser-extension", "chrome-extension", "firefox-extension",
+    "llm", "chatgpt", "claude", "gemini", "web-scraping", "content-extraction"
+  ],
+  "author": "Bruno Volpato <brunocvcunha@gmail.com>",
+  "license": "MIT",
+  "bugs": { "url": "https://github.com/bvolpato/copy-as-markdown/issues" },
+  "homepage": "https://github.com/bvolpato/copy-as-markdown#readme",
+  "devDependencies": {
+    "esbuild": "^0.25.0",
+    "typescript": "^5.8.0"
+  }
+}
