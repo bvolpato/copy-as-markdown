@@ -48,8 +48,8 @@ jobs:
           generate_release_notes: true
           files: |
             dist/userscript/copy-as-markdown.user.js
-            copy-as-markdown-chrome.zip
-            copy-as-markdown-firefox.zip
+            dist/copy-as-markdown-chrome.zip
+            dist/copy-as-markdown-firefox.zip
           body: |
             ## Install
 
