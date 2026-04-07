@@ -1,4 +1,4 @@
-#!/usr/bin/env node
+#!/usr/bin/env tsx
 
 /**
  * Build script for Copy as Markdown.
@@ -10,10 +10,10 @@
  *   3. Firefox extension (Manifest V2)
  *
  * Usage:
- *   node build/build.js
+ *   npx tsx build/build.ts
  */
 
-import { buildSync } from 'esbuild';
+import { buildSync, type BuildResult } from 'esbuild';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -24,10 +24,36 @@ const ROOT = path.resolve(__dirname, '..');
 const SRC = path.join(ROOT, 'src');
 const DIST = path.join(ROOT, 'dist');
 
+// ---------- Types ----------
+
+interface ManifestBase {
+  name: string;
+  version: string;
+  description: string;
+  permissions: string[];
+  icons: Record<string, string>;
+  content_scripts: Array<{
+    matches: string[];
+    js: string[];
+    run_at: string;
+  }>;
+}
+
+interface ChromeManifest extends ManifestBase {
+  manifest_version: 3;
+  action: { default_icon: Record<string, string>; default_title: string };
+}
+
+interface FirefoxManifest extends ManifestBase {
+  manifest_version: 2;
+  browser_action: { default_icon: Record<string, string>; default_title: string };
+  browser_specific_settings: { gecko: { id: string; strict_min_version: string } };
+}
+
 // ---------- esbuild: TypeScript → single IIFE bundle ----------
 
-function bundle() {
-  const result = buildSync({
+function bundle(): string {
+  const result: BuildResult = buildSync({
     entryPoints: [path.join(SRC, 'main.ts')],
     bundle: true,
     format: 'iife',
@@ -37,36 +63,36 @@ function bundle() {
     sourcemap: false,
     logLevel: 'warning',
   });
-  return result.outputFiles[0].text;
+  return result.outputFiles![0].text;
 }
 
 // ---------- Collect @match patterns from TS source ----------
 
-function collectMatchPatterns() {
-  const patterns = new Set();
+function collectMatchPatterns(): string[] {
+  const patterns = new Set<string>();
   const extractorDir = path.join(SRC, 'extractors');
-  const files = fs.readdirSync(extractorDir).filter(f => f.endsWith('.ts'));
+  const files = fs.readdirSync(extractorDir).filter((f) => f.endsWith('.ts'));
 
   for (const file of files) {
     const content = fs.readFileSync(path.join(extractorDir, file), 'utf-8');
     const matchBlock = content.match(/matches:\s*\[([\s\S]*?)\]/);
     if (matchBlock) {
       const items = matchBlock[1].match(/'([^']+)'/g);
-      if (items) items.forEach(item => patterns.add(item.replace(/'/g, '')));
+      if (items) items.forEach((item) => patterns.add(item.replace(/'/g, '')));
     }
   }
   return [...patterns];
 }
 
-function getExtractorCount() {
-  return fs.readdirSync(path.join(SRC, 'extractors')).filter(f => f.endsWith('.ts')).length;
+function getExtractorCount(): number {
+  return fs.readdirSync(path.join(SRC, 'extractors')).filter((f) => f.endsWith('.ts')).length;
 }
 
 // ---------- Userscript ----------
 
-function buildUserscript(code) {
+function buildUserscript(code: string): string {
   const patterns = collectMatchPatterns();
-  const matchLines = patterns.map(p => `// @match        ${p}`).join('\n');
+  const matchLines = patterns.map((p) => `// @match        ${p}`).join('\n');
 
   const header = `// ==UserScript==
 // @name         Copy as Markdown
@@ -91,7 +117,7 @@ ${matchLines}
 
 // ---------- Chrome Extension (MV3) ----------
 
-function buildChromeManifest(patterns) {
+function buildChromeManifest(patterns: string[]): ChromeManifest {
   return {
     manifest_version: 3,
     name: 'Copy as Markdown',
@@ -106,7 +132,7 @@ function buildChromeManifest(patterns) {
 
 // ---------- Firefox Extension (MV2) ----------
 
-function buildFirefoxManifest(patterns) {
+function buildFirefoxManifest(patterns: string[]): FirefoxManifest {
   return {
     manifest_version: 2,
     name: 'Copy as Markdown',
@@ -122,7 +148,7 @@ function buildFirefoxManifest(patterns) {
 
 // ---------- SVG Icon ----------
 
-function generateSVGIcon() {
+function generateSVGIcon(): string {
   return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128">
   <defs>
     <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
@@ -140,11 +166,11 @@ function generateSVGIcon() {
 
 // ---------- Main ----------
 
-function ensureDir(dir) {
+function ensureDir(dir: string): void {
   fs.mkdirSync(dir, { recursive: true });
 }
 
-function main() {
+function main(): void {
   console.log('🔨 Building Copy as Markdown...\n');
 
   // Clean dist

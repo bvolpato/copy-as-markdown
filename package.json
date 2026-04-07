@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "typecheck": "tsc --noEmit",
-    "build": "node build/build.js",
+    "build": "tsx build/build.ts",
     "clean": "rm -rf dist",
     "rebuild": "pnpm clean && pnpm build",
     "package:chrome": "pnpm build && cd dist/chrome && zip -r ../copy-as-markdown-chrome.zip .",
@@ -27,6 +27,7 @@
   "homepage": "https://github.com/bvolpato/copy-as-markdown#readme",
   "devDependencies": {
     "esbuild": "^0.25.0",
+    "tsx": "^4.19.0",
     "typescript": "^5.8.0"
   }
 }
