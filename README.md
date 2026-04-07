@@ -86,7 +86,7 @@ The fastest way to get started. Works in any browser with a userscript manager.
 
 Every extractor is purpose-built to separate **signal from noise**: no ads, no navigation menus, no cookie banners, no related-articles sidebars. Just the content that matters.
 
-If the anchor element isn't found (e.g. site redesign), the button automatically falls back to a floating pill in the bottom-right corner.
+If the anchor element isn't found (e.g. site redesign), the button automatically falls back to a floating pill in the top-right corner.
 
 ---
 
@@ -119,7 +119,7 @@ That's **>90% noise reduction** — more room for your actual conversation.
 
 ### 4. Universal Compatibility
 
-Every major LLM — GPT-4, Claude, Gemini, Llama, Mistral — understands Markdown natively. It's the lingua franca of AI conversations.
+Every major LLM — GPT-5.4, Claude, Gemini, Llama, Mistral — understands Markdown natively. It's the lingua franca of AI conversations.
 
 ---
 

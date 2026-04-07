@@ -1,0 +1,72 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: Build & Release
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Typecheck
+        run: pnpm typecheck
+
+      - name: Build
+        run: pnpm build
+
+      - name: Package Chrome extension
+        run: cd dist/chrome && zip -r ../copy-as-markdown-chrome.zip .
+
+      - name: Package Firefox extension
+        run: cd dist/firefox && zip -r ../copy-as-markdown-firefox.zip .
+
+      - name: Extract version from tag
+        id: version
+        run: echo "version=${GITHUB_REF#refs/tags/v}" >> "$GITHUB_OUTPUT"
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: "Copy as Markdown v${{ steps.version.outputs.version }}"
+          generate_release_notes: true
+          files: |
+            dist/userscript/copy-as-markdown.user.js
+            dist/copy-as-markdown-chrome.zip
+            dist/copy-as-markdown-firefox.zip
+          body: |
+            ## Install
+
+            ### Userscript (Tampermonkey / Violentmonkey)
+            Download **copy-as-markdown.user.js** below, or [click here to install directly](https://raw.githubusercontent.com/${{ github.repository }}/main/dist/userscript/copy-as-markdown.user.js).
+
+            ### Chrome Extension
+            1. Download **copy-as-markdown-chrome.zip** below
+            2. Unzip it
+            3. Open `chrome://extensions/` → enable Developer mode → Load unpacked → select the folder
+
+            ### Firefox Extension
+            1. Download **copy-as-markdown-firefox.zip** below
+            2. Open `about:debugging#/runtime/this-firefox` → Load Temporary Add-on → select `manifest.json`

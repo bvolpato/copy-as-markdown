@@ -13,9 +13,18 @@ register({
     '*://www.grokipedia.com/*',
   ],
   anchor: {
-    selector: 'header nav, header .actions, header',
-    position: 'append',
-    style: 'pill',
+    // Append to the header toolbar next to Listen / Copy link / Edits history buttons
+    selector: [
+      '#edits-history-btn',          // stable: last toolbar button
+      '#copy-link-btn',              // fallback: copy link button
+      '#tts-listen-btn',             // fallback: listen button
+    ].join(', '),
+    position: 'after',
+    style: 'icon',
+    css: {
+      width: '32px',
+      height: '32px',
+    },
   },
 
   async extract() {

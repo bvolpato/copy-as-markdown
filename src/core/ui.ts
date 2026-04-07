@@ -21,7 +21,7 @@ function injectStyles(): void {
   if (document.getElementById(STYLE_ID)) return;
 
   const css = `
-    /* ---- Floating button (top-right fallback) ---- */
+    /* ---- Floating icon button (top-right fallback) ---- */
     #${BUTTON_ID}.cam-floating {
       position: fixed;
       top: 16px;
@@ -29,31 +29,32 @@ function injectStyles(): void {
       z-index: 2147483647;
       display: inline-flex;
       align-items: center;
-      gap: 8px;
-      padding: 10px 18px;
+      justify-content: center;
+      padding: 10px;
       border: none;
-      border-radius: 12px;
+      border-radius: 50%;
       background: linear-gradient(135deg, #6366f1, #8b5cf6, #a855f7);
       color: #fff;
-      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
-      font-size: 14px;
-      font-weight: 600;
       cursor: pointer;
-      box-shadow: 0 4px 20px rgba(99, 102, 241, 0.4);
+      box-shadow: 0 2px 12px rgba(99, 102, 241, 0.35);
       transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
       user-select: none;
       -webkit-user-select: none;
-      line-height: 1;
-      letter-spacing: 0.01em;
+      line-height: 0;
+      font-size: 0;
     }
     #${BUTTON_ID}.cam-floating:hover {
-      transform: translateY(-1px) scale(1.03);
-      box-shadow: 0 8px 30px rgba(99, 102, 241, 0.5), 0 0 0 3px rgba(139, 92, 246, 0.2);
+      transform: scale(1.1);
+      box-shadow: 0 4px 20px rgba(99, 102, 241, 0.5), 0 0 0 3px rgba(139, 92, 246, 0.15);
       background: linear-gradient(135deg, #818cf8, #a78bfa, #c084fc);
     }
     #${BUTTON_ID}.cam-floating:active {
-      transform: translateY(0) scale(0.98);
-      box-shadow: 0 2px 10px rgba(99, 102, 241, 0.3);
+      transform: scale(0.95);
+      box-shadow: 0 1px 6px rgba(99, 102, 241, 0.3);
+    }
+    #${BUTTON_ID}.cam-floating .cam-icon {
+      width: 20px;
+      height: 20px;
     }
 
     /* ---- Inline: pill (compact gradient pill) ---- */
@@ -265,12 +266,13 @@ function attachToAnchor(
   const target = findAnchorTarget(anchor.selector);
   if (!target) return false;
 
-  const styleKey = anchor.style || 'pill';
-  btn.className = STYLE_CLASS[styleKey] || 'cam-pill';
+  // Use the extractor's preferred style, defaulting to icon-only
+  const styleKey = anchor.style || 'icon';
+  btn.className = STYLE_CLASS[styleKey] || 'cam-icon-btn';
 
-  const label =
-    anchor.label ?? (styleKey === 'icon' ? '' : 'Copy as Markdown');
-  btn.innerHTML = `${getIcon()}${label ? ` ${label}` : ''}`;
+  // If a label is provided (or the style is not icon), show text alongside the icon
+  const label = anchor.label ?? (styleKey === 'icon' ? '' : 'Copy as Markdown');
+  btn.innerHTML = `${getIcon()}${label ? `<span>${label}</span>` : ''}`;
 
   if (anchor.css) {
     for (const [prop, val] of Object.entries(anchor.css)) {
@@ -302,7 +304,7 @@ function attachToAnchor(
  */
 function showFloating(btn: HTMLButtonElement): void {
   btn.className = 'cam-floating';
-  btn.innerHTML = `${getIcon()} Copy as Markdown`;
+  btn.innerHTML = getIcon();
   document.body.appendChild(btn);
 }
 
@@ -330,8 +332,8 @@ export function showButton(
 
   const btn = document.createElement('button');
   btn.id = BUTTON_ID;
-  btn.title = 'Copy this page as clean Markdown for LLMs';
-  btn.setAttribute('aria-label', 'Copy page content as Markdown');
+  btn.title = 'Copy this page as Markdown';
+  btn.setAttribute('aria-label', 'Copy this page as Markdown');
 
   // Wire up click handler
   btn.addEventListener('click', async (e) => {

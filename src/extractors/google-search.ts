@@ -19,16 +19,16 @@ register({
     '*://www.google.com.br/search*',
   ],
   anchor: {
+    // Insert after the "Tools" toggle in the search navigation bar
     selector: [
-      '#appbar',                   // search tools bar
-      '#hdtb',                     // horizontal tab bar
-      '.dodTBe',                   // tools container
-      '#searchform',               // search form area
-      '#rcnt',                     // results container header
+      '#hdtb-tls',                   // "Tools" dropdown button (stable ID)
+      '.yeKjxb',                     // Tools container
+      '#appbar',                     // search tools bar
+      '#hdtb',                       // horizontal tab bar
     ].join(', '),
-    position: 'append',
-    style: 'pill',
-    css: { marginLeft: '12px' },
+    position: 'after',
+    style: 'icon',
+    css: { marginLeft: '8px' },
   },
 
   async extract() {

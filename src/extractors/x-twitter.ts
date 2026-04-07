@@ -16,16 +16,30 @@ register({
     '*://mobile.x.com/*',
   ],
   anchor: {
-    // For single posts: append icon to the tweet action row (reply/retweet/like/share/bookmark)
-    // For timelines: falls back to the profile header or primary column header
+    // Profile: after the More (•••) button in the action bar
+    // Post: append to the engagement bar (reply/retweet/like/bookmark/share)
+    // Scoped to article to avoid matching the left sidebar nav
     selector: [
-      'article[data-testid="tweet"]:first-of-type [role="group"]',
-      '[data-testid="tweet"] [role="group"]',
-      '[data-testid="UserName"]',
-      'header[role="banner"] nav',
+      '[data-testid="userActions"]',                                 // profile: More ••• button
+      'article[data-testid="tweet"]:first-of-type [role="group"]',   // post: engagement bar
+      'article [data-testid="caret"]',                               // post: ••• scoped to article
+      'header[role="banner"] nav',                                   // fallback: banner nav
     ].join(', '),
-    position: 'append',
+    position: 'after',
     style: 'icon',
+    css: {
+      // Match X's circular bordered button style
+      minWidth: '36px',
+      minHeight: '36px',
+      width: '36px',
+      height: '36px',
+      border: '1px solid rgb(207, 217, 222)',
+      borderRadius: '9999px',
+      background: 'transparent',
+      padding: '0',
+      color: 'rgb(15, 20, 25)',
+      opacity: '1',
+    },
   },
 
   async extract() {
