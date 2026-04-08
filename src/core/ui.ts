@@ -21,7 +21,7 @@ function injectStyles(): void {
   if (document.getElementById(STYLE_ID)) return;
 
   const css = `
-    /* ---- Floating icon button (top-right fallback) ---- */
+    /* ---- Floating icon button (bottom-right fallback) ---- */
     #${BUTTON_ID}.cam-floating {
       position: fixed;
       bottom: 24px;
@@ -192,15 +192,17 @@ function injectStyles(): void {
 
     @media (max-width: 600px) {
       #${BUTTON_ID}.cam-floating {
-        top: 12px;
-        right: 12px;
+        top: auto;
+        bottom: 24px;
+        right: 16px;
         padding: 8px 14px;
         font-size: 13px;
         border-radius: 10px;
       }
       #${TOAST_ID} {
-        top: 56px;
-        right: 12px;
+        top: auto;
+        bottom: 80px;
+        right: 16px;
       }
     }
   `;
@@ -312,7 +314,7 @@ function attachToAnchor(
 }
 
 /**
- * Show the button as a floating FAB at the top-right.
+ * Show the button as a floating FAB at the bottom-right.
  */
 function showFloating(btn: HTMLButtonElement): void {
   btn.className = 'cam-floating';

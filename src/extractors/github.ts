@@ -14,17 +14,6 @@ register({
     '*://github.com/*/*',
     '*://www.github.com/*/*',
   ],
-  anchor: {
-    selector: [
-      '.gh-header-actions',                        // issue/PR header actions
-      '.pagehead-actions',                         // repo header actions
-      '.file-navigation',                          // repo file nav bar
-      '.repository-content .Box-header',           // README header
-    ].join(', '),
-    position: 'prepend',
-    style: 'icon',
-    css: { marginRight: '8px' },
-  },
 
   async extract() {
     const url = Utils.getCanonicalUrl();
