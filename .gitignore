@@ -19,3 +19,6 @@ Thumbs.db
 *.zip
 *.xpi
 *.crx
+
+# Test outputs
+assets/screenshots/
