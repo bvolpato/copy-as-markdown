@@ -17,7 +17,9 @@ register({
     selector: '#p-views ul, .mw-portlet-views ul',
     position: 'append',
     style: 'tab',
-    css: {
+    wrapperTag: 'li',
+    wrapperClass: 'vector-tab-noicon mw-list-item',
+    wrapperCss: {
       marginLeft: '8px',
       paddingLeft: '8px',
       borderLeft: '1px solid #a2a9b1',

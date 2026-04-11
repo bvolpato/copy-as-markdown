@@ -274,10 +274,15 @@ anchor: {
   selector: '#p-views ul',   // CSS selector for the target container
   position: 'append',        // 'append' | 'prepend' | 'before' | 'after'
   style: 'tab',              // 'tab' | 'pill' | 'icon' | 'link'
-  css: { marginLeft: '8px' }, // Optional overrides to blend with the site
+  wrapperTag: 'li',          // Optional wrapper when the host expects a specific child tag
+  wrapperClass: 'mw-list-item', // Optional wrapper classes
+  wrapperCss: { marginLeft: '8px' }, // Optional wrapper overrides
+  css: { color: '#0645ad' },  // Optional button overrides
   label: 'Copy as Markdown',  // Custom label (omit for icon-only)
 }
 ```
+
+Use `wrapperTag` / `wrapperClass` / `wrapperCss` when the host container expects a particular DOM shape. Wikipedia is the main example: the tab bar is a `ul`, so the injected control needs to live inside an `li` to align correctly with the native tabs.
 
 Positioning rules:
 

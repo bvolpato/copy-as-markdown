@@ -13,6 +13,7 @@ import { AnchorConfig, AnchorStyle } from './types';
 const BUTTON_ID = 'cam-copy-btn';
 const TOAST_ID = 'cam-toast';
 const STYLE_ID = 'cam-styles';
+const WRAPPER_ATTR = 'data-cam-anchor-wrapper';
 
 /** Max time (ms) to keep observing for the anchor element. */
 const ANCHOR_OBSERVE_TIMEOUT = 8000;
@@ -269,6 +270,38 @@ function findAnchorTarget(selector: string): Element | null {
   return null;
 }
 
+function applyInlineCss(el: HTMLElement, css?: Record<string, string>): void {
+  if (!css) return;
+  for (const [prop, val] of Object.entries(css)) {
+    (el.style as any)[prop] = val;
+  }
+}
+
+function buildAnchorNode(
+  btn: HTMLButtonElement,
+  anchor: AnchorConfig,
+): HTMLElement {
+  applyInlineCss(btn, anchor.css);
+
+  if (!anchor.wrapperTag) return btn;
+
+  const wrapper = document.createElement(anchor.wrapperTag);
+  wrapper.setAttribute(WRAPPER_ATTR, 'true');
+
+  if (anchor.wrapperClass) {
+    wrapper.className = anchor.wrapperClass;
+  }
+
+  applyInlineCss(wrapper, anchor.wrapperCss);
+  wrapper.appendChild(btn);
+  return wrapper;
+}
+
+function clearInjectedUi(): void {
+  document.querySelectorAll(`[${WRAPPER_ATTR}]`).forEach((el) => el.remove());
+  document.getElementById(BUTTON_ID)?.remove();
+}
+
 /**
  * Attach the button to the anchor element.
  * Returns true if successful.
@@ -288,26 +321,22 @@ function attachToAnchor(
   const label = anchor.label ?? (styleKey === 'icon' ? '' : 'Copy as Markdown');
   btn.innerHTML = `${getIcon()}${label ? `<span>${label}</span>` : ''}`;
 
-  if (anchor.css) {
-    for (const [prop, val] of Object.entries(anchor.css)) {
-      (btn.style as any)[prop] = val;
-    }
-  }
+  const insertionNode = buildAnchorNode(btn, anchor);
 
   const position = anchor.position || 'append';
   switch (position) {
     case 'prepend':
-      target.prepend(btn);
+      target.prepend(insertionNode);
       break;
     case 'before':
-      target.parentElement?.insertBefore(btn, target);
+      target.parentElement?.insertBefore(insertionNode, target);
       break;
     case 'after':
-      target.parentElement?.insertBefore(btn, target.nextSibling);
+      target.parentElement?.insertBefore(insertionNode, target.nextSibling);
       break;
     case 'append':
     default:
-      target.appendChild(btn);
+      target.appendChild(insertionNode);
       break;
   }
   return true;
@@ -341,8 +370,7 @@ export function showButton(
 ): HTMLButtonElement | null {
   injectStyles();
 
-  // Remove any existing button
-  document.getElementById(BUTTON_ID)?.remove();
+  clearInjectedUi();
 
   const btn = document.createElement('button');
   btn.id = BUTTON_ID;

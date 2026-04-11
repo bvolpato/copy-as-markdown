@@ -31,6 +31,12 @@ export interface AnchorConfig {
   position?: AnchorPosition;
   /** Visual preset so the button matches the host site's look. Default: 'pill'. */
   style?: AnchorStyle;
+  /** Optional wrapper tag for hosts that require a specific child structure (e.g. `li` inside a `ul`). */
+  wrapperTag?: string;
+  /** CSS classes applied to the optional wrapper element. */
+  wrapperClass?: string;
+  /** Arbitrary CSS property overrides applied to the optional wrapper element. */
+  wrapperCss?: Record<string, string>;
   /** Arbitrary CSS property overrides applied to the inline button. */
   css?: Record<string, string>;
   /** Custom label text (default: 'Copy as Markdown'). */
