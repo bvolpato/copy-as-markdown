@@ -12,6 +12,7 @@ register({
   matches: [
     '*://*.wikipedia.org/wiki/*',
   ],
+  buttonPlacement: 'anchor',
   anchor: {
     selector: '#p-views ul, .mw-portlet-views ul',
     position: 'append',

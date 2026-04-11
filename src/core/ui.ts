@@ -2,7 +2,7 @@
  * UI injection module.
  * Supports two placement modes:
  *   1. **Anchored** — button injected inline in the host site's UI (feels native)
- *   2. **Floating** — fixed-position button at the top-right (fallback)
+ *   2. **Floating** — fixed-position button at the bottom-right (default)
  *
  * Anchoring is attempted eagerly and then retried with a MutationObserver
  * for up to 8 seconds so that SPA-rendered elements are caught.

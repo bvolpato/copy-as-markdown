@@ -29,13 +29,12 @@ You're chatting with ChatGPT, Claude, or Gemini. You want to share a web page fo
 
 ## The Solution
 
-**Copy as Markdown** adds a context-aware button to websites you visit. Not a generic floating widget — the button appears **inline in each site's own UI**, right where you'd expect it:
+**Copy as Markdown** adds a context-aware button to supported websites. The current positioning policy is intentionally conservative:
 
 - **Wikipedia** → A new tab next to *Read · Edit · View history*
-- **X (Twitter)** → An icon in the tweet action bar, next to 🔖 and ↗️
-- **YouTube** → A pill next to Like / Share / Download
-- **Reddit** → A link in the post actions bar
-- **News sites** → A pill below the article headline
+- **Everything else** → A floating button in the bottom-right corner
+
+The codebase still keeps per-site hooks for inline placement, but we only enable them deliberately. Right now, Wikipedia is the only site opted into a custom position.
 
 One click, and the page's content lands in your clipboard as clean, structured Markdown — headers, tables, links, code blocks, metadata — all preserved. Paste it into your LLM conversation. Done.
 
@@ -71,28 +70,33 @@ The fastest way to get started. Works in any browser with a userscript manager.
 
 ## Supported Sites
 
-| Site | Button Placement | What's Extracted |
-| --- | --- | --- |
-| **Wikipedia** | Tab bar (*Read · Edit · View history · **Copy as Markdown***) | Article body, tables, infoboxes — edit buttons and references stripped |
-| **Grokipedia** | Header toolbar (icon) | Full article content with metadata |
-| **Google Search** | After "Tools" toggle (icon) | Query, featured snippets, knowledge panel, ranked results, "People Also Ask" |
-| **Bing Search** | Scope bar | Query, search results, knowledge sidebar, related searches |
-| **Reddit** | Post actions bar | Post title, body, subreddit, author, score, threaded comments with depth |
-| **YouTube** | Like/Share action bar | Video title, channel, views, likes, description, chapters, comments, transcript |
-| **WhatsApp Web** | Chat header (icon) | Chat name, all messages with sender, timestamp, media indicators |
-| **X (Twitter)** | Profile action bar / post engagement bar (icon) | Single posts with replies, or full timelines with engagement stats |
-| **Polymarket** | Below event header | Market title, description, outcome probabilities, volume, resolution rules |
-| **GitHub** | Repo/issue/PR header | Issues & PRs (with comments, labels, state), repos (README, topics, languages), code files |
-| **Stack Overflow** | Question header | Question with votes & tags, all answers (✅ accepted marked), comment threads |
-| **Hacker News** | Post meta bar | Post title, link, score, author, nested comment threads with depth |
-| **LinkedIn** | Post/profile action area | Profiles (experience, education, about), posts (with reactions and comments), articles |
-| **Amazon** | Product title area | Product title, ASIN, price, rating, feature bullets, tech specs, reviews (top 10) |
-| **arXiv** | Paper header | Paper title, authors, abstract, subjects, DOI, links; full body from HTML pages |
-| **News sites** | Below article headline | Fox News, CNN, BBC, NYT, Reuters, and 20+ others — article body, author, date; paywall detection |
+Current button placement:
+
+- **Wikipedia** uses an inline tab in the page chrome
+- **All other supported sites** use the default floating button in the bottom-right corner
+
+| Site | What's Extracted |
+| --- | --- |
+| **Wikipedia** | Article body, tables, infoboxes — edit buttons and references stripped |
+| **Grokipedia** | Full article content with metadata |
+| **Google Search** | Query, featured snippets, knowledge panel, ranked results, "People Also Ask" |
+| **Bing Search** | Query, search results, knowledge sidebar, related searches |
+| **Reddit** | Post title, body, subreddit, author, score, threaded comments with depth |
+| **YouTube** | Video title, channel, views, likes, description, chapters, comments, transcript |
+| **WhatsApp Web** | Chat name, all messages with sender, timestamp, media indicators |
+| **X (Twitter)** | Single posts with replies, or full timelines with engagement stats |
+| **Polymarket** | Market title, description, outcome probabilities, volume, resolution rules |
+| **GitHub** | Issues & PRs (with comments, labels, state), repos (README, topics, languages), code files |
+| **Stack Overflow** | Question with votes & tags, all answers (✅ accepted marked), comment threads |
+| **Hacker News** | Post title, link, score, author, nested comment threads with depth |
+| **LinkedIn** | Profiles (experience, education, about), posts (with reactions and comments), articles |
+| **Amazon** | Product title, ASIN, price, rating, feature bullets, tech specs, reviews (top 10) |
+| **arXiv** | Paper title, authors, abstract, subjects, DOI, links; full body from HTML pages |
+| **News sites** | Fox News, CNN, BBC, NYT, Reuters, and 20+ others — article body, author, date; paywall detection |
 
 Every extractor is purpose-built to separate **signal from noise**: no ads, no navigation menus, no cookie banners, no related-articles sidebars. Just the content that matters.
 
-If the anchor element isn't found (e.g. site redesign), the button automatically falls back to a floating icon in the top-right corner.
+If an extractor is not explicitly opted into inline placement, the button stays in the bottom-right corner. If an inline anchor is enabled but the selector is missing (for example after a site redesign), the button also falls back to the bottom-right floating button.
 
 ---
 
@@ -220,24 +224,50 @@ src/
 │   ├── utils.ts        ← DOM helpers, meta extraction, paywall detection
 │   └── registry.ts     ← URL pattern → extractor mapping
 ├── extractors/
-│   ├── wikipedia.ts    ← anchor: tab bar
-│   ├── grokipedia.ts   ← anchor: header nav
-│   ├── google-search.ts← anchor: search tools bar
-│   ├── bing.ts         ← anchor: scope bar
-│   ├── reddit.ts       ← anchor: post actions
-│   ├── youtube.ts      ← anchor: like/share bar
-│   ├── whatsapp.ts     ← anchor: chat header (icon)
-│   ├── polymarket.ts   ← anchor: below event header
-│   ├── x-twitter.ts    ← anchor: tweet action bar (icon)
-│   └── news.ts         ← anchor: below headline
+│   ├── wikipedia.ts    ← extractor with active inline placement
+│   ├── youtube.ts      ← extractor
+│   ├── reddit.ts       ← extractor
+│   ├── x-twitter.ts    ← extractor
+│   └── news.ts         ← extractor
 └── main.ts             ← Entry point: detect site, show button
 build/
 └── build.js            ← esbuild bundler → userscript + extensions
 ```
 
-### Anchor System
+### Button Positioning
 
-Each extractor defines an `anchor` config that tells the UI where to place the button:
+The default behavior is simple: unless a site is explicitly opted into inline placement, the button is rendered as a floating action button in the bottom-right corner.
+
+To enable a custom inline position for a specific site, you need two things:
+
+1. An `anchor` config that describes where and how to inject the button
+2. `buttonPlacement: 'anchor'` on the extractor
+
+That second step is the gate. It lets us keep site-specific selectors in the codebase without turning them on until we're ready.
+
+```typescript
+register({
+  name: 'Wikipedia',
+  matches: ['*://*.wikipedia.org/wiki/*'],
+  buttonPlacement: 'anchor',
+  anchor: {
+    selector: '#p-views ul',
+    position: 'append',
+    style: 'tab',
+    css: {
+      marginLeft: '8px',
+      paddingLeft: '8px',
+      borderLeft: '1px solid #a2a9b1',
+    },
+    label: 'Copy as Markdown',
+  },
+  async extract() {
+    // ...
+  },
+});
+```
+
+The `anchor` object controls the inline position:
 
 ```typescript
 anchor: {
@@ -249,14 +279,25 @@ anchor: {
 }
 ```
 
-If the anchor selector isn't found, the button falls back to a floating FAB.
+Positioning rules:
+
+- Omit `buttonPlacement`, or set it to `'floating'`, to keep the default bottom-right button
+- Add `buttonPlacement: 'anchor'` to activate the extractor's `anchor` config
+- If the anchor selector is missing at runtime, the UI falls back to the bottom-right floating button
+
+This is the current policy in the repo:
+
+- `Wikipedia` sets `buttonPlacement: 'anchor'`
+- Every other extractor stays on the default floating placement, even if it already carries an `anchor` hook for future use
 
 ### Adding a New Site
 
 1. Create `src/extractors/my-site.ts`
-2. Import `register` from `../core/registry` and call it with `name`, `matches`, `anchor`, and `extract`
-3. Import the new file in `src/main.ts`
-4. Run `pnpm build` — the new patterns propagate to all targets
+2. Import `register` from `../core/registry` and call it with `name`, `matches`, and `extract`
+3. Leave the button floating by default unless you are intentionally enabling a reviewed inline placement
+4. If you want to prepare an inline placement for later, add an `anchor` config but do not set `buttonPlacement: 'anchor'` yet
+5. Import the new file in `src/main.ts`
+6. Run `pnpm build` — the new patterns propagate to all targets
 
 ---
 

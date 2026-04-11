@@ -26,6 +26,9 @@ register({
   matches: [
     '*://www.mysite.com/*',
   ],
+  // Default behavior: floating button in the bottom-right corner.
+  // Only add buttonPlacement: 'anchor' when an inline position is
+  // explicitly reviewed and ready to be enabled.
   anchor: {
     selector: 'header nav',        // where to put the button
     position: 'append',            // 'append' | 'prepend' | 'before' | 'after'
@@ -52,6 +55,14 @@ register({
 3. **Import in main.ts**: Add `import './extractors/my-site';` to `src/main.ts`
 4. **Build and test**: `pnpm build`
 5. **Load the userscript** or extension and verify on the target site
+
+By default, the button should stay floating in the bottom-right corner. If you want to activate an inline placement, set:
+
+```typescript
+buttonPlacement: 'anchor'
+```
+
+Without that flag, any `anchor` config is treated as a dormant hook for later.
 
 ## Anchor Style Guide
 

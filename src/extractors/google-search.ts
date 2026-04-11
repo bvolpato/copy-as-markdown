@@ -1,6 +1,6 @@
 /**
  * Google Search extractor.
- * Anchor: pill in the search tools bar.
+ * Reserved inline anchor hook: search tools bar.
  */
 
 import { register } from '../core/registry';

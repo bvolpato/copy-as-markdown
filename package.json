@@ -1,6 +1,6 @@
 {
   "name": "copy-as-markdown",
-  "version": "1.0.6",
+  "version": "1.0.7",
   "description": "Context-aware Copy as Markdown buttons — the fastest way to share web content with LLMs",
   "type": "module",
   "scripts": {

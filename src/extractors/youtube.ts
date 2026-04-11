@@ -1,6 +1,6 @@
 /**
  * YouTube extractor.
- * Anchor: pill next to the like/dislike/share buttons below the video.
+ * Reserved inline anchor hook: next to the like/dislike/share buttons below the video.
  */
 
 import { register } from '../core/registry';

@@ -62,9 +62,13 @@ import './extractors/arxiv';
       console.log(`[Copy as Markdown] Active extractor: ${extractor.name}`);
     }
 
+    const anchor = extractor!.buttonPlacement === 'anchor'
+      ? extractor!.anchor
+      : null;
+
     showButton(
       () => extractor!.extract(),
-      extractor!.anchor,
+      anchor,
     );
 
     // Listen for Extension Toolbar Icon clicks

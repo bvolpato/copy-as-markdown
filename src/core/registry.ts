@@ -13,6 +13,7 @@ export function register(config: ExtractorConfig): void {
     matches: config.matches || [],
     regex: config.regex || null,
     extract: config.extract,
+    buttonPlacement: config.buttonPlacement || 'floating',
     anchor: config.anchor || null,
   });
 }

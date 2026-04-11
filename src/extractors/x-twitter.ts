@@ -1,6 +1,6 @@
 /**
  * X (Twitter) extractor.
- * Anchor: icon button in the tweet action bar (next to Grok / share / bookmark).
+ * Reserved inline anchor hook: tweet action bar (next to Grok / share / bookmark).
  */
 
 import { register } from '../core/registry';

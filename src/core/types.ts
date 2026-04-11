@@ -9,10 +9,20 @@ export type AnchorStyle = 'tab' | 'icon' | 'link' | 'pill';
 export type AnchorPosition = 'append' | 'prepend' | 'before' | 'after';
 
 /**
+ * How the button should be placed for a given extractor.
+ *
+ * `floating` keeps the default bottom-right button.
+ * `anchor` opts into using the extractor's AnchorConfig.
+ */
+export type ButtonPlacement = 'floating' | 'anchor';
+
+/**
  * Describes where and how to inject the "Copy as Markdown" button
  * inline within the host page's own UI, so it feels native.
  *
- * If no anchor is provided the button falls back to a floating FAB.
+ * The anchor config is only used when the extractor opts into
+ * `buttonPlacement: 'anchor'`. Otherwise the button stays floating
+ * in the bottom-right corner.
  */
 export interface AnchorConfig {
   /** CSS selector for the container element to attach the button near. */
@@ -39,7 +49,9 @@ export interface ExtractorConfig {
   regex?: RegExp;
   /** The extraction function — returns a Markdown string. */
   extract: () => Promise<string>;
-  /** Optional inline button placement config. */
+  /** Button placement mode. Default: 'floating'. */
+  buttonPlacement?: ButtonPlacement;
+  /** Optional inline button placement config. Only used when buttonPlacement is 'anchor'. */
   anchor?: AnchorConfig;
 }
 
@@ -51,6 +63,7 @@ export interface Extractor {
   matches: string[];
   regex: RegExp | null;
   extract: () => Promise<string>;
+  buttonPlacement: ButtonPlacement;
   anchor: AnchorConfig | null;
 }
 

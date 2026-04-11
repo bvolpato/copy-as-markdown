@@ -1,7 +1,6 @@
 /**
  * GitHub extractor.
  * Covers: issues, pull requests, repo pages, and README files.
- * Anchor: icon button in the repo header action bar.
  */
 
 import { register } from '../core/registry';

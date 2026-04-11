@@ -12,7 +12,7 @@ register({
   matches: [
     '*://news.ycombinator.com/item*',
   ],
-  // No anchor — HN uses table-based layout; floating icon (top-right) is cleanest
+  // No anchor — HN uses table-based layout; the default bottom-right floating button is cleanest
 
   async extract() {
     const url = Utils.getCanonicalUrl();
