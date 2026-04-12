@@ -32,9 +32,10 @@ You're chatting with ChatGPT, Claude, or Gemini. You want to share a web page fo
 **Copy as Markdown** adds a context-aware button to supported websites. The current positioning policy is intentionally conservative:
 
 - **Wikipedia** → A new tab next to *Read · Edit · View history*
+- **Google Docs** → A title-bar button near the share / assistant controls
 - **Everything else** → A floating button in the bottom-right corner
 
-The codebase still keeps per-site hooks for inline placement, but we only enable them deliberately. Right now, Wikipedia is the only site opted into a custom position.
+The codebase still keeps per-site hooks for inline placement, but we only enable them deliberately. Right now, Wikipedia and Google Docs are the only sites opted into custom positions.
 
 One click, and the page's content lands in your clipboard as clean, structured Markdown — headers, tables, links, code blocks, metadata — all preserved. Paste it into your LLM conversation. Done.
 
@@ -73,11 +74,13 @@ The fastest way to get started. Works in any browser with a userscript manager.
 Current button placement:
 
 - **Wikipedia** uses an inline tab in the page chrome
+- **Google Docs** uses an inline button in the title bar
 - **All other supported sites** use the default floating button in the bottom-right corner
 
 | Site | What's Extracted |
 | --- | --- |
 | **Wikipedia** | Article body, tables, infoboxes — edit buttons and references stripped |
+| **Google Docs** | Full document export via Google Docs HTML export — headings, lists, tables, links, images, and off-screen content |
 | **Grokipedia** | Full article content with metadata |
 | **Google Search** | Query, featured snippets, knowledge panel, ranked results, "People Also Ask" |
 | **Bing Search** | Query, search results, knowledge sidebar, related searches |
@@ -225,6 +228,7 @@ src/
 │   └── registry.ts     ← URL pattern → extractor mapping
 ├── extractors/
 │   ├── wikipedia.ts    ← extractor with active inline placement
+│   ├── google-docs.ts  ← extractor with active inline placement
 │   ├── youtube.ts      ← extractor
 │   ├── reddit.ts       ← extractor
 │   ├── x-twitter.ts    ← extractor
@@ -293,6 +297,7 @@ Positioning rules:
 This is the current policy in the repo:
 
 - `Wikipedia` sets `buttonPlacement: 'anchor'`
+- `Google Docs` sets `buttonPlacement: 'anchor'`
 - Every other extractor stays on the default floating placement, even if it already carries an `anchor` hook for future use
 
 ### Adding a New Site

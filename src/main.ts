@@ -13,6 +13,7 @@ import { buildPageMarkdown, elementToMarkdown, htmlToMarkdown } from './core/mar
 import './extractors/wikipedia';
 import './extractors/grokipedia';
 import './extractors/google-search';
+import './extractors/google-docs';
 import './extractors/bing';
 import './extractors/reddit';
 import './extractors/youtube';
