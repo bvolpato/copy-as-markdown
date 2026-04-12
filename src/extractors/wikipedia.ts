@@ -24,6 +24,11 @@ register({
       paddingLeft: '8px',
       borderLeft: '1px solid #a2a9b1',
     },
+    css: {
+      paddingTop: '12px',
+      paddingBottom: '7px',
+      marginBottom: '-1px',
+    },
     label: 'Copy as Markdown',
   },
 
