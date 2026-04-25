@@ -13,6 +13,7 @@ import { AnchorConfig, AnchorStyle } from './types';
 const BUTTON_ID = 'cam-copy-btn';
 const TOAST_ID = 'cam-toast';
 const STYLE_ID = 'cam-styles';
+const DISMISS_ID = 'cam-dismiss-btn';
 const WRAPPER_ATTR = 'data-cam-anchor-wrapper';
 
 /** Max time (ms) to keep observing for the anchor element. */
@@ -22,11 +23,19 @@ function injectStyles(): void {
   if (document.getElementById(STYLE_ID)) return;
 
   const css = `
-    /* ---- Floating icon button (bottom-right fallback) ---- */
-    #${BUTTON_ID}.cam-floating {
+    /* ---- Floating wrapper (positions the copy button + dismiss X) ---- */
+    .cam-floating-wrapper {
       position: fixed;
       bottom: 24px;
       right: 24px;
+      z-index: 999999;
+      display: flex;
+      align-items: flex-start;
+    }
+
+    /* ---- Floating icon button (bottom-right fallback) ---- */
+    #${BUTTON_ID}.cam-floating {
+      position: relative;
       width: 44px;
       height: 44px;
       padding: 0;
@@ -35,7 +44,6 @@ function injectStyles(): void {
       border-radius: 12px;
       box-shadow: 0 4px 14px rgba(0,0,0,0.15);
       cursor: pointer;
-      z-index: 999999;
       opacity: 0.8;
       transition: all 0.2s cubic-bezier(0.175, 0.885, 0.32, 1.275);
     }
@@ -51,6 +59,37 @@ function injectStyles(): void {
     #${BUTTON_ID}.cam-floating .cam-icon {
       width: 100%;
       height: 100%;
+    }
+
+    /* ---- Dismiss (X) button on the floating icon ---- */
+    #${DISMISS_ID} {
+      position: absolute;
+      top: -6px;
+      right: -6px;
+      width: 18px;
+      height: 18px;
+      padding: 0;
+      border: none;
+      border-radius: 50%;
+      background: rgba(0, 0, 0, 0.65);
+      color: #fff;
+      font-size: 11px;
+      font-weight: 700;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      line-height: 18px;
+      text-align: center;
+      cursor: pointer;
+      opacity: 0;
+      transform: scale(0.6);
+      transition: opacity 0.15s ease, transform 0.15s ease, background 0.15s ease;
+      z-index: 1;
+    }
+    .cam-floating-wrapper:hover #${DISMISS_ID} {
+      opacity: 1;
+      transform: scale(1);
+    }
+    #${DISMISS_ID}:hover {
+      background: rgba(220, 38, 38, 0.9);
     }
 
     /* ---- Inline: pill (compact gradient pill) ---- */
@@ -192,10 +231,11 @@ function injectStyles(): void {
     }
 
     @media (max-width: 600px) {
-      #${BUTTON_ID}.cam-floating {
-        top: auto;
+      .cam-floating-wrapper {
         bottom: 24px;
         right: 16px;
+      }
+      #${BUTTON_ID}.cam-floating {
         padding: 8px 14px;
         font-size: 13px;
         border-radius: 10px;
@@ -299,6 +339,7 @@ function buildAnchorNode(
 
 function clearInjectedUi(): void {
   document.querySelectorAll(`[${WRAPPER_ATTR}]`).forEach((el) => el.remove());
+  document.querySelector('.cam-floating-wrapper')?.remove();
   document.getElementById(BUTTON_ID)?.remove();
 }
 
@@ -342,13 +383,53 @@ function attachToAnchor(
   return true;
 }
 
+/** Dismiss key for sessionStorage, scoped to the current page URL (ignoring hash). */
+function getDismissKey(): string {
+  return `cam-dismissed:${window.location.origin}${window.location.pathname}${window.location.search}`;
+}
+
+function isDismissedForCurrentPage(): boolean {
+  try {
+    return sessionStorage.getItem(getDismissKey()) === '1';
+  } catch {
+    return false;
+  }
+}
+
+function dismissForCurrentPage(): void {
+  try {
+    sessionStorage.setItem(getDismissKey(), '1');
+  } catch { /* storage unavailable — dismiss is visual-only */ }
+}
+
 /**
- * Show the button as a floating FAB at the bottom-right.
+ * Show the button as a floating FAB at the bottom-right,
+ * wrapped with a dismiss (X) button.
  */
 function showFloating(btn: HTMLButtonElement): void {
+  if (isDismissedForCurrentPage()) return;
+
   btn.className = 'cam-floating';
   btn.innerHTML = getIcon();
-  document.body.appendChild(btn);
+
+  const wrapper = document.createElement('div');
+  wrapper.className = 'cam-floating-wrapper';
+
+  const dismiss = document.createElement('button');
+  dismiss.id = DISMISS_ID;
+  dismiss.title = 'Hide for this page';
+  dismiss.setAttribute('aria-label', 'Dismiss Copy as Markdown button');
+  dismiss.textContent = '✕';
+  dismiss.addEventListener('click', (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    dismissForCurrentPage();
+    wrapper.remove();
+  });
+
+  wrapper.appendChild(btn);
+  wrapper.appendChild(dismiss);
+  document.body.appendChild(wrapper);
 }
 
 // ----------------------------------------------------------------
@@ -429,7 +510,8 @@ function observeForAnchor(
       settled = true;
       observer.disconnect();
 
-      // Detach from floating position
+      // Detach from floating position (remove the wrapper if present)
+      btn.closest('.cam-floating-wrapper')?.remove();
       btn.remove();
       // Re-create the id so CSS applies cleanly
       btn.className = '';

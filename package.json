@@ -1,6 +1,6 @@
 {
   "name": "copy-as-markdown",
-  "version": "1.0.10",
+  "version": "1.0.11",
   "description": "Context-aware Copy as Markdown buttons — the fastest way to share web content with LLMs",
   "type": "module",
   "scripts": {
@@ -42,6 +42,7 @@
   "devDependencies": {
     "@types/chrome": "^0.1.39",
     "esbuild": "^0.25.0",
+    "puppeteer": "^24.40.0",
     "tsx": "^4.19.0",
     "typescript": "^5.8.0"
   }
