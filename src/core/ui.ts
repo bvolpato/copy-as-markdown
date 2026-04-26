@@ -279,6 +279,18 @@ function getCheckIcon(): string {
   return `<svg class="cam-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5"/></svg>`;
 }
 
+/**
+ * Safely set element HTML content without using innerHTML directly.
+ * Uses DOMParser which does not execute scripts.
+ */
+function safeSetHtml(el: HTMLElement, html: string): void {
+  const doc = new DOMParser().parseFromString(html, 'text/html');
+  el.textContent = '';
+  while (doc.body.firstChild) {
+    el.appendChild(document.adoptNode(doc.body.firstChild));
+  }
+}
+
 /** Style class per AnchorStyle value. */
 const STYLE_CLASS: Record<AnchorStyle, string> = {
   pill: 'cam-pill',
@@ -360,7 +372,7 @@ function attachToAnchor(
 
   // If a label is provided (or the style is not icon), show text alongside the icon
   const label = anchor.label ?? (styleKey === 'icon' ? '' : 'Copy as Markdown');
-  btn.innerHTML = `${getIcon()}${label ? `<span>${label}</span>` : ''}`;
+  safeSetHtml(btn, `${getIcon()}${label ? `<span>${label}</span>` : ''}`);
 
   const insertionNode = buildAnchorNode(btn, anchor);
 
@@ -410,7 +422,7 @@ function showFloating(btn: HTMLButtonElement): void {
   if (isDismissedForCurrentPage()) return;
 
   btn.className = 'cam-floating';
-  btn.innerHTML = getIcon();
+  safeSetHtml(btn, getIcon());
 
   const wrapper = document.createElement('div');
   wrapper.className = 'cam-floating-wrapper';
@@ -557,12 +569,13 @@ export async function copyToClipboard(text: string): Promise<void> {
 }
 
 function flashSuccess(btn: HTMLElement): void {
-  const original = btn.innerHTML;
+  const savedNodes = Array.from(btn.childNodes).map(n => n.cloneNode(true));
   const wasIcon = btn.classList.contains('cam-icon-btn');
-  btn.innerHTML = `${getCheckIcon()}${wasIcon ? '' : ' Copied!'}`;
+  safeSetHtml(btn, `${getCheckIcon()}${wasIcon ? '' : ' Copied!'}`);
   btn.classList.add('cam-success');
   setTimeout(() => {
-    btn.innerHTML = original;
+    btn.textContent = '';
+    savedNodes.forEach(n => btn.appendChild(n));
     btn.classList.remove('cam-success');
   }, 2000);
 }

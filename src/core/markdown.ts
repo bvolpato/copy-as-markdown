@@ -404,9 +404,8 @@ export function cleanMarkdown(md: string): string {
  * Convert HTML string to Markdown.
  */
 export function htmlToMarkdown(html: string): string {
-  const div = document.createElement('div');
-  div.innerHTML = html;
-  return cleanMarkdown(nodeToMarkdown(div));
+  const doc = new DOMParser().parseFromString(html, 'text/html');
+  return cleanMarkdown(nodeToMarkdown(doc.body));
 }
 
 /**

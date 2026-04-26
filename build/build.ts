@@ -172,7 +172,7 @@ function buildFirefoxManifest(patterns: string[]): FirefoxManifest {
     browser_specific_settings: {
       gecko: {
         id: 'copy-as-markdown@bvolpato',
-        strict_min_version: '140.0',
+        strict_min_version: '142.0',
         data_collection_permissions: { required: ['none'] },
       },
     },
