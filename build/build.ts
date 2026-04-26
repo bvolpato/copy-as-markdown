@@ -54,7 +54,13 @@ interface ChromeManifest extends ManifestBase {
 interface FirefoxManifest extends ManifestBase {
   manifest_version: 2;
   browser_action: { default_icon: Record<string, string>; default_title: string };
-  browser_specific_settings: { gecko: { id: string; strict_min_version: string } };
+  browser_specific_settings: {
+    gecko: {
+      id: string;
+      strict_min_version: string;
+      data_collection_permissions: string[];
+    };
+  };
   background: { scripts: string[] };
 }
 
@@ -163,7 +169,13 @@ function buildFirefoxManifest(patterns: string[]): FirefoxManifest {
     background: { scripts: ['background.js'] },
     content_scripts: [{ matches: ['<all_urls>'], js: ['content.js'], run_at: 'document_idle' }],
     browser_action: { default_icon: { '16': 'icons/icon-16.png', '48': 'icons/icon-48.png' }, default_title: 'Copy as Markdown' },
-    browser_specific_settings: { gecko: { id: 'copy-as-markdown@bvolpato', strict_min_version: '57.0' } },
+    browser_specific_settings: {
+      gecko: {
+        id: 'copy-as-markdown@bvolpato',
+        strict_min_version: '109.0',
+        data_collection_permissions: [],
+      },
+    },
   };
 }
 
