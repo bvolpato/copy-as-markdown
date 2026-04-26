@@ -58,7 +58,7 @@ interface FirefoxManifest extends ManifestBase {
     gecko: {
       id: string;
       strict_min_version: string;
-      data_collection_permissions: string[];
+      data_collection_permissions: { required: string[] };
     };
   };
   background: { scripts: string[] };
@@ -172,8 +172,8 @@ function buildFirefoxManifest(patterns: string[]): FirefoxManifest {
     browser_specific_settings: {
       gecko: {
         id: 'copy-as-markdown@bvolpato',
-        strict_min_version: '109.0',
-        data_collection_permissions: [],
+        strict_min_version: '140.0',
+        data_collection_permissions: { required: ['none'] },
       },
     },
   };
