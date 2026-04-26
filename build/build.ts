@@ -113,9 +113,6 @@ function getExtractorCount(): number {
 // ---------- Userscript ----------
 
 function buildUserscript(code: string): string {
-  const patterns = collectMatchPatterns();
-  const matchLines = patterns.map((p) => `// @match        ${p}`).join('\n') + '\n// @match        *://*/*';
-
   const header = `// ==UserScript==
 // @name         Copy as Markdown
 // @namespace    https://github.com/bvolpato/copy-as-markdown
@@ -123,7 +120,7 @@ function buildUserscript(code: string): string {
 // @description  Context-aware "Copy as Markdown" button for sharing web pages with LLMs
 // @author       Bruno Volpato
 // @license      MIT
-${matchLines}
+// @match        *://*/*
 // @grant        GM_setClipboard
 // @grant        none
 // @icon         ${'data:image/svg+xml;base64,' + Buffer.from(getSVGIcon()).toString('base64')}
