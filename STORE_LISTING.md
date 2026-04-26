@@ -184,10 +184,8 @@ All code is bundled into a single content.js file at build time using esbuild. N
 
 **Privacy policy URL:**
 ```
-https://github.com/bvolpato/copy-as-markdown/blob/main/PRIVACY.md
+https://bvolpato.github.io/copy-as-markdown/privacy.html
 ```
-
-> ⚠️ You need to create this file — see below.
 
 ---
 

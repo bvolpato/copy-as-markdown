@@ -1,0 +1,89 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Privacy Policy — Copy as Markdown</title>
+  <meta name="description" content="Privacy policy for the Copy as Markdown browser extension. Zero data collection.">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="icon" type="image/svg+xml" href="icon.svg">
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+      background: #0a0a0f;
+      color: #e4e4e7;
+      line-height: 1.7;
+      -webkit-font-smoothing: antialiased;
+    }
+    .container { max-width: 720px; margin: 0 auto; padding: 60px 24px 80px; }
+    a { color: #818cf8; text-decoration: none; }
+    a:hover { text-decoration: underline; }
+    h1 { font-size: 32px; font-weight: 800; margin-bottom: 8px; letter-spacing: -0.02em; }
+    .updated { font-size: 14px; color: #71717a; margin-bottom: 40px; }
+    h2 { font-size: 20px; font-weight: 700; margin: 36px 0 12px; color: #f4f4f5; }
+    p { margin-bottom: 16px; color: #a1a1aa; }
+    ul { margin: 0 0 16px 20px; color: #a1a1aa; }
+    li { margin-bottom: 6px; }
+    table { width: 100%; border-collapse: collapse; margin: 16px 0; }
+    th, td { text-align: left; padding: 10px 14px; border: 1px solid rgba(255,255,255,0.08); font-size: 14px; }
+    th { background: rgba(255,255,255,0.04); color: #e4e4e7; font-weight: 600; }
+    td { color: #a1a1aa; }
+    code { background: rgba(255,255,255,0.06); padding: 2px 6px; border-radius: 4px; font-size: 13px; }
+    .back { display: inline-block; margin-bottom: 24px; font-size: 14px; color: #71717a; }
+    .back:hover { color: #e4e4e7; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <a href="./" class="back">← Back to Copy as Markdown</a>
+    <h1>Privacy Policy</h1>
+    <p class="updated">Last updated: April 26, 2026</p>
+
+    <h2>Overview</h2>
+    <p>Copy as Markdown is a browser extension and userscript that converts web page content to Markdown format and copies it to your clipboard. It is designed with privacy as a core principle.</p>
+
+    <h2>Data Collection</h2>
+    <p><strong>Copy as Markdown collects zero user data.</strong></p>
+    <ul>
+      <li>No personal information is collected</li>
+      <li>No browsing history is recorded</li>
+      <li>No analytics or tracking is used</li>
+      <li>No data is sent to any server</li>
+      <li>No cookies are set</li>
+      <li>No accounts are required</li>
+    </ul>
+
+    <h2>How It Works</h2>
+    <p>When you click the "Copy as Markdown" button:</p>
+    <ul>
+      <li>The extension reads the current page's DOM content (text, headings, tables, links, code) <strong>locally in your browser</strong></li>
+      <li>It converts the content to Markdown format <strong>locally in your browser</strong></li>
+      <li>It writes the Markdown text to your <strong>local clipboard</strong></li>
+    </ul>
+    <p>That's it. No data ever leaves your browser.</p>
+
+    <h2>Permissions</h2>
+    <table>
+      <tr><th>Permission</th><th>Why It's Needed</th></tr>
+      <tr><td><code>activeTab</code></td><td>Read the current page's DOM to extract content when you click the button</td></tr>
+      <tr><td><code>clipboardWrite</code></td><td>Write the generated Markdown to your clipboard</td></tr>
+      <tr><td><code>&lt;all_urls&gt;</code></td><td>Inject the floating button on every website so it works universally</td></tr>
+    </table>
+
+    <h2>Third-Party Services</h2>
+    <p>Copy as Markdown does not integrate with any third-party services, APIs, or analytics platforms.</p>
+
+    <h2>Open Source</h2>
+    <p>The full source code is available at <a href="https://github.com/bvolpato/copy-as-markdown">github.com/bvolpato/copy-as-markdown</a> under the MIT License. You can verify everything stated in this policy by reading the code.</p>
+
+    <h2>Changes</h2>
+    <p>If this privacy policy changes, the update will be posted here with a new "Last updated" date.</p>
+
+    <h2>Contact</h2>
+    <p>For questions about this privacy policy, open an issue at <a href="https://github.com/bvolpato/copy-as-markdown/issues">github.com/bvolpato/copy-as-markdown/issues</a>.</p>
+  </div>
+</body>
+</html>
