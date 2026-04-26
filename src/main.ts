@@ -27,6 +27,13 @@ import './extractors/hackernews';
 import './extractors/linkedin';
 import './extractors/amazon';
 import './extractors/arxiv';
+import './extractors/medium';
+import './extractors/devto';
+import './extractors/mdn';
+import './extractors/substack';
+import './extractors/chatgpt';
+import './extractors/npm';
+import './extractors/pypi';
 
 (function () {
   if ((window as any).__copyAsMarkdownInit) return;
