@@ -1,0 +1,665 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Copy as Markdown — One click. Clean Markdown. Perfect LLM context.</title>
+  <meta name="description" content="Context-aware Copy as Markdown button for sharing web pages with LLMs like ChatGPT, Claude, and Gemini. Supports 17+ sites.">
+  <meta property="og:title" content="Copy as Markdown">
+  <meta property="og:description" content="One click. Clean Markdown. Perfect LLM context.">
+  <meta property="og:type" content="website">
+  <meta property="og:url" content="https://bvolpato.github.io/copy-as-markdown/">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <link rel="icon" type="image/svg+xml" href="icon.svg">
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg: #0a0a0f;
+      --bg-card: rgba(255,255,255,0.04);
+      --bg-card-hover: rgba(255,255,255,0.07);
+      --text: #e4e4e7;
+      --text-muted: #a1a1aa;
+      --text-dim: #71717a;
+      --accent: #818cf8;
+      --accent-bright: #a5b4fc;
+      --green: #34d399;
+      --green-dim: #065f46;
+      --border: rgba(255,255,255,0.08);
+      --radius: 16px;
+      --font: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+      --mono: 'JetBrains Mono', 'Fira Code', monospace;
+    }
+
+    html { scroll-behavior: smooth; }
+
+    body {
+      font-family: var(--font);
+      background: var(--bg);
+      color: var(--text);
+      line-height: 1.6;
+      overflow-x: hidden;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    /* ---- Ambient background ---- */
+    .ambient {
+      position: fixed;
+      inset: 0;
+      z-index: -1;
+      overflow: hidden;
+    }
+    .ambient::before {
+      content: '';
+      position: absolute;
+      top: -40%;
+      left: -20%;
+      width: 80%;
+      height: 80%;
+      background: radial-gradient(ellipse, rgba(99,102,241,0.12) 0%, transparent 70%);
+      animation: drift 20s ease-in-out infinite;
+    }
+    .ambient::after {
+      content: '';
+      position: absolute;
+      bottom: -30%;
+      right: -20%;
+      width: 70%;
+      height: 70%;
+      background: radial-gradient(ellipse, rgba(16,185,129,0.08) 0%, transparent 70%);
+      animation: drift 25s ease-in-out infinite reverse;
+    }
+    @keyframes drift {
+      0%, 100% { transform: translate(0, 0); }
+      50% { transform: translate(60px, 40px); }
+    }
+
+    /* ---- Container ---- */
+    .container { max-width: 1100px; margin: 0 auto; padding: 0 24px; }
+
+    /* ---- Nav ---- */
+    nav {
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      z-index: 100;
+      padding: 16px 0;
+      backdrop-filter: blur(20px);
+      -webkit-backdrop-filter: blur(20px);
+      background: rgba(10,10,15,0.7);
+      border-bottom: 1px solid var(--border);
+    }
+    nav .container {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+    nav .logo {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      font-weight: 700;
+      font-size: 18px;
+      text-decoration: none;
+      color: var(--text);
+    }
+    nav .logo img { width: 32px; height: 32px; }
+    nav .links { display: flex; gap: 28px; align-items: center; }
+    nav .links a {
+      color: var(--text-muted);
+      text-decoration: none;
+      font-size: 14px;
+      font-weight: 500;
+      transition: color 0.2s;
+    }
+    nav .links a:hover { color: var(--text); }
+    .btn-install {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 10px 22px;
+      border-radius: 12px;
+      background: linear-gradient(135deg, #6366f1, #8b5cf6);
+      color: #fff;
+      font-size: 14px;
+      font-weight: 600;
+      text-decoration: none;
+      border: none;
+      cursor: pointer;
+      transition: transform 0.2s, box-shadow 0.2s;
+    }
+    .btn-install:hover {
+      transform: translateY(-1px);
+      box-shadow: 0 8px 30px rgba(99,102,241,0.3);
+    }
+
+    /* ---- Hero ---- */
+    .hero {
+      padding: 160px 0 100px;
+      text-align: center;
+    }
+    .hero .badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 6px 16px;
+      border-radius: 100px;
+      background: rgba(99,102,241,0.12);
+      border: 1px solid rgba(99,102,241,0.2);
+      color: var(--accent-bright);
+      font-size: 13px;
+      font-weight: 500;
+      margin-bottom: 28px;
+    }
+    .hero h1 {
+      font-size: clamp(40px, 6vw, 72px);
+      font-weight: 900;
+      line-height: 1.08;
+      letter-spacing: -0.03em;
+      max-width: 800px;
+      margin: 0 auto 24px;
+    }
+    .hero h1 .gradient {
+      background: linear-gradient(135deg, #818cf8 0%, #34d399 50%, #a78bfa 100%);
+      background-size: 200% auto;
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+      animation: shimmer 4s ease-in-out infinite;
+    }
+    @keyframes shimmer {
+      0%, 100% { background-position: 0% center; }
+      50% { background-position: 100% center; }
+    }
+    .hero .subtitle {
+      font-size: clamp(16px, 2vw, 20px);
+      color: var(--text-muted);
+      max-width: 620px;
+      margin: 0 auto 40px;
+      line-height: 1.6;
+    }
+    .hero .ctas {
+      display: flex;
+      gap: 16px;
+      justify-content: center;
+      flex-wrap: wrap;
+    }
+    .btn-secondary {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 10px 22px;
+      border-radius: 12px;
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      color: var(--text);
+      font-size: 14px;
+      font-weight: 600;
+      text-decoration: none;
+      transition: all 0.2s;
+    }
+    .btn-secondary:hover {
+      background: var(--bg-card-hover);
+      border-color: rgba(255,255,255,0.15);
+    }
+
+    /* ---- Demo code block ---- */
+    .demo {
+      margin: 60px auto 0;
+      max-width: 720px;
+      text-align: left;
+    }
+    .demo-window {
+      background: #111118;
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      overflow: hidden;
+      box-shadow: 0 20px 60px rgba(0,0,0,0.5);
+    }
+    .demo-toolbar {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 14px 18px;
+      background: rgba(255,255,255,0.03);
+      border-bottom: 1px solid var(--border);
+    }
+    .demo-dot {
+      width: 12px;
+      height: 12px;
+      border-radius: 50%;
+      background: rgba(255,255,255,0.1);
+    }
+    .demo-dot:nth-child(1) { background: #ff5f56; }
+    .demo-dot:nth-child(2) { background: #ffbd2e; }
+    .demo-dot:nth-child(3) { background: #27c93f; }
+    .demo-toolbar span {
+      flex: 1;
+      text-align: center;
+      font-size: 12px;
+      color: var(--text-dim);
+    }
+    .demo pre {
+      padding: 24px;
+      overflow-x: auto;
+      font-family: var(--mono);
+      font-size: 13px;
+      line-height: 1.7;
+      color: #c4c4cc;
+    }
+    .demo pre .key { color: #818cf8; }
+    .demo pre .val { color: #34d399; }
+    .demo pre .h1 { color: #f4f4f5; font-weight: 700; }
+    .demo pre .h2 { color: #d4d4d8; font-weight: 600; }
+    .demo pre .bold { color: #e4e4e7; font-weight: 600; }
+    .demo pre .dim { color: #71717a; }
+    .demo pre .pipe { color: #52525b; }
+
+    /* ---- Problem / Solution ---- */
+    .problem-section {
+      padding: 100px 0;
+    }
+    .section-label {
+      font-size: 13px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+      color: var(--accent);
+      margin-bottom: 12px;
+    }
+    .section-title {
+      font-size: clamp(28px, 4vw, 44px);
+      font-weight: 800;
+      line-height: 1.15;
+      letter-spacing: -0.02em;
+      margin-bottom: 20px;
+    }
+    .section-desc {
+      font-size: 17px;
+      color: var(--text-muted);
+      max-width: 600px;
+      margin-bottom: 48px;
+    }
+    .problems-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+      gap: 16px;
+    }
+    .problem-card {
+      padding: 24px;
+      border-radius: var(--radius);
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      transition: all 0.2s;
+    }
+    .problem-card:hover { background: var(--bg-card-hover); transform: translateY(-2px); }
+    .problem-card .icon { font-size: 28px; margin-bottom: 12px; }
+    .problem-card h3 { font-size: 16px; font-weight: 700; margin-bottom: 8px; }
+    .problem-card p { font-size: 14px; color: var(--text-muted); line-height: 1.5; }
+
+    /* ---- Sites grid ---- */
+    .sites-section { padding: 100px 0; }
+    .sites-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+      gap: 16px;
+    }
+    .site-card {
+      display: flex;
+      align-items: flex-start;
+      gap: 14px;
+      padding: 20px;
+      border-radius: var(--radius);
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      transition: all 0.2s;
+    }
+    .site-card:hover { background: var(--bg-card-hover); transform: translateY(-2px); }
+    .site-card .site-icon {
+      width: 40px;
+      height: 40px;
+      border-radius: 10px;
+      background: rgba(255,255,255,0.06);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 20px;
+      flex-shrink: 0;
+    }
+    .site-card h3 { font-size: 15px; font-weight: 700; margin-bottom: 4px; }
+    .site-card p { font-size: 13px; color: var(--text-muted); line-height: 1.5; }
+
+    /* ---- Why section ---- */
+    .why-section { padding: 100px 0; }
+    .why-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+      gap: 24px;
+    }
+    .why-card {
+      padding: 32px;
+      border-radius: var(--radius);
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+    }
+    .why-card .stat {
+      font-size: 48px;
+      font-weight: 900;
+      background: linear-gradient(135deg, var(--accent), var(--green));
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+      line-height: 1;
+      margin-bottom: 12px;
+    }
+    .why-card h3 { font-size: 18px; font-weight: 700; margin-bottom: 8px; }
+    .why-card p { font-size: 14px; color: var(--text-muted); line-height: 1.6; }
+
+    /* ---- Install section ---- */
+    .install-section {
+      padding: 100px 0;
+      text-align: center;
+    }
+    .install-options {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+      gap: 20px;
+      margin-top: 48px;
+    }
+    .install-card {
+      padding: 32px 24px;
+      border-radius: var(--radius);
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      text-align: center;
+      transition: all 0.2s;
+    }
+    .install-card:hover { border-color: rgba(99,102,241,0.3); transform: translateY(-2px); }
+    .install-card .install-icon { font-size: 36px; margin-bottom: 16px; }
+    .install-card h3 { font-size: 18px; font-weight: 700; margin-bottom: 8px; }
+    .install-card p { font-size: 14px; color: var(--text-muted); margin-bottom: 20px; line-height: 1.5; }
+    .install-card code {
+      display: block;
+      padding: 10px 16px;
+      border-radius: 8px;
+      background: rgba(0,0,0,0.3);
+      font-family: var(--mono);
+      font-size: 12px;
+      color: var(--text-muted);
+      word-break: break-all;
+    }
+
+    /* ---- Footer ---- */
+    footer {
+      padding: 40px 0;
+      border-top: 1px solid var(--border);
+      text-align: center;
+      font-size: 14px;
+      color: var(--text-dim);
+    }
+    footer a { color: var(--accent); text-decoration: none; }
+    footer a:hover { text-decoration: underline; }
+
+    @media (max-width: 640px) {
+      nav .links { display: none; }
+      .hero { padding: 120px 0 60px; }
+      .demo { margin-top: 40px; }
+    }
+  </style>
+</head>
+<body>
+  <div class="ambient"></div>
+
+  <!-- Nav -->
+  <nav>
+    <div class="container">
+      <a href="#" class="logo">
+        <img src="icon.svg" alt="Copy as Markdown icon">
+        Copy as Markdown
+      </a>
+      <div class="links">
+        <a href="#sites">Supported Sites</a>
+        <a href="#why">Why Markdown?</a>
+        <a href="#install">Install</a>
+        <a href="https://github.com/bvolpato/copy-as-markdown" class="btn-install">
+          ⭐ GitHub
+        </a>
+      </div>
+    </div>
+  </nav>
+
+  <!-- Hero -->
+  <section class="hero">
+    <div class="container">
+      <div class="badge">✨ 17 supported sites &amp; counting</div>
+      <h1>One click.<br><span class="gradient">Clean Markdown.</span><br>Perfect LLM context.</h1>
+      <p class="subtitle">
+        Context-aware "Copy as Markdown" button for sharing web pages with ChatGPT, Claude, Gemini, and any LLM. Preserves headers, tables, links, and code blocks.
+      </p>
+      <div class="ctas">
+        <a href="https://github.com/bvolpato/copy-as-markdown/releases/latest/download/copy-as-markdown.user.js" class="btn-install">
+          ⬇ Install Userscript
+        </a>
+        <a href="https://github.com/bvolpato/copy-as-markdown" class="btn-secondary">
+          📦 View on GitHub
+        </a>
+      </div>
+    </div>
+
+    <!-- Demo output -->
+    <div class="container">
+      <div class="demo">
+        <div class="demo-window">
+          <div class="demo-toolbar">
+            <div class="demo-dot"></div>
+            <div class="demo-dot"></div>
+            <div class="demo-dot"></div>
+            <span>Clipboard — Markdown output</span>
+          </div>
+<pre><span class="dim">---</span>
+<span class="key">source:</span> <span class="val">Wikipedia</span>
+<span class="key">title:</span> <span class="val">Vigenère cipher</span>
+<span class="key">url:</span> <span class="val">https://en.wikipedia.org/wiki/Vigenère_cipher</span>
+<span class="key">last_modified:</span> <span class="val">15 March 2025</span>
+<span class="dim">---</span>
+
+<span class="h1"># Vigenère cipher</span>
+
+The <span class="bold">**Vigenère cipher**</span> is a method of encrypting
+alphabetic text where each letter of the plaintext is
+encoded with a different Caesar cipher...
+
+<span class="h2">## Description</span>
+
+<span class="pipe">|</span> Component <span class="pipe">|</span> Details <span class="pipe">|</span>
+<span class="pipe">|</span> --- <span class="pipe">|</span> --- <span class="pipe">|</span>
+<span class="pipe">|</span> Type <span class="pipe">|</span> Polyalphabetic substitution <span class="pipe">|</span>
+<span class="pipe">|</span> Key <span class="pipe">|</span> A repeating keyword <span class="pipe">|</span>
+<span class="pipe">|</span> Inventor <span class="pipe">|</span> Blaise de Vigenère <span class="pipe">|</span></pre>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Problem -->
+  <section class="problem-section">
+    <div class="container">
+      <div class="section-label">The Problem</div>
+      <h2 class="section-title">Sharing web pages with LLMs is broken</h2>
+      <p class="section-desc">You want to give your AI the full context of a web page. Every option is bad — until now.</p>
+
+      <div class="problems-grid">
+        <div class="problem-card">
+          <div class="icon">📋</div>
+          <h3>Copy-paste raw text</h3>
+          <p>Loses all structure. Headers become blobs. Tables vanish. Links disappear.</p>
+        </div>
+        <div class="problem-card">
+          <div class="icon">🔗</div>
+          <h3>Share a URL</h3>
+          <p>The LLM can't browse it — or worse, hallucinates what it says.</p>
+        </div>
+        <div class="problem-card">
+          <div class="icon">📸</div>
+          <h3>Screenshot</h3>
+          <p>Eats your token budget on image processing. Can't search or quote.</p>
+        </div>
+        <div class="problem-card">
+          <div class="icon">✏️</div>
+          <h3>Manually reformat</h3>
+          <p>Life's too short. You have better things to do.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Supported Sites -->
+  <section class="sites-section" id="sites">
+    <div class="container">
+      <div class="section-label">Supported Sites</div>
+      <h2 class="section-title">17 extractors. Purpose-built.</h2>
+      <p class="section-desc">Each extractor is tuned to capture the signal and strip the noise. No ads, no nav menus, no cookie banners.</p>
+
+      <div class="sites-grid">
+        <div class="site-card">
+          <div class="site-icon">📚</div>
+          <div><h3>Wikipedia</h3><p>Article body, tables, infoboxes — edit buttons and references stripped</p></div>
+        </div>
+        <div class="site-card">
+          <div class="site-icon">📝</div>
+          <div><h3>Google Docs</h3><p>Full document export — headings, lists, tables, links, images</p></div>
+        </div>
+        <div class="site-card">
+          <div class="site-icon">🔍</div>
+          <div><h3>Google Search</h3><p>Query, featured snippets, knowledge panel, ranked results</p></div>
+        </div>
+        <div class="site-card">
+          <div class="site-icon">💻</div>
+          <div><h3>GitHub</h3><p>Issues, PRs, repos, README files, code — with metadata</p></div>
+        </div>
+        <div class="site-card">
+          <div class="site-icon">📺</div>
+          <div><h3>YouTube</h3><p>Title, channel, views, description, chapters, comments, transcript</p></div>
+        </div>
+        <div class="site-card">
+          <div class="site-icon">🗣️</div>
+          <div><h3>Reddit</h3><p>Post, subreddit, author, score, threaded comments with depth</p></div>
+        </div>
+        <div class="site-card">
+          <div class="site-icon">𝕏</div>
+          <div><h3>X (Twitter)</h3><p>Posts with replies, timelines with engagement stats</p></div>
+        </div>
+        <div class="site-card">
+          <div class="site-icon">📰</div>
+          <div><h3>News (20+ sites)</h3><p>CNN, BBC, NYT, Reuters — article body, author, date, paywall detection</p></div>
+        </div>
+        <div class="site-card">
+          <div class="site-icon">❓</div>
+          <div><h3>Stack Overflow</h3><p>Question, all answers (✅ accepted), vote counts, comments</p></div>
+        </div>
+        <div class="site-card">
+          <div class="site-icon">🟧</div>
+          <div><h3>Hacker News</h3><p>Title, link, score, nested comment threads</p></div>
+        </div>
+        <div class="site-card">
+          <div class="site-icon">💼</div>
+          <div><h3>LinkedIn</h3><p>Profiles, posts, articles — with reactions and comments</p></div>
+        </div>
+        <div class="site-card">
+          <div class="site-icon">🛒</div>
+          <div><h3>Amazon</h3><p>Product title, price, rating, features, reviews (8 TLDs)</p></div>
+        </div>
+        <div class="site-card">
+          <div class="site-icon">📄</div>
+          <div><h3>arXiv</h3><p>Paper title, authors, abstract, full body from HTML pages</p></div>
+        </div>
+        <div class="site-card">
+          <div class="site-icon">📊</div>
+          <div><h3>Polymarket</h3><p>Market odds, resolution rules, volume, comments</p></div>
+        </div>
+        <div class="site-card">
+          <div class="site-icon">🔎</div>
+          <div><h3>Bing Search</h3><p>Results, knowledge sidebar, related searches</p></div>
+        </div>
+        <div class="site-card">
+          <div class="site-icon">💬</div>
+          <div><h3>WhatsApp Web</h3><p>Chat messages with sender, timestamp, media indicators</p></div>
+        </div>
+        <div class="site-card">
+          <div class="site-icon">🌐</div>
+          <div><h3>Any website</h3><p>Fallback extractor: highlights or full page content via article/main detection</p></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Why Markdown -->
+  <section class="why-section" id="why">
+    <div class="container">
+      <div class="section-label">Why Markdown for LLMs?</div>
+      <h2 class="section-title">Structure = Understanding</h2>
+      <p class="section-desc">Markdown is the lingua franca of AI conversations. Every major LLM understands it natively.</p>
+
+      <div class="why-grid">
+        <div class="why-card">
+          <div class="stat">&gt;90%</div>
+          <h3>Noise Reduction</h3>
+          <p>A typical Wikipedia article: ~200K characters in HTML. Copy as Markdown output: ~15K characters. More room for your actual conversation.</p>
+        </div>
+        <div class="why-card">
+          <div class="stat">100%</div>
+          <h3>Structure Preserved</h3>
+          <p>Headers → #, Tables → pipes, Code → fenced blocks, Links → [text](url). Hierarchy and semantics stay intact.</p>
+        </div>
+        <div class="why-card">
+          <div class="stat">0</div>
+          <h3>Dependencies</h3>
+          <p>Single self-contained JS file. No build tools, no frameworks, no runtime dependencies. Install and go.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Install -->
+  <section class="install-section" id="install">
+    <div class="container">
+      <div class="section-label">Get Started</div>
+      <h2 class="section-title">Install in 30 seconds</h2>
+      <p class="section-desc" style="margin: 0 auto 0;">Works with Tampermonkey, Violentmonkey, Chrome, and Firefox.</p>
+
+      <div class="install-options">
+        <div class="install-card">
+          <div class="install-icon">🔧</div>
+          <h3>Userscript</h3>
+          <p>The fastest way. Works in any browser with a userscript manager.</p>
+          <a href="https://github.com/bvolpato/copy-as-markdown/releases/latest/download/copy-as-markdown.user.js" class="btn-install" style="width:100%;justify-content:center;">
+            Install Userscript
+          </a>
+        </div>
+        <div class="install-card">
+          <div class="install-icon">🟢</div>
+          <h3>Chrome Extension</h3>
+          <p>Load unpacked from the dist/chrome folder.</p>
+          <code>pnpm install && pnpm build</code>
+        </div>
+        <div class="install-card">
+          <div class="install-icon">🦊</div>
+          <h3>Firefox Extension</h3>
+          <p>Load temporary add-on from dist/firefox.</p>
+          <code>pnpm install && pnpm build</code>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Footer -->
+  <footer>
+    <div class="container">
+      <p>MIT © <a href="https://github.com/bvolpato">Bruno Volpato</a> · <a href="https://github.com/bvolpato/copy-as-markdown">GitHub</a></p>
+    </div>
+  </footer>
+</body>
+</html>

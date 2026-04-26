@@ -1,0 +1,28 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128">
+  <defs>
+    <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#4f46e5"/>
+      <stop offset="100%" stop-color="#10b981"/>
+    </linearGradient>
+    <linearGradient id="foldGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#ffffff" stop-opacity="0.9"/>
+      <stop offset="100%" stop-color="#e2e8f0" stop-opacity="0.9"/>
+    </linearGradient>
+  </defs>
+  
+  <!-- App Icon Base -->
+  <rect x="0" y="0" width="128" height="128" rx="28" fill="url(#bg)"/>
+  
+  <!-- Markdown file body -->
+  <path d="M 28 24 C 24 24 20 28 20 32 L 20 80 C 20 84 24 88 28 88 L 84 88 C 88 88 92 84 92 80 L 92 52 L 64 24 Z" fill="#ffffff" opacity="0.95"/>
+  
+  <!-- Document Fold -->
+  <path d="M 92 52 L 68 52 C 65.79 52 64 50.21 64 48 L 64 24 Z" fill="url(#foldGradient)"/>
+  
+  <!-- "M" (Markdown mark) -->
+  <path d="M 30 68 L 30 48 L 37 48 L 42 58 L 47 48 L 54 48 L 54 68 L 48 68 L 48 56 L 43 64 L 41 64 L 36 56 L 36 68 Z" fill="#1e293b"/>
+  
+  <!-- Copy Icon (Overlapping Squares) -->
+  <rect x="66" y="48" width="14" height="14" rx="2.5" fill="#1e293b"/>
+  <rect x="60" y="54" width="14" height="14" rx="2.5" fill="#1e293b" stroke="#ffffff" stroke-width="2.5"/>
+</svg>

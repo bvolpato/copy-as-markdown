@@ -1,6 +1,6 @@
 {
   "name": "copy-as-markdown",
-  "version": "1.0.12",
+  "version": "1.0.13",
   "description": "Context-aware Copy as Markdown buttons — the fastest way to share web content with LLMs",
   "type": "module",
   "scripts": {
@@ -12,7 +12,9 @@
     "zip:firefox": "cd dist/firefox && zip -r ../copy-as-markdown-firefox.zip .",
     "package:chrome": "pnpm build && pnpm zip:chrome",
     "package:firefox": "pnpm build && pnpm zip:firefox",
-    "package:all": "pnpm build && pnpm zip:chrome && pnpm zip:firefox"
+    "package:all": "pnpm build && pnpm zip:chrome && pnpm zip:firefox",
+    "test": "pnpm build && node test/test-sites.js",
+    "test:site": "pnpm build && node test/test-sites.js"
   },
   "repository": {
     "type": "git",
