@@ -11,7 +11,7 @@
   <meta property="og:url" content="https://bvolpato.github.io/copy-as-markdown/">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Caveat:wght@600;700&family=Inter:wght@400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
   <link rel="icon" type="image/svg+xml" href="icon.svg">
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
@@ -74,6 +74,30 @@
     @keyframes drift {
       0%, 100% { transform: translate(0, 0); }
       50% { transform: translate(60px, 40px); }
+    }
+
+    /* ---- Subtle grid pattern ---- */
+    .grid-pattern {
+      position: fixed;
+      inset: 0;
+      z-index: -1;
+      background-image:
+        linear-gradient(rgba(255,255,255,0.02) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(255,255,255,0.02) 1px, transparent 1px);
+      background-size: 60px 60px;
+      mask-image: radial-gradient(ellipse 80% 60% at 50% 30%, black 20%, transparent 70%);
+      -webkit-mask-image: radial-gradient(ellipse 80% 60% at 50% 30%, black 20%, transparent 70%);
+    }
+
+    /* ---- Scroll reveal ---- */
+    .reveal {
+      opacity: 0;
+      transform: translateY(30px);
+      transition: opacity 0.7s cubic-bezier(0.16, 1, 0.3, 1), transform 0.7s cubic-bezier(0.16, 1, 0.3, 1);
+    }
+    .reveal.visible {
+      opacity: 1;
+      transform: translateY(0);
     }
 
     /* ---- Container ---- */
@@ -430,34 +454,68 @@
       box-shadow: 0 6px 28px rgba(52,211,153,0.4), 0 0 0 2px rgba(52,211,153,0.5);
     }
 
-    /* ---- Curved arrow callout ---- */
+    /* Glow pulse ring around the button */
+    @keyframes glow-pulse {
+      0%, 100% { box-shadow: 0 4px 20px rgba(0,0,0,0.3), 0 0 0 0px rgba(129,140,248,0); }
+      50% { box-shadow: 0 4px 20px rgba(0,0,0,0.3), 0 0 0 6px rgba(129,140,248,0.15); }
+    }
+    .live-demo-btn:not(.success) {
+      animation: glow-pulse 2.5s ease-in-out infinite;
+    }
+    .live-demo-btn:hover {
+      animation: none;
+    }
+
+    /* ---- Callout annotation ---- */
     .try-it-callout {
       position: fixed;
-      bottom: 80px;
-      right: 76px;
+      bottom: 56px;
+      right: 82px;
       z-index: 9998;
       pointer-events: none;
       animation: callout-float 3s ease-in-out infinite;
     }
     .try-it-callout .try-label {
-      font-family: 'Inter', sans-serif;
-      font-size: 15px;
+      font-family: 'Caveat', cursive;
+      font-size: 22px;
       font-weight: 700;
       color: var(--accent-bright);
-      text-shadow: 0 2px 10px rgba(99,102,241,0.3);
+      text-shadow: 0 2px 12px rgba(99,102,241,0.4);
       white-space: nowrap;
       position: absolute;
-      top: -6px;
-      right: 52px;
+      bottom: 18px;
+      right: 42px;
+      letter-spacing: 0.02em;
+    }
+    .try-it-callout .arrow-svg {
+      position: absolute;
+      bottom: -4px;
+      right: 0;
     }
     @keyframes callout-float {
       0%, 100% { transform: translateY(0); }
-      50% { transform: translateY(-6px); }
+      50% { transform: translateY(-5px); }
     }
     .try-it-callout.hidden {
       opacity: 0;
       transition: opacity 0.4s ease;
       pointer-events: none;
+    }
+    /* Animate the arrow path drawing */
+    .try-it-callout .arrow-line {
+      stroke-dasharray: 80;
+      stroke-dashoffset: 80;
+      animation: draw-arrow 1.2s 0.5s ease forwards;
+    }
+    .try-it-callout .arrow-head {
+      opacity: 0;
+      animation: show-head 0.3s 1.5s ease forwards;
+    }
+    @keyframes draw-arrow {
+      to { stroke-dashoffset: 0; }
+    }
+    @keyframes show-head {
+      to { opacity: 0.8; }
     }
 
     /* ---- Demo toast ---- */
@@ -512,6 +570,7 @@
 </head>
 <body>
   <div class="ambient"></div>
+  <div class="grid-pattern"></div>
 
   <!-- Nav -->
   <nav>
@@ -585,7 +644,7 @@ encoded with a different Caesar cipher...
   </section>
 
   <!-- Problem -->
-  <section class="problem-section">
+  <section class="problem-section reveal">
     <div class="container">
       <div class="section-label">The Problem</div>
       <h2 class="section-title">Sharing web pages with LLMs is broken</h2>
@@ -617,7 +676,7 @@ encoded with a different Caesar cipher...
   </section>
 
   <!-- Supported Sites -->
-  <section class="sites-section" id="sites">
+  <section class="sites-section reveal" id="sites">
     <div class="container">
       <div class="section-label">Supported Sites</div>
       <h2 class="section-title">17 extractors. Purpose-built.</h2>
@@ -697,7 +756,7 @@ encoded with a different Caesar cipher...
   </section>
 
   <!-- Why Markdown -->
-  <section class="why-section" id="why">
+  <section class="why-section reveal" id="why">
     <div class="container">
       <div class="section-label">Why Markdown for LLMs?</div>
       <h2 class="section-title">Structure = Understanding</h2>
@@ -724,7 +783,7 @@ encoded with a different Caesar cipher...
   </section>
 
   <!-- Install -->
-  <section class="install-section" id="install">
+  <section class="install-section reveal" id="install">
     <div class="container">
       <div class="section-label">Get Started</div>
       <h2 class="section-title">Install in 30 seconds</h2>
@@ -785,12 +844,12 @@ encoded with a different Caesar cipher...
     </button>
   </div>
 
-  <!-- Curved arrow callout -->
+  <!-- Callout annotation -->
   <div class="try-it-callout" id="try-callout">
-    <span class="try-label">Try it! &#8594;</span>
-    <svg width="60" height="50" viewBox="0 0 60 50" fill="none" xmlns="http://www.w3.org/2000/svg">
-      <path d="M 5 8 C 15 2, 35 -2, 48 12 C 56 22, 54 35, 50 42" stroke="#818cf8" stroke-width="2" stroke-linecap="round" fill="none" stroke-dasharray="4 3" opacity="0.7"/>
-      <path d="M 44 38 L 50 44 L 54 36" stroke="#818cf8" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" fill="none" opacity="0.7"/>
+    <span class="try-label">Try it!</span>
+    <svg class="arrow-svg" width="40" height="36" viewBox="0 0 40 36" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <path class="arrow-line" d="M 4 2 C 12 4, 22 8, 28 16 C 32 22, 33 28, 34 32" stroke="#818cf8" stroke-width="2" stroke-linecap="round" fill="none" opacity="0.8"/>
+      <path class="arrow-head" d="M 30 28 L 34 34 L 38 27" stroke="#818cf8" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
     </svg>
   </div>
 
@@ -903,6 +962,24 @@ encoded with a different Caesar cipher...
         setTimeout(function() { btn.classList.remove('success'); }, 2000);
       });
     });
+  })();
+
+  // Scroll-reveal observer
+  (function() {
+    var reveals = document.querySelectorAll('.reveal');
+    if (!('IntersectionObserver' in window)) {
+      reveals.forEach(function(el) { el.classList.add('visible'); });
+      return;
+    }
+    var observer = new IntersectionObserver(function(entries) {
+      entries.forEach(function(entry) {
+        if (entry.isIntersecting) {
+          entry.target.classList.add('visible');
+          observer.unobserve(entry.target);
+        }
+      });
+    }, { threshold: 0.12, rootMargin: '0px 0px -40px 0px' });
+    reveals.forEach(function(el) { observer.observe(el); });
   })();
   </script>
 
