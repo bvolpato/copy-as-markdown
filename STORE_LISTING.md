@@ -90,13 +90,13 @@ English
 
 **Screenshots** (1280×800 or 640×400, JPEG or 24-bit PNG, no alpha):
 
-> Generate these from the landing page or real usage. Suggested shots:
+Upload these 5 images from `docs/screenshots/`:
 
-1. **Wikipedia** — The button anchored inline on a Wikipedia article, showing clean extraction
-2. **GitHub** — The floating button on a GitHub repo page
-3. **Clipboard output** — A text editor showing the Markdown output with YAML frontmatter
-4. **Stack Overflow** — The button on a Stack Overflow question page
-5. **Multiple sites** — A collage/grid showing the button on 6+ different sites
+1. `1-wikipedia.png` — Wikipedia article with the floating Copy as Markdown button
+2. `2-github.png` — GitHub repo page with the copy success toast notification
+3. `3-before-after.png` — Side-by-side: messy copy-paste vs clean Markdown output
+4. `4-stackoverflow.png` — Stack Overflow question with the inline pill button
+5. `5-all-sites.png` — Promotional grid showing the extension across 9 popular sites
 
 **Small promo tile** (440×280): Create from the icon + tagline "One click. Clean Markdown."
 
