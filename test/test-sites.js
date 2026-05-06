@@ -148,6 +148,144 @@ function log(icon, msg) {
   console.log(`  ${icon}  ${msg}`);
 }
 
+function assertCheck(condition, message) {
+  if (!condition) throw new Error(message);
+}
+
+function boxesOverlap(a, b) {
+  return a.left < b.right && a.right > b.left && a.top < b.bottom && a.bottom > b.top;
+}
+
+async function runProductionUiChecks(browser, scriptContent) {
+  console.log(`${COLORS.cyan}● Production UI guards${COLORS.reset}`);
+
+  const floatingPage = await browser.newPage();
+  await floatingPage.setViewport({ width: 390, height: 844 });
+  try {
+    await floatingPage.setContent(`
+      <!doctype html>
+      <html>
+        <head><title>Fallback page</title></head>
+        <body>
+          <main><h1>Fallback article</h1><p>Enough text for fallback extraction.</p></main>
+          <button id="talk-widget" style="position: fixed; right: 16px; bottom: 16px; width: 64px; height: 64px;">Talk with us</button>
+        </body>
+      </html>
+    `);
+    await floatingPage.addScriptTag({ content: scriptContent });
+    await floatingPage.waitForSelector('#cam-copy-btn', { timeout: 4000 });
+    await new Promise(r => setTimeout(r, 800));
+
+    const layout = await floatingPage.evaluate(() => {
+      const btn = document.querySelector('#cam-copy-btn');
+      const chat = document.querySelector('#talk-widget');
+      const btnRect = btn.getBoundingClientRect();
+      const chatRect = chat.getBoundingClientRect();
+      return {
+        buttonCount: document.querySelectorAll('#cam-copy-btn').length,
+        floatingWrapperCount: document.querySelectorAll('.cam-floating-wrapper').length,
+        anchorWrapperCount: document.querySelectorAll('[data-cam-anchor-wrapper]').length,
+        button: {
+          left: btnRect.left,
+          right: btnRect.right,
+          top: btnRect.top,
+          bottom: btnRect.bottom,
+          width: btnRect.width,
+          height: btnRect.height,
+        },
+        chat: {
+          left: chatRect.left,
+          right: chatRect.right,
+          top: chatRect.top,
+          bottom: chatRect.bottom,
+          width: chatRect.width,
+          height: chatRect.height,
+        },
+        bottomGap: window.innerHeight - btnRect.bottom,
+      };
+    });
+
+    assertCheck(layout.buttonCount === 1, `expected 1 button, found ${layout.buttonCount}`);
+    assertCheck(layout.floatingWrapperCount === 1, `expected 1 floating wrapper, found ${layout.floatingWrapperCount}`);
+    assertCheck(layout.anchorWrapperCount === 0, `expected 0 anchor wrappers, found ${layout.anchorWrapperCount}`);
+    assertCheck(layout.button.width <= 40 && layout.button.height <= 40, `floating button too large: ${layout.button.width}x${layout.button.height}`);
+    assertCheck(layout.bottomGap >= 88, `floating button too low: ${layout.bottomGap}px from bottom`);
+    assertCheck(!boxesOverlap(layout.button, layout.chat), 'floating button overlaps Talk with us widget');
+
+    await floatingPage.addScriptTag({ content: scriptContent });
+    await new Promise(r => setTimeout(r, 800));
+    const duplicateCounts = await floatingPage.evaluate(() => ({
+      buttons: document.querySelectorAll('#cam-copy-btn').length,
+      floatingWrappers: document.querySelectorAll('.cam-floating-wrapper').length,
+      anchorWrappers: document.querySelectorAll('[data-cam-anchor-wrapper]').length,
+    }));
+
+    assertCheck(duplicateCounts.buttons === 1, `duplicate userscript injection left ${duplicateCounts.buttons} buttons`);
+    assertCheck(duplicateCounts.floatingWrappers === 1, `duplicate userscript injection left ${duplicateCounts.floatingWrappers} floating wrappers`);
+    assertCheck(duplicateCounts.anchorWrappers === 0, `duplicate userscript injection left ${duplicateCounts.anchorWrappers} anchor wrappers`);
+    log('✅', 'Floating button is smaller, raised above chat widget, and singleton after duplicate injection');
+  } finally {
+    await floatingPage.close();
+  }
+
+  const anchorPage = await browser.newPage();
+  await anchorPage.setViewport({ width: 1280, height: 800 });
+  await anchorPage.setRequestInterception(true);
+  anchorPage.on('request', (req) => {
+    if (req.isNavigationRequest() && req.resourceType() === 'document') {
+      req.respond({
+        status: 200,
+        contentType: 'text/html',
+        body: `
+          <!doctype html>
+          <html>
+            <head><title>Markdown - Wikipedia</title></head>
+            <body>
+              <h1 id="firstHeading">Markdown</h1>
+              <main id="mw-content-text"><p>Markdown content fixture.</p></main>
+            </body>
+          </html>
+        `,
+      });
+    } else {
+      req.abort();
+    }
+  });
+
+  try {
+    await anchorPage.goto('https://en.wikipedia.org/wiki/Markdown', { waitUntil: 'domcontentloaded' });
+    await anchorPage.addScriptTag({ content: scriptContent });
+    await anchorPage.waitForSelector('#cam-copy-btn', { timeout: 4000 });
+
+    await anchorPage.evaluate(() => {
+      history.pushState({}, '', '/wiki/Markdown_Test_Route');
+      document.body.appendChild(document.createElement('section'));
+    });
+    await new Promise(r => setTimeout(r, 1200));
+
+    await anchorPage.evaluate(() => {
+      const nav = document.createElement('nav');
+      nav.id = 'p-views';
+      const list = document.createElement('ul');
+      nav.appendChild(list);
+      document.body.appendChild(nav);
+    });
+
+    await anchorPage.waitForFunction(() => {
+      return document.querySelectorAll('#cam-copy-btn').length === 1
+        && document.querySelectorAll('[data-cam-anchor-wrapper]').length === 1
+        && !document.querySelector('.cam-floating-wrapper')
+        && !!document.querySelector('#p-views ul #cam-copy-btn');
+    }, { timeout: 5000 });
+
+    log('✅', 'Stale SPA anchor observers cannot stack duplicate buttons');
+  } finally {
+    await anchorPage.close();
+  }
+
+  console.log('');
+}
+
 async function runTests(filter) {
   const scriptPath = path.join(ROOT, 'dist', 'userscript', 'copy-as-markdown.user.js');
   if (!fs.existsSync(scriptPath)) {
@@ -177,6 +315,8 @@ async function runTests(filter) {
   });
 
   const results = [];
+
+  await runProductionUiChecks(browser, scriptContent);
 
   for (const site of sites) {
     const result = { name: site.name, checks: [], passed: true };
@@ -270,6 +410,21 @@ async function runTests(filter) {
       if (buttonFound) {
         result.checks.push({ name: 'Button injected', pass: true });
         log('✅', 'Button #cam-copy-btn injected');
+
+        const singletonCounts = await page.evaluate(() => ({
+          buttons: document.querySelectorAll('#cam-copy-btn').length,
+          floatingWrappers: document.querySelectorAll('.cam-floating-wrapper').length,
+          anchorWrappers: document.querySelectorAll('[data-cam-anchor-wrapper]').length,
+        }));
+
+        if (singletonCounts.buttons === 1 && singletonCounts.floatingWrappers + singletonCounts.anchorWrappers <= 1) {
+          result.checks.push({ name: 'Singleton UI', pass: true });
+          log('✅', 'Singleton UI: exactly one Copy as Markdown button');
+        } else {
+          result.checks.push({ name: 'Singleton UI', pass: false });
+          result.passed = false;
+          log('❌', `${COLORS.red}Singleton UI failed: ${JSON.stringify(singletonCounts)}${COLORS.reset}`);
+        }
       } else {
         result.checks.push({ name: 'Button injected', pass: false });
         result.passed = false;

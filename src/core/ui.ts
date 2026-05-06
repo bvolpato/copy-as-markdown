@@ -15,9 +15,14 @@ const TOAST_ID = 'cam-toast';
 const STYLE_ID = 'cam-styles';
 const DISMISS_ID = 'cam-dismiss-btn';
 const WRAPPER_ATTR = 'data-cam-anchor-wrapper';
+const UI_INSTANCE_ATTR = 'data-cam-instance';
+const ACTIVE_INSTANCE_ATTR = 'data-cam-active-instance';
 
 /** Max time (ms) to keep observing for the anchor element. */
 const ANCHOR_OBSERVE_TIMEOUT = 8000;
+
+let activeAnchorObserver: MutationObserver | null = null;
+let activeAnchorTimeout: number | null = null;
 
 function injectStyles(): void {
   if (document.getElementById(STYLE_ID)) return;
@@ -26,8 +31,8 @@ function injectStyles(): void {
     /* ---- Floating wrapper (positions the copy button + dismiss X) ---- */
     .cam-floating-wrapper {
       position: fixed;
-      bottom: 24px;
-      right: 24px;
+      bottom: 96px;
+      right: 18px;
       z-index: 999999;
       display: flex;
       align-items: flex-start;
@@ -36,21 +41,21 @@ function injectStyles(): void {
     /* ---- Floating icon button (bottom-right fallback) ---- */
     #${BUTTON_ID}.cam-floating {
       position: relative;
-      width: 44px;
-      height: 44px;
+      width: 38px;
+      height: 38px;
       padding: 0;
       border: none;
       background: none;
-      border-radius: 12px;
-      box-shadow: 0 4px 14px rgba(0,0,0,0.15);
+      border-radius: 10px;
+      box-shadow: 0 3px 12px rgba(0,0,0,0.16);
       cursor: pointer;
-      opacity: 0.8;
+      opacity: 0.78;
       transition: all 0.2s cubic-bezier(0.175, 0.885, 0.32, 1.275);
     }
     #${BUTTON_ID}.cam-floating:hover {
-      transform: scale(1.1);
+      transform: scale(1.06);
       opacity: 1;
-      box-shadow: 0 6px 20px rgba(0,0,0,0.25);
+      box-shadow: 0 5px 18px rgba(0,0,0,0.24);
     }
     #${BUTTON_ID}.cam-floating:active {
       transform: scale(0.95);
@@ -64,19 +69,19 @@ function injectStyles(): void {
     /* ---- Dismiss (X) button on the floating icon ---- */
     #${DISMISS_ID} {
       position: absolute;
-      top: -6px;
-      right: -6px;
-      width: 18px;
-      height: 18px;
+      top: -5px;
+      right: -5px;
+      width: 16px;
+      height: 16px;
       padding: 0;
       border: none;
       border-radius: 50%;
       background: rgba(0, 0, 0, 0.65);
       color: #fff;
-      font-size: 11px;
+      font-size: 10px;
       font-weight: 700;
       font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-      line-height: 18px;
+      line-height: 16px;
       text-align: center;
       cursor: pointer;
       opacity: 0;
@@ -185,13 +190,17 @@ function injectStyles(): void {
 
     /* ---- Shared ---- */
     #${BUTTON_ID} .cam-icon {
-      width: 18px;
-      height: 18px;
+      width: 16px;
+      height: 16px;
       flex-shrink: 0;
     }
     #${BUTTON_ID}.cam-icon-btn .cam-icon {
-      width: 20px;
-      height: 20px;
+      width: 18px;
+      height: 18px;
+    }
+    #${BUTTON_ID}.cam-floating .cam-icon {
+      width: 100%;
+      height: 100%;
     }
 
     #${BUTTON_ID}.cam-success {
@@ -232,17 +241,17 @@ function injectStyles(): void {
 
     @media (max-width: 600px) {
       .cam-floating-wrapper {
-        bottom: 24px;
-        right: 16px;
+        bottom: 92px;
+        right: 14px;
       }
       #${BUTTON_ID}.cam-floating {
-        padding: 8px 14px;
-        font-size: 13px;
-        border-radius: 10px;
+        width: 36px;
+        height: 36px;
+        border-radius: 9px;
       }
       #${TOAST_ID} {
         top: auto;
-        bottom: 80px;
+        bottom: 144px;
         right: 16px;
       }
     }
@@ -329,9 +338,36 @@ function applyInlineCss(el: HTMLElement, css?: Record<string, string>): void {
   }
 }
 
+function createInstanceId(): string {
+  return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
+}
+
+function setActiveInstance(instanceId: string): void {
+  document.documentElement.setAttribute(ACTIVE_INSTANCE_ATTR, instanceId);
+}
+
+function isActiveInstance(instanceId: string): boolean {
+  return document.documentElement.getAttribute(ACTIVE_INSTANCE_ATTR) === instanceId;
+}
+
+function markInjected(el: HTMLElement, instanceId: string): void {
+  el.setAttribute(UI_INSTANCE_ATTR, instanceId);
+}
+
+function cancelAnchorObserver(): void {
+  activeAnchorObserver?.disconnect();
+  activeAnchorObserver = null;
+
+  if (activeAnchorTimeout !== null) {
+    window.clearTimeout(activeAnchorTimeout);
+    activeAnchorTimeout = null;
+  }
+}
+
 function buildAnchorNode(
   btn: HTMLButtonElement,
   anchor: AnchorConfig,
+  instanceId: string,
 ): HTMLElement {
   applyInlineCss(btn, anchor.css);
 
@@ -339,6 +375,7 @@ function buildAnchorNode(
 
   const wrapper = document.createElement(anchor.wrapperTag);
   wrapper.setAttribute(WRAPPER_ATTR, 'true');
+  markInjected(wrapper, instanceId);
 
   if (anchor.wrapperClass) {
     wrapper.className = anchor.wrapperClass;
@@ -349,10 +386,21 @@ function buildAnchorNode(
   return wrapper;
 }
 
+function removeInjectedUi(except?: HTMLElement): void {
+  const nodes = new Set<Element>();
+  document
+    .querySelectorAll(`[${WRAPPER_ATTR}], .cam-floating-wrapper, #${BUTTON_ID}, #${DISMISS_ID}`)
+    .forEach((el) => {
+      if (except && (el === except || el.contains(except))) return;
+      nodes.add(el);
+    });
+
+  nodes.forEach((el) => el.remove());
+}
+
 function clearInjectedUi(): void {
-  document.querySelectorAll(`[${WRAPPER_ATTR}]`).forEach((el) => el.remove());
-  document.querySelector('.cam-floating-wrapper')?.remove();
-  document.getElementById(BUTTON_ID)?.remove();
+  cancelAnchorObserver();
+  removeInjectedUi();
 }
 
 /**
@@ -362,19 +410,25 @@ function clearInjectedUi(): void {
 function attachToAnchor(
   btn: HTMLButtonElement,
   anchor: AnchorConfig,
+  instanceId: string,
 ): boolean {
+  if (!isActiveInstance(instanceId)) return false;
+
   const target = findAnchorTarget(anchor.selector);
   if (!target) return false;
+
+  removeInjectedUi(btn);
 
   // Use the extractor's preferred style, defaulting to icon-only
   const styleKey = anchor.style || 'icon';
   btn.className = STYLE_CLASS[styleKey] || 'cam-icon-btn';
+  markInjected(btn, instanceId);
 
   // If a label is provided (or the style is not icon), show text alongside the icon
   const label = anchor.label ?? (styleKey === 'icon' ? '' : 'Copy as Markdown');
   safeSetHtml(btn, `${getIcon()}${label ? `<span>${label}</span>` : ''}`);
 
-  const insertionNode = buildAnchorNode(btn, anchor);
+  const insertionNode = buildAnchorNode(btn, anchor, instanceId);
 
   const position = anchor.position || 'append';
   switch (position) {
@@ -418,17 +472,21 @@ function dismissForCurrentPage(): void {
  * Show the button as a floating FAB at the bottom-right,
  * wrapped with a dismiss (X) button.
  */
-function showFloating(btn: HTMLButtonElement): void {
+function showFloating(btn: HTMLButtonElement, instanceId: string): void {
+  if (!isActiveInstance(instanceId)) return;
   if (isDismissedForCurrentPage()) return;
 
   btn.className = 'cam-floating';
+  markInjected(btn, instanceId);
   safeSetHtml(btn, getIcon());
 
   const wrapper = document.createElement('div');
   wrapper.className = 'cam-floating-wrapper';
+  markInjected(wrapper, instanceId);
 
   const dismiss = document.createElement('button');
   dismiss.id = DISMISS_ID;
+  markInjected(dismiss, instanceId);
   dismiss.title = 'Hide for this page';
   dismiss.setAttribute('aria-label', 'Dismiss Copy as Markdown button');
   dismiss.textContent = '✕';
@@ -465,10 +523,15 @@ export function showButton(
 
   clearInjectedUi();
 
+  const instanceId = createInstanceId();
+  setActiveInstance(instanceId);
+
   const btn = document.createElement('button');
   btn.id = BUTTON_ID;
+  btn.type = 'button';
   btn.title = 'Copy this page as Markdown';
   btn.setAttribute('aria-label', 'Copy this page as Markdown');
+  markInjected(btn, instanceId);
 
   // Wire up click handler
   btn.addEventListener('click', async (e) => {
@@ -489,18 +552,18 @@ export function showButton(
 
   // Attempt anchor placement
   if (anchor) {
-    if (attachToAnchor(btn, anchor)) {
+    if (attachToAnchor(btn, anchor, instanceId)) {
       console.log('[Copy as Markdown] Anchored inline');
       return btn;
     }
 
     // Anchor not found yet — show floating immediately, observe for the anchor
-    showFloating(btn);
+    showFloating(btn, instanceId);
     console.log('[Copy as Markdown] Anchor not found yet, floating while observing…');
 
-    observeForAnchor(btn, anchor);
+    observeForAnchor(btn, anchor, instanceId);
   } else {
-    showFloating(btn);
+    showFloating(btn, instanceId);
   }
 
   return btn;
@@ -513,14 +576,27 @@ export function showButton(
 function observeForAnchor(
   btn: HTMLButtonElement,
   anchor: AnchorConfig,
+  instanceId: string,
 ): void {
   let settled = false;
 
   const observer = new MutationObserver(() => {
     if (settled) return;
+    if (!isActiveInstance(instanceId)) {
+      settled = true;
+      observer.disconnect();
+      if (activeAnchorObserver === observer) activeAnchorObserver = null;
+      return;
+    }
+
     if (findAnchorTarget(anchor.selector)) {
       settled = true;
       observer.disconnect();
+      if (activeAnchorObserver === observer) activeAnchorObserver = null;
+      if (activeAnchorTimeout !== null) {
+        window.clearTimeout(activeAnchorTimeout);
+        activeAnchorTimeout = null;
+      }
 
       // Detach from floating position (remove the wrapper if present)
       btn.closest('.cam-floating-wrapper')?.remove();
@@ -529,22 +605,25 @@ function observeForAnchor(
       btn.className = '';
       btn.removeAttribute('style');
 
-      if (attachToAnchor(btn, anchor)) {
+      if (attachToAnchor(btn, anchor, instanceId)) {
         console.log('[Copy as Markdown] Late-anchored inline');
-      } else {
+      } else if (isActiveInstance(instanceId)) {
         // Shouldn't happen, but be safe
-        showFloating(btn);
+        showFloating(btn, instanceId);
       }
     }
   });
 
   observer.observe(document.body, { childList: true, subtree: true });
+  activeAnchorObserver = observer;
 
   // Stop observing after timeout
-  setTimeout(() => {
+  activeAnchorTimeout = window.setTimeout(() => {
     if (!settled) {
       settled = true;
       observer.disconnect();
+      if (activeAnchorObserver === observer) activeAnchorObserver = null;
+      activeAnchorTimeout = null;
       console.log('[Copy as Markdown] Anchor not found after timeout, staying floating');
     }
   }, ANCHOR_OBSERVE_TIMEOUT);

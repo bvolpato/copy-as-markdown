@@ -39,6 +39,9 @@ import './extractors/pypi';
   if ((window as any).__copyAsMarkdownInit) return;
   (window as any).__copyAsMarkdownInit = true;
 
+  let extractCurrentPage: (() => Promise<string>) | null = null;
+  let toolbarListenerAttached = false;
+
   function init(): void {
     let extractor = findExtractor(window.location.href);
     
@@ -70,20 +73,25 @@ import './extractors/pypi';
       console.log(`[Copy as Markdown] Active extractor: ${extractor.name}`);
     }
 
+    extractCurrentPage = () => extractor!.extract();
+
     const anchor = extractor!.buttonPlacement === 'anchor'
       ? extractor!.anchor
       : null;
 
     showButton(
-      () => extractor!.extract(),
+      () => extractCurrentPage!(),
       anchor,
     );
 
     // Listen for Extension Toolbar Icon clicks
-    if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.onMessage) {
+    if (!toolbarListenerAttached && typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.onMessage) {
+      toolbarListenerAttached = true;
       chrome.runtime.onMessage.addListener((request) => {
         if (request.action === 'copy-as-markdown') {
-          Promise.resolve(extractor!.extract())
+          if (!extractCurrentPage) return;
+
+          Promise.resolve(extractCurrentPage())
             .then(md => {
               copyToClipboard(md).then(() => {
                 showToast('✅ Copied as Markdown!');
