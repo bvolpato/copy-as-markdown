@@ -19,7 +19,7 @@ Copy as Markdown is a browser extension and userscript that converts web page co
 
 ## How It Works
 
-When you click the "Copy as Markdown" button:
+When you click the "Copy as Markdown" extension icon in your browser toolbar:
 
 1. The extension reads the current page's DOM content (text, headings, tables, links, code) **locally in your browser**
 2. It converts the content to Markdown format **locally in your browser**
@@ -31,9 +31,9 @@ That's it. No data ever leaves your browser.
 
 | Permission | Why It's Needed |
 | --- | --- |
-| `activeTab` | Read the current page's DOM to extract content when you click the button |
+| `activeTab` | Read the current page's DOM to extract content when you click the extension icon in the toolbar |
 | `clipboardWrite` | Write the generated Markdown to your clipboard |
-| `<all_urls>` (content script) | Inject the floating button on every website so it works universally |
+| `scripting` | Execute the content extraction script into the active tab on demand |
 
 ## Third-Party Services
 

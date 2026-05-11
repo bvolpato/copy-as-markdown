@@ -35,14 +35,15 @@ import './extractors/chatgpt';
 import './extractors/npm';
 import './extractors/pypi';
 
+declare const __IS_USERSCRIPT__: boolean;
+
 (function () {
   if ((window as any).__copyAsMarkdownInit) return;
   (window as any).__copyAsMarkdownInit = true;
 
-  let extractCurrentPage: (() => Promise<string>) | null = null;
   let toolbarListenerAttached = false;
 
-  function init(): void {
+  function getExtractor() {
     let extractor = findExtractor(window.location.href);
     
     if (!extractor) {
@@ -72,56 +73,64 @@ import './extractors/pypi';
     } else {
       console.log(`[Copy as Markdown] Active extractor: ${extractor.name}`);
     }
+    
+    return extractor;
+  }
 
-    extractCurrentPage = () => extractor!.extract();
-
-    const anchor = extractor!.buttonPlacement === 'anchor'
-      ? extractor!.anchor
-      : null;
-
-    showButton(
-      () => extractCurrentPage!(),
-      anchor,
-    );
-
-    // Listen for Extension Toolbar Icon clicks
-    if (!toolbarListenerAttached && typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.onMessage) {
-      toolbarListenerAttached = true;
-      chrome.runtime.onMessage.addListener((request) => {
-        if (request.action === 'copy-as-markdown') {
-          if (!extractCurrentPage) return;
-
-          Promise.resolve(extractCurrentPage())
-            .then(md => {
-              copyToClipboard(md).then(() => {
-                showToast('✅ Copied as Markdown!');
-              });
-            })
-            .catch(err => {
-              console.error('[Copy as Markdown] Extraction error', err);
-              showToast('❌ Error copying markdown');
-            });
-        }
+  function performCopy() {
+    const extractor = getExtractor();
+    Promise.resolve(extractor!.extract())
+      .then(md => {
+        copyToClipboard(md).then(() => {
+          showToast('✅ Copied as Markdown!');
+        });
+      })
+      .catch(err => {
+        console.error('[Copy as Markdown] Extraction error', err);
+        showToast('❌ Error copying markdown');
       });
-    }
   }
 
-  if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', init);
-  } else {
-    setTimeout(init, 500);
+  // Listen for Extension Toolbar Icon clicks (synchronous registration)
+  if (!toolbarListenerAttached && typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.onMessage) {
+    toolbarListenerAttached = true;
+    chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
+      if (request.action === 'copy-as-markdown') {
+        performCopy();
+        sendResponse({ success: true });
+      }
+    });
   }
 
-  // Re-detect on SPA navigation
-  let lastUrl = window.location.href;
-  const observer = new MutationObserver(() => {
-    if (window.location.href !== lastUrl) {
-      lastUrl = window.location.href;
-      setTimeout(init, 800);
+  // UI Injection is only for Userscript installations
+  if (typeof __IS_USERSCRIPT__ !== 'undefined' && __IS_USERSCRIPT__) {
+    function initUserscript(): void {
+      const extractor = getExtractor();
+      const anchor = extractor!.buttonPlacement === 'anchor' ? extractor!.anchor : null;
+
+      showButton(
+        () => extractor!.extract(),
+        anchor,
+      );
     }
-  });
-  observer.observe(document.body || document.documentElement, {
-    childList: true,
-    subtree: true,
-  });
+
+    if (document.readyState === 'loading') {
+      document.addEventListener('DOMContentLoaded', initUserscript);
+    } else {
+      setTimeout(initUserscript, 500);
+    }
+
+    // Re-detect on SPA navigation
+    let lastUrl = window.location.href;
+    const observer = new MutationObserver(() => {
+      if (window.location.href !== lastUrl) {
+        lastUrl = window.location.href;
+        setTimeout(initUserscript, 800);
+      }
+    });
+    observer.observe(document.body || document.documentElement, {
+      childList: true,
+      subtree: true,
+    });
+  }
 })();

@@ -18,7 +18,7 @@ Context-aware "Copy as Markdown" button — the fastest way to share web content
 
 **Description:**
 ```
-Copy as Markdown adds a smart floating button to every website. One click copies the page content as clean, structured Markdown — perfect for pasting into ChatGPT, Claude, Gemini, or any LLM.
+Copy as Markdown makes it trivial to copy the content of any website. Click the extension icon and it copies the page content as clean, structured Markdown — perfect for pasting into ChatGPT, Claude, Gemini, or any LLM.
 
 🧠 WHY MARKDOWN?
 When you copy-paste from a website, you lose all structure — headings become blobs, tables vanish, links disappear. Screenshots eat your token budget. Manually reformatting takes forever.
@@ -56,7 +56,7 @@ Purpose-built extractors for the most popular sites:
 Not on the list above? No problem. The smart fallback extractor works on any website — it detects the main content area (article, main, or selection) and converts it to Markdown automatically.
 
 ✨ KEY FEATURES
-• One-click copy — floating button appears on every page
+• One-click copy — just click the extension icon
 • Selection-aware — highlight text first to copy just that section
 • YAML frontmatter — adds source, title, URL, and date metadata
 • Dismiss per page — click the ✕ to hide the button for the current session
@@ -92,7 +92,7 @@ English
 
 Upload these 5 images from `docs/screenshots/`:
 
-1. `1-wikipedia.png` — Wikipedia article with the floating Copy as Markdown button
+1. `1-wikipedia.png` — Wikipedia article showing the Copy as Markdown extension
 2. `2-github.png` — GitHub repo page with the copy success toast notification
 3. `3-before-after.png` — Side-by-side: messy copy-paste vs clean Markdown output
 4. `4-stackoverflow.png` — Stack Overflow question with the inline pill button
@@ -131,17 +131,17 @@ Extracts the content of the current web page and copies it to the clipboard as c
 
 **activeTab justification:**
 ```
-Required to read the current page's DOM content (text, headings, tables, links, code blocks) in order to convert it to Markdown when the user clicks the "Copy as Markdown" button. No data is read from any page until the user explicitly triggers the copy action. No data is sent externally.
+Required to dynamically inject the content script and read the current page's DOM content (text, headings, tables, links, code blocks) in order to convert it to Markdown when the user explicitly clicks the extension icon in the toolbar. No data is read from any page until the user actively clicks the extension icon. No data is sent externally.
+```
+
+**scripting justification:**
+```
+Required to dynamically execute the content extraction script into the active tab when the user clicks the extension icon. This ensures no scripts are unnecessarily loaded or injected into pages until the user actively decides to copy the content, prioritizing user privacy and browser performance.
 ```
 
 **clipboardWrite justification:**
 ```
-Required to write the generated Markdown text to the user's clipboard when they click the "Copy as Markdown" button. This is the core functionality of the extension — without clipboard access, the copied Markdown cannot be pasted into LLMs or text editors.
-```
-
-**Host permission justification:**
-```
-The extension uses <all_urls> in content_scripts to inject the floating "Copy as Markdown" button on every page. This is necessary because the extension is designed to work universally on any website — it has 24 site-specific extractors plus a smart fallback for all other sites. The content script only reads the page DOM when the user clicks the button; it does not passively collect or transmit any data.
+Required to write the generated Markdown text to the user's clipboard after extracting the page content. This is the core functionality of the extension — without clipboard access, the copied Markdown cannot be pasted into LLMs or text editors.
 ```
 
 **Are you using remote code?**
@@ -213,5 +213,5 @@ Public
 
 **Additional instructions:**
 ```
-No login required. Visit any website, look for the floating icon in the bottom-right corner, and click it. The page content will be copied as Markdown to your clipboard. Try it on wikipedia.org, github.com, or stackoverflow.com for the best experience.
+No login required. Visit any website, click the "Copy as Markdown" extension icon in your browser toolbar. The page content will be copied as Markdown to your clipboard and a toast notification will appear confirming the action. Try it on wikipedia.org, github.com, or stackoverflow.com for the best experience.
 ```

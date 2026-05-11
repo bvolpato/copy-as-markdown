@@ -29,13 +29,10 @@ You're chatting with ChatGPT, Claude, or Gemini. You want to share a web page fo
 
 ## The Solution
 
-**Copy as Markdown** adds a context-aware button to supported websites. The current positioning policy is intentionally conservative:
+**Copy as Markdown** allows you to extract content with a single click. Depending on your installation method, you interact with it in two ways:
 
-- **Wikipedia** → A new tab next to *Read · Edit · View history*
-- **Google Docs** → A title-bar button near the share / assistant controls
-- **Everything else** → A floating button in the bottom-right corner
-
-The codebase still keeps per-site hooks for inline placement, but we only enable them deliberately. Right now, Wikipedia and Google Docs are the only sites opted into custom positions.
+- **Browser Extension:** Click the "Copy as Markdown" icon in your browser toolbar. The extension uses a privacy-first, on-demand approach — it only accesses the page when you explicitly click the icon.
+- **Userscript:** A context-aware button is added to supported websites (e.g., a floating button in the bottom-right corner, or inline buttons on Wikipedia and Google Docs).
 
 One click, and the page's content lands in your clipboard as clean, structured Markdown — headers, tables, links, code blocks, metadata — all preserved. Paste it into your LLM conversation. Done.
 
@@ -71,11 +68,9 @@ The fastest way to get started. Works in any browser with a userscript manager.
 
 ## Supported Sites
 
-Current button placement:
-
-- **Wikipedia** uses an inline tab in the page chrome
-- **Google Docs** uses an inline button in the title bar
-- **All other supported sites** use the default floating button in the bottom-right corner
+**Interaction Model:**
+- **Browser Extension:** Click the toolbar icon on any supported site.
+- **Userscript:** Clicks are handled via injected buttons (inline for Wikipedia and Google Docs, floating for everything else).
 
 | Site | What's Extracted |
 | --- | --- |
@@ -99,7 +94,7 @@ Current button placement:
 
 Every extractor is purpose-built to separate **signal from noise**: no ads, no navigation menus, no cookie banners, no related-articles sidebars. Just the content that matters.
 
-If an extractor is not explicitly opted into inline placement, the button stays in the bottom-right corner. If an inline anchor is enabled but the selector is missing (for example after a site redesign), the button also falls back to the bottom-right floating button.
+If an extractor is not explicitly opted into inline placement (for userscript builds), the button stays in the bottom-right corner. If an inline anchor is enabled but the selector is missing (for example after a site redesign), the button also falls back to the bottom-right floating button.
 
 ---
 
@@ -138,7 +133,7 @@ Every major LLM — GPT-5.4, Claude, Gemini, Llama, Mistral — understands Mark
 
 ## Example Output
 
-Clicking the button on a Wikipedia article produces:
+Clicking the extension icon or userscript button on a Wikipedia article produces:
 
 ```markdown
 ---
@@ -238,9 +233,11 @@ build/
 └── build.js            ← esbuild bundler → userscript + extensions
 ```
 
-### Button Positioning
+### Userscript Button Positioning
 
-The default behavior is simple: unless a site is explicitly opted into inline placement, the button is rendered as a floating action button in the bottom-right corner.
+*Note: Button positioning only applies to the Userscript build. The browser extensions rely exclusively on the toolbar icon.*
+
+The default behavior is simple: unless a site is explicitly opted into inline placement, the userscript button is rendered as a floating action button in the bottom-right corner.
 
 To enable a custom inline position for a specific site, you need two things:
 

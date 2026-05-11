@@ -66,7 +66,7 @@ interface FirefoxManifest extends ManifestBase {
 
 // ---------- esbuild: TypeScript → single IIFE bundle ----------
 
-function bundle(): string {
+function bundle(isUserscript: boolean): string {
   const result: BuildResult = buildSync({
     entryPoints: [path.join(SRC, 'main.ts')],
     bundle: true,
@@ -76,6 +76,9 @@ function bundle(): string {
     minify: false,       // keep readable for userscript installs
     sourcemap: false,
     logLevel: 'warning',
+    define: {
+      '__IS_USERSCRIPT__': isUserscript ? 'true' : 'false',
+    },
   });
   return result.outputFiles![0].text;
 }
@@ -148,12 +151,11 @@ function buildChromeManifest(patterns: string[]): ChromeManifest {
     name: 'Copy as Markdown',
     version: VERSION,
     description: 'Context-aware "Copy as Markdown" button — the fastest way to share web content with LLMs like ChatGPT, Claude, and Gemini.',
-    permissions: ['activeTab', 'clipboardWrite'],
+    permissions: ['activeTab', 'clipboardWrite', 'scripting'],
     icons: { '16': 'icons/icon-16.png', '48': 'icons/icon-48.png', '128': 'icons/icon-128.png' },
     background: { service_worker: 'background.js' },
-    content_scripts: [{ matches: ['<all_urls>'], js: ['content.js'], run_at: 'document_idle' }],
     action: { default_icon: { '16': 'icons/icon-16.png', '48': 'icons/icon-48.png' }, default_title: 'Copy as Markdown' },
-  };
+  } as ChromeManifest;
 }
 
 // ---------- Firefox Extension (MV2) ----------
@@ -167,7 +169,6 @@ function buildFirefoxManifest(patterns: string[]): FirefoxManifest {
     permissions: ['activeTab', 'clipboardWrite'],
     icons: { '16': 'icons/icon-16.png', '48': 'icons/icon-48.png', '128': 'icons/icon-128.png' },
     background: { scripts: ['background.js'] },
-    content_scripts: [{ matches: ['<all_urls>'], js: ['content.js'], run_at: 'document_idle' }],
     browser_action: { default_icon: { '16': 'icons/icon-16.png', '48': 'icons/icon-48.png' }, default_title: 'Copy as Markdown' },
     browser_specific_settings: {
       gecko: {
@@ -176,7 +177,7 @@ function buildFirefoxManifest(patterns: string[]): FirefoxManifest {
         data_collection_permissions: { required: ['none'] },
       },
     },
-  };
+  } as FirefoxManifest;
 }
 
 // ---------- SVG Icon ----------
@@ -216,13 +217,14 @@ function main(): void {
 
   // Bundle TypeScript → single JS
   console.log('  📦 Bundling TypeScript with esbuild...');
-  const code = bundle();
+  const codeUserscript = bundle(true);
+  const codeExtension = bundle(false);
   const patterns = collectMatchPatterns();
 
   // 1. Userscript
   const usDir = path.join(DIST, 'userscript');
   ensureDir(usDir);
-  const userscript = buildUserscript(code);
+  const userscript = buildUserscript(codeUserscript);
   fs.writeFileSync(path.join(usDir, 'copy-as-markdown.user.js'), userscript);
   console.log(`  ✅ Userscript → dist/userscript/copy-as-markdown.user.js (${(userscript.length / 1024).toFixed(1)} KB)`);
 
@@ -230,7 +232,7 @@ function main(): void {
   const chromeDir = path.join(DIST, 'chrome');
   ensureDir(path.join(chromeDir, 'icons'));
   fs.writeFileSync(path.join(chromeDir, 'manifest.json'), JSON.stringify(buildChromeManifest(patterns), null, 2));
-  fs.writeFileSync(path.join(chromeDir, 'content.js'), code);
+  fs.writeFileSync(path.join(chromeDir, 'content.js'), codeExtension);
   fs.writeFileSync(path.join(chromeDir, 'background.js'), bundleBackground());
   fs.writeFileSync(path.join(chromeDir, 'icons', 'icon.svg'), getSVGIcon());
   generatePngs(path.join(chromeDir, 'icons', 'icon.svg'), path.join(chromeDir, 'icons'));
@@ -240,7 +242,7 @@ function main(): void {
   const firefoxDir = path.join(DIST, 'firefox');
   ensureDir(path.join(firefoxDir, 'icons'));
   fs.writeFileSync(path.join(firefoxDir, 'manifest.json'), JSON.stringify(buildFirefoxManifest(patterns), null, 2));
-  fs.writeFileSync(path.join(firefoxDir, 'content.js'), code);
+  fs.writeFileSync(path.join(firefoxDir, 'content.js'), codeExtension);
   fs.writeFileSync(path.join(firefoxDir, 'background.js'), bundleBackground());
   fs.writeFileSync(path.join(firefoxDir, 'icons', 'icon.svg'), getSVGIcon());
   generatePngs(path.join(firefoxDir, 'icons', 'icon.svg'), path.join(firefoxDir, 'icons'));
