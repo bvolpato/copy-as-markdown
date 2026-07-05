@@ -8,6 +8,37 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$SCRIPT_DIR"
 
+usage() {
+  cat <<'EOF'
+Build Copy as Markdown extension/package.
+
+Performs clean dist rebuild, installs pnpm dependencies, runs typecheck, then builds all targets.
+
+Usage:
+  ./build.sh
+
+Options:
+  -h, --help      Show this help.
+
+Available sessions:
+  ./build.sh      Clean, type-check, and build all Copy as Markdown targets.
+EOF
+}
+
+case "${1:-}" in
+  -h|--help)
+    usage
+    exit 0
+    ;;
+  "")
+    ;;
+  *)
+    echo "Unknown arg: $1" >&2
+    usage >&2
+    exit 1
+    ;;
+esac
+
 echo "🧹 Cleaning previous build..."
 rm -rf dist
 
