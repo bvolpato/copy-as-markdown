@@ -16,6 +16,7 @@ register({
     '*://polymarket.com/event/*',
     '*://www.polymarket.com/event/*',
   ],
+  buttonPlacement: 'anchor',
   anchor: {
     selector: 'div.flex.items-center:has(.bookmarkButton)',
     position: 'overlay',

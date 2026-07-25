@@ -17,7 +17,6 @@ import { buildSync, type BuildResult } from 'esbuild';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { execSync } from 'node:child_process';
 import { createRequire } from 'node:module';
 
 const require = createRequire(import.meta.url);
@@ -27,8 +26,10 @@ const __dirname = path.dirname(__filename);
 const ROOT = path.resolve(__dirname, '..');
 const SRC = path.join(ROOT, 'src');
 const DIST = path.join(ROOT, 'dist');
+const ASSETS = path.join(ROOT, 'assets');
 const pkg = require('../package.json');
 const VERSION = pkg.version;
+const ICON_FILES = ['icon.svg', 'icon-16.png', 'icon-48.png', 'icon-128.png'] as const;
 
 // ---------- Types ----------
 
@@ -183,23 +184,12 @@ function buildFirefoxManifest(patterns: string[]): FirefoxManifest {
 // ---------- SVG Icon ----------
 
 function getSVGIcon(): string {
-  return fs.readFileSync(path.join(ROOT, 'assets', 'icon.svg'), 'utf-8');
+  return fs.readFileSync(path.join(ASSETS, 'icon.svg'), 'utf-8');
 }
 
-function generatePngs(svgPath: string, outDir: string): void {
-  const sizes = [16, 48, 128];
-  for (const size of sizes) {
-    const outPath = path.join(outDir, `icon-${size}.png`);
-    try {
-      // Try ImageMagick v7 (magick) first, then v6 (convert)
-      try {
-        execSync(`magick -background none "${svgPath}" -resize ${size}x${size} "${outPath}"`, { stdio: 'ignore' });
-      } catch {
-        execSync(`convert -background none "${svgPath}" -resize ${size}x${size} "${outPath}"`, { stdio: 'ignore' });
-      }
-    } catch (e) {
-      console.warn(`⚠️ Failed to generate ${outPath}. Make sure ImageMagick is installed.`);
-    }
+function copyIcons(outDir: string): void {
+  for (const file of ICON_FILES) {
+    fs.copyFileSync(path.join(ASSETS, file), path.join(outDir, file));
   }
 }
 
@@ -234,8 +224,7 @@ function main(): void {
   fs.writeFileSync(path.join(chromeDir, 'manifest.json'), JSON.stringify(buildChromeManifest(patterns), null, 2));
   fs.writeFileSync(path.join(chromeDir, 'content.js'), codeExtension);
   fs.writeFileSync(path.join(chromeDir, 'background.js'), bundleBackground());
-  fs.writeFileSync(path.join(chromeDir, 'icons', 'icon.svg'), getSVGIcon());
-  generatePngs(path.join(chromeDir, 'icons', 'icon.svg'), path.join(chromeDir, 'icons'));
+  copyIcons(path.join(chromeDir, 'icons'));
   console.log('  ✅ Chrome Extension → dist/chrome/ (Manifest V3)');
 
   // 3. Firefox Extension
@@ -244,8 +233,7 @@ function main(): void {
   fs.writeFileSync(path.join(firefoxDir, 'manifest.json'), JSON.stringify(buildFirefoxManifest(patterns), null, 2));
   fs.writeFileSync(path.join(firefoxDir, 'content.js'), codeExtension);
   fs.writeFileSync(path.join(firefoxDir, 'background.js'), bundleBackground());
-  fs.writeFileSync(path.join(firefoxDir, 'icons', 'icon.svg'), getSVGIcon());
-  generatePngs(path.join(firefoxDir, 'icons', 'icon.svg'), path.join(firefoxDir, 'icons'));
+  copyIcons(path.join(firefoxDir, 'icons'));
   console.log('  ✅ Firefox Extension → dist/firefox/ (Manifest V2)');
 
   // Summary

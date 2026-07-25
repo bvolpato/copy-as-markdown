@@ -31,7 +31,7 @@ register({
   // explicitly reviewed and ready to be enabled.
   anchor: {
     selector: 'header nav',        // where to put the button
-    position: 'append',            // 'append' | 'prepend' | 'before' | 'after'
+    position: 'append',            // 'append' | 'prepend' | 'before' | 'after' | 'overlay'
     style: 'pill',                 // 'tab' | 'pill' | 'icon' | 'link'
   },
 
@@ -53,8 +53,10 @@ register({
 ```
 
 3. **Import in main.ts**: Add `import './extractors/my-site';` to `src/main.ts`
-4. **Build and test**: `pnpm build`
+4. **Build and test**: `pnpm typecheck && pnpm test:regression && pnpm package:all && pnpm verify:release`
 5. **Load the userscript** or extension and verify on the target site
+
+`pnpm test:live` runs optional Wayback-based diagnostics. It is not a release gate because archive availability is external and intermittent.
 
 By default, the button should stay floating in the bottom-right corner. If you want to activate an inline placement, set:
 
@@ -95,8 +97,24 @@ If unsure, use `pill` — it's the most versatile and always looks good.
 1. Fork the repository
 2. Create a feature branch: `git checkout -b add-github-extractor`
 3. Make your changes and test them
-4. Run `pnpm typecheck && pnpm build`
+4. Run `pnpm typecheck && pnpm test:regression && pnpm package:all && pnpm verify:release`
 5. Open a PR with a clear description of what site you're adding and what content is extracted
+
+## Release Process
+
+GitHub Actions builds and publishes releases. Do not create releases or upload assets manually.
+
+1. Update `package.json` to the next `MAJOR.MINOR.PATCH` version.
+2. Merge the version and release changes into `main`.
+3. Create and push a signed tag matching that version:
+
+   ```bash
+   version="$(node -p "require('./package.json').version")"
+   git tag -s "v$version" -m "v$version"
+   git push origin "v$version"
+   ```
+
+The release workflow accepts only signed strict semantic-version tags from an allowed signer. Tag version must match `package.json`, and tagged commit must be reachable from `main`. Workflow runs typechecking, browser regression tests, packaging, and manifest/archive verification before its isolated publish job receives write permission.
 
 ## Reporting Issues
 

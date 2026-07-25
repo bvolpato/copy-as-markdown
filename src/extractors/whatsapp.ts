@@ -9,6 +9,7 @@ import * as Utils from '../core/utils';
 register({
   name: 'WhatsApp',
   matches: ['*://web.whatsapp.com/*'],
+  buttonPlacement: 'anchor',
   anchor: {
     selector: '#main header [data-testid="chat-header-actions"], #main header',
     position: 'overlay',

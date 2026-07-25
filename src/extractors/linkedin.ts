@@ -18,6 +18,7 @@ register({
     '*://linkedin.com/feed/update/*',
     '*://linkedin.com/in/*',
   ],
+  buttonPlacement: 'anchor',
   anchor: {
     selector: [
       '.feed-shared-control-menu',                // post action menu

@@ -509,6 +509,34 @@ function cancelWatchdog(): void {
   }
 }
 
+type OverlayElement = HTMLDivElement & {
+  _camCleanup?: () => void;
+};
+
+function cleanupOverlay(overlay: Element): void {
+  const cleanup = (overlay as OverlayElement)._camCleanup;
+  if (cleanup) {
+    cleanup();
+  } else {
+    overlay.remove();
+  }
+}
+
+function detachButtonPlacement(btn: HTMLButtonElement): void {
+  const overlay = btn.closest('.cam-overlay-container');
+  if (overlay) {
+    cleanupOverlay(overlay);
+    return;
+  }
+
+  const wrapper = btn.closest<HTMLElement>(`[${WRAPPER_ATTR}], .cam-floating-wrapper`);
+  if (wrapper) {
+    wrapper.remove();
+  } else {
+    btn.remove();
+  }
+}
+
 /**
  * Periodically check if the anchored button is still in the DOM.
  * SPAs (ChatGPT, Claude, Gemini) re-render and destroy injected elements.
@@ -518,7 +546,6 @@ function startAnchorWatchdog(
   btn: HTMLButtonElement,
   anchor: AnchorConfig,
   instanceId: string,
-  onClick: () => Promise<string>,
 ): void {
   cancelWatchdog();
 
@@ -528,10 +555,23 @@ function startAnchorWatchdog(
       return;
     }
 
-    // Button still in the DOM? Nothing to do.
-    if (document.contains(btn)) return;
+    const target = findAnchorTarget(anchor.selector);
+    const isFloating = !!btn.closest('.cam-floating-wrapper');
 
-    // Button was removed by the SPA. Try to re-anchor.
+    if (!target) {
+      if (!isFloating) {
+        detachButtonPlacement(btn);
+        btn.className = '';
+        btn.removeAttribute('style');
+        console.log('[Copy as Markdown] Anchor target gone, falling back to floating');
+        showFloating(btn, instanceId);
+      }
+      return;
+    }
+
+    if (document.contains(btn) && !isFloating) return;
+
+    detachButtonPlacement(btn);
     btn.className = '';
     btn.removeAttribute('style');
 
@@ -540,8 +580,6 @@ function startAnchorWatchdog(
       return;
     }
 
-    // Anchor target also gone. Show floating fallback.
-    console.log('[Copy as Markdown] Anchor target gone, falling back to floating');
     showFloating(btn, instanceId);
   }, ANCHOR_WATCHDOG_INTERVAL);
 }
@@ -571,11 +609,7 @@ function buildAnchorNode(
 function clearInjectedUi(): void {
   cancelAnchorObserver();
   cancelWatchdog();
-  // Clean up overlay reposition intervals
-  document.querySelectorAll('.cam-overlay-container').forEach((el) => {
-    if ((el as any)._camReposition) clearInterval((el as any)._camReposition);
-    el.remove();
-  });
+  document.querySelectorAll('.cam-overlay-container').forEach(cleanupOverlay);
   document.querySelectorAll(`[${WRAPPER_ATTR}]`).forEach((el) => el.remove());
   document.querySelector('.cam-floating-wrapper')?.remove();
   document.getElementById(BUTTON_ID)?.remove();
@@ -610,40 +644,52 @@ function attachToAnchor(
     applyInlineCss(btn, anchor.css);
 
     // Remove any prior overlay
-    document.querySelector('.cam-overlay-container')?.remove();
+    const priorOverlay = document.querySelector('.cam-overlay-container');
+    if (priorOverlay) cleanupOverlay(priorOverlay);
 
-    const overlay = document.createElement('div');
+    const overlay = document.createElement('div') as OverlayElement;
     overlay.className = 'cam-overlay-container';
     overlay.setAttribute(WRAPPER_ATTR, 'true');
     markInjected(overlay, instanceId);
     overlay.appendChild(btn);
+    document.body.appendChild(overlay);
 
     const updatePosition = () => {
       const t = findAnchorTarget(anchor.selector);
-      if (!t) {
-        overlay.style.display = 'none';
-        return;
-      }
-      overlay.style.display = '';
-      const rect = t.getBoundingClientRect();
+      if (!t) return;
+      const targetRect = t.getBoundingClientRect();
+      const overlayRect = overlay.getBoundingClientRect();
+      const buttonRect = btn.getBoundingClientRect();
+      const buttonOffsetLeft = buttonRect.left - overlayRect.left;
+      const buttonOffsetTop = buttonRect.top - overlayRect.top;
+      const gap = 8;
       // Position to the left of the target element
-      overlay.style.top = `${rect.top + (rect.height - 36) / 2}px`;
-      overlay.style.left = `${rect.left - 44}px`;
+      overlay.style.top = `${targetRect.top + (targetRect.height - buttonRect.height) / 2 - buttonOffsetTop}px`;
+      overlay.style.left = `${targetRect.left - buttonRect.width - gap - buttonOffsetLeft}px`;
     };
 
     updatePosition();
-    document.body.appendChild(overlay);
 
     // Reposition on scroll/resize and periodically (SPA layout shifts)
     const reposition = () => {
       if (!document.contains(overlay)) return;
       updatePosition();
     };
+    let repositionInterval: number | null = null;
+    const cleanup = () => {
+      window.removeEventListener('scroll', reposition);
+      window.removeEventListener('resize', reposition);
+      if (repositionInterval !== null) {
+        window.clearInterval(repositionInterval);
+        repositionInterval = null;
+      }
+      overlay.remove();
+      overlay._camCleanup = undefined;
+    };
+    overlay._camCleanup = cleanup;
     window.addEventListener('scroll', reposition, { passive: true });
     window.addEventListener('resize', reposition, { passive: true });
-
-    // Store cleanup ref on the element so watchdog can update
-    (overlay as any)._camReposition = setInterval(reposition, 2000);
+    repositionInterval = window.setInterval(reposition, ANCHOR_WATCHDOG_INTERVAL);
     return true;
   }
 
@@ -714,6 +760,7 @@ function showFloating(btn: HTMLButtonElement, instanceId: string): void {
   if (!isActiveInstance(instanceId)) return;
   if (isDismissedForCurrentPage()) return;
 
+  detachButtonPlacement(btn);
   btn.className = 'cam-floating';
   setButtonContent(btn, createIconElement());
 
@@ -731,6 +778,8 @@ function showFloating(btn: HTMLButtonElement, instanceId: string): void {
     e.preventDefault();
     e.stopPropagation();
     dismissForCurrentPage();
+    cancelAnchorObserver();
+    cancelWatchdog();
     wrapper.remove();
 
     // Show host-dismiss prompt
@@ -822,7 +871,7 @@ export function showButton(
     if (attachToAnchor(btn, anchor, instanceId)) {
       console.log('[Copy as Markdown] Anchored inline');
       // Start watchdog to re-inject if SPA removes the button
-      startAnchorWatchdog(btn, anchor, instanceId, onClick);
+      startAnchorWatchdog(btn, anchor, instanceId);
       return btn;
     }
 
@@ -830,7 +879,7 @@ export function showButton(
     showFloating(btn, instanceId);
     console.log('[Copy as Markdown] Anchor not found yet, floating while observing…');
 
-    observeForAnchor(btn, anchor, instanceId, onClick);
+    observeForAnchor(btn, anchor, instanceId);
   } else {
     showFloating(btn, instanceId);
   }
@@ -846,7 +895,6 @@ function observeForAnchor(
   btn: HTMLButtonElement,
   anchor: AnchorConfig,
   instanceId: string,
-  onClick: () => Promise<string>,
 ): void {
   let settled = false;
 
@@ -878,7 +926,7 @@ function observeForAnchor(
 
       if (attachToAnchor(btn, anchor, instanceId)) {
         console.log('[Copy as Markdown] Late-anchored inline');
-        startAnchorWatchdog(btn, anchor, instanceId, onClick);
+        startAnchorWatchdog(btn, anchor, instanceId);
       } else {
         // Shouldn't happen, but be safe
         showFloating(btn, instanceId);

@@ -9,8 +9,9 @@
  *   3. Extraction produces non-trivial Markdown output
  *
  * Run:
- *   node test/test-sites.js              # full suite
- *   node test/test-sites.js Wikipedia    # single site
+ *   node test/test-sites.js              # live Wayback suite
+ *   node test/test-sites.js Wikipedia    # single live site
+ *   node test/test-sites.js --regression # deterministic browser guards only
  *   node test/test-sites.js --list       # list available sites
  *
  * Prerequisites:
@@ -156,6 +157,312 @@ function boxesOverlap(a, b) {
   return a.left < b.right && a.right > b.left && a.top < b.bottom && a.bottom > b.top;
 }
 
+async function createFixturePage(browser, scriptContent, {
+  url,
+  html,
+  csp = '',
+  beforeLoad,
+}) {
+  const page = await browser.newPage();
+  await page.setViewport({ width: 1280, height: 800 });
+
+  if (beforeLoad) await page.evaluateOnNewDocument(beforeLoad);
+  if (csp) await page.evaluateOnNewDocument(scriptContent);
+
+  await page.setRequestInterception(true);
+  page.on('request', (req) => {
+    if (req.isNavigationRequest() && req.resourceType() === 'document') {
+      req.respond({
+        status: 200,
+        contentType: 'text/html; charset=utf-8',
+        headers: csp ? { 'Content-Security-Policy': csp } : {},
+        body: html,
+      });
+    } else {
+      req.abort();
+    }
+  });
+
+  await page.goto(url, { waitUntil: 'domcontentloaded' });
+  if (!csp) await page.addScriptTag({ content: scriptContent });
+  await page.waitForSelector('#cam-copy-btn', { timeout: 4000 });
+  return page;
+}
+
+async function clickAndCapture(page) {
+  await page.evaluate(() => {
+    window.__camCapturedMarkdown = '';
+    Object.defineProperty(navigator, 'clipboard', {
+      configurable: true,
+      value: {
+        writeText: async (text) => {
+          window.__camCapturedMarkdown = text;
+        },
+      },
+    });
+    document.execCommand = (command) => {
+      if (command === 'copy') {
+        const textarea = document.querySelector('textarea');
+        if (textarea) window.__camCapturedMarkdown = textarea.value;
+        return true;
+      }
+      return false;
+    };
+    document.querySelector('#cam-copy-btn').click();
+  });
+  await page.waitForFunction(() => window.__camCapturedMarkdown.length > 0, { timeout: 4000 });
+  return page.evaluate(() => window.__camCapturedMarkdown);
+}
+
+async function runRegressionChecks(browser, scriptContent) {
+  console.log(`${COLORS.cyan}● Deterministic regression guards${COLORS.reset}`);
+
+  const overlayFixtures = [
+    {
+      name: 'Reddit',
+      url: 'https://www.reddit.com/r/test/comments/123/test/',
+      anchor: '<shreddit-post><div id="anchor" slot="post-actions"></div></shreddit-post>',
+    },
+    {
+      name: 'YouTube',
+      url: 'https://www.youtube.com/watch?v=test',
+      anchor: '<div id="top-level-buttons-computed"></div>',
+    },
+    {
+      name: 'X',
+      url: 'https://x.com/test/status/123',
+      anchor: '<div id="anchor" data-testid="userActions"></div>',
+    },
+    {
+      name: 'LinkedIn',
+      url: 'https://www.linkedin.com/posts/test',
+      anchor: '<div id="anchor" class="feed-shared-control-menu"></div>',
+    },
+    {
+      name: 'WhatsApp',
+      url: 'https://web.whatsapp.com/',
+      anchor: '<div id="main"><header><div id="anchor" data-testid="chat-header-actions"></div></header></div>',
+    },
+    {
+      name: 'Polymarket',
+      url: 'https://polymarket.com/event/test',
+      anchor: '<div id="anchor" class="flex items-center"><button class="bookmarkButton"></button></div>',
+    },
+  ];
+
+  for (const fixture of overlayFixtures) {
+    const page = await createFixturePage(browser, scriptContent, {
+      url: fixture.url,
+      html: `<!doctype html><html><head><title>${fixture.name}</title></head><body>
+        <style>#anchor, #top-level-buttons-computed {
+          position: absolute; left: 600px; top: 120px; width: 180px; height: 48px;
+        }</style>
+        ${fixture.anchor}
+      </body></html>`,
+    });
+    try {
+      await page.waitForSelector('.cam-overlay-container #cam-copy-btn', { timeout: 4000 });
+      const geometry = await page.evaluate(() => {
+        const target = document.querySelector(
+          'shreddit-post [slot="post-actions"], #top-level-buttons-computed, [data-testid="userActions"], .feed-shared-control-menu, #main header [data-testid="chat-header-actions"], div.flex.items-center:has(.bookmarkButton)'
+        );
+        const button = document.querySelector('#cam-copy-btn');
+        const targetRect = target.getBoundingClientRect();
+        const buttonRect = button.getBoundingClientRect();
+        return {
+          floating: !!document.querySelector('.cam-floating-wrapper'),
+          target: {
+            left: targetRect.left, right: targetRect.right,
+            top: targetRect.top, bottom: targetRect.bottom,
+          },
+          button: {
+            left: buttonRect.left, right: buttonRect.right,
+            top: buttonRect.top, bottom: buttonRect.bottom,
+            width: buttonRect.width, height: buttonRect.height,
+          },
+        };
+      });
+      assertCheck(!geometry.floating, `${fixture.name} overlay config remained floating`);
+      assertCheck(geometry.button.width > 0 && geometry.button.height > 0, `${fixture.name} overlay measured before layout`);
+      assertCheck(!boxesOverlap(geometry.button, geometry.target), `${fixture.name} overlay overlaps anchor target`);
+    } finally {
+      await page.close();
+    }
+  }
+  log('✅', 'Six site overlay configs activate with measured, non-overlapping geometry');
+
+  const chatgptPage = await createFixturePage(browser, scriptContent, {
+    url: 'https://chatgpt.com/c/regression',
+    html: `<!doctype html><html><head><title>Image regression</title></head><body>
+      <div id="conversation-header-actions" style="position:absolute;left:600px;top:30px;width:150px;height:40px"></div>
+      <section data-testid="conversation-turn-1" data-turn="assistant">
+        <div class="markdown" data-message-model-slug="gpt-test">
+          <p>Assistant answer</p>
+          <img alt="Inline image" src="https://assets.test/inline.png" width="512" height="512">
+        </div>
+        <img alt="Inline duplicate" src="https://assets.test/inline.png" width="512" height="512">
+        <figure><img alt="Generated image" src="https://assets.test/generated.png" style="width:512px;height:512px"></figure>
+        <img alt="Avatar" src="https://assets.test/avatar.png" width="32" height="32">
+      </section>
+    </body></html>`,
+  });
+  try {
+    const markdown = await clickAndCapture(chatgptPage);
+    const inlineCount = markdown.split('https://assets.test/inline.png').length - 1;
+    const generatedCount = markdown.split('https://assets.test/generated.png').length - 1;
+    assertCheck(inlineCount === 1, `ChatGPT inline image emitted ${inlineCount} times`);
+    assertCheck(generatedCount === 1, `ChatGPT generated image emitted ${generatedCount} times`);
+    assertCheck(!markdown.includes('avatar.png'), 'ChatGPT avatar leaked as content image');
+    assertCheck(markdown.includes('Assistant answer'), 'ChatGPT assistant text missing');
+    log('✅', 'ChatGPT keeps standalone generated images and deduplicates inline images');
+  } finally {
+    await chatgptPage.close();
+  }
+
+  const strictCsp = "script-src 'unsafe-inline'; require-trusted-types-for 'script'; trusted-types 'none'";
+  const selectionPage = await createFixturePage(browser, scriptContent, {
+    url: 'https://fixture.test/selection',
+    csp: strictCsp,
+    html: `<!doctype html><html><head><title>Selection fixture</title></head><body>
+      <main>
+        <p id="selected">alpha\u2028beta / 10\u202F000 / می\u200Cروم / 👩\u200D💻 / \u2066isolated\u2069</p>
+        <p>must not copy</p>
+      </main>
+    </body></html>`,
+  });
+  try {
+    await selectionPage.evaluate(() => {
+      const range = document.createRange();
+      range.selectNodeContents(document.querySelector('#selected'));
+      const selection = window.getSelection();
+      selection.removeAllRanges();
+      selection.addRange(range);
+    });
+    const markdown = await clickAndCapture(selectionPage);
+    assertCheck(markdown.includes('alpha beta / 10 000'), `Unicode separators lost text boundaries: ${JSON.stringify(markdown)}`);
+    assertCheck(markdown.includes('می\u200Cروم'), 'Persian ZWNJ was stripped');
+    assertCheck(markdown.includes('👩\u200D💻'), 'Emoji ZWJ was stripped');
+    assertCheck(markdown.includes('isolated') && !markdown.includes('\u2066') && !markdown.includes('\u2069'), 'Bidi isolates were not cleaned');
+    assertCheck(!markdown.includes('must not copy'), 'Selected-text fallback copied unselected content');
+    log('✅', 'Strict Trusted Types selection works and Unicode boundaries/joiners are preserved');
+  } finally {
+    await selectionPage.close();
+  }
+
+  const claudePage = await createFixturePage(browser, scriptContent, {
+    url: 'https://claude.ai/chat/regression',
+    html: `<!doctype html><html><head><title>Claude fixture</title></head><body>
+      <div data-testid="wiggle-controls-actions" style="position:absolute;left:600px;top:30px;width:150px;height:40px"></div>
+      <article role="article"><div data-testid="user-message">Claude question</div></article>
+      <article role="article"><div class="standard-markdown"><p>Claude answer</p></div></article>
+    </body></html>`,
+  });
+  try {
+    const markdown = await clickAndCapture(claudePage);
+    assertCheck(markdown.includes('Claude question'), 'Claude user message missing');
+    assertCheck(markdown.includes('Claude answer'), 'Claude response missing');
+  } finally {
+    await claudePage.close();
+  }
+
+  const geminiPage = await createFixturePage(browser, scriptContent, {
+    url: 'https://gemini.google.com/app/regression',
+    csp: strictCsp,
+    html: `<!doctype html><html><head><title>Gemini fixture</title></head><body>
+      <div class="conversation-container">
+        <user-query><p class="query-text-line">Gemini question</p></user-query>
+        <model-response><div class="markdown markdown-main-panel"><p>Gemini answer</p></div></model-response>
+      </div>
+    </body></html>`,
+  });
+  try {
+    const markdown = await clickAndCapture(geminiPage);
+    assertCheck(markdown.includes('Gemini question'), 'Gemini user message missing');
+    assertCheck(markdown.includes('Gemini answer'), 'Gemini response missing');
+    log('✅', 'Claude and strict-Trusted-Types Gemini basics extract correctly');
+  } finally {
+    await geminiPage.close();
+  }
+
+  const lifecyclePage = await createFixturePage(browser, scriptContent, {
+    url: 'https://chatgpt.com/c/overlay-lifecycle',
+    beforeLoad: () => {
+      const tracked = { scroll: new Set(), resize: new Set() };
+      const nativeAdd = window.addEventListener;
+      const nativeRemove = window.removeEventListener;
+      window.addEventListener = function(type, listener, options) {
+        if (tracked[type]) tracked[type].add(listener);
+        return nativeAdd.call(this, type, listener, options);
+      };
+      window.removeEventListener = function(type, listener, options) {
+        if (tracked[type]) tracked[type].delete(listener);
+        return nativeRemove.call(this, type, listener, options);
+      };
+      window.__camListenerCounts = () => ({
+        scroll: tracked.scroll.size,
+        resize: tracked.resize.size,
+      });
+    },
+    html: `<!doctype html><html><head><title>Overlay lifecycle</title></head><body>
+      <div id="conversation-header-actions" style="position:absolute;left:600px;top:120px;width:180px;height:48px"></div>
+    </body></html>`,
+  });
+  try {
+    await lifecyclePage.waitForSelector('.cam-overlay-container #cam-copy-btn');
+    await lifecyclePage.evaluate(() => document.querySelector('#conversation-header-actions').remove());
+    await lifecyclePage.waitForSelector('.cam-floating-wrapper #cam-copy-btn', { timeout: 5000 });
+
+    await lifecyclePage.evaluate(() => {
+      const target = document.createElement('div');
+      target.id = 'conversation-header-actions';
+      target.style.cssText = 'position:absolute;left:700px;top:180px;width:200px;height:56px';
+      document.body.appendChild(target);
+    });
+    await lifecyclePage.waitForSelector('.cam-overlay-container #cam-copy-btn', { timeout: 5000 });
+
+    const lifecycle = await lifecyclePage.evaluate(() => {
+      const targetRect = document.querySelector('#conversation-header-actions').getBoundingClientRect();
+      const buttonRect = document.querySelector('#cam-copy-btn').getBoundingClientRect();
+      return {
+        buttons: document.querySelectorAll('#cam-copy-btn').length,
+        listeners: window.__camListenerCounts(),
+        target: {
+          left: targetRect.left, right: targetRect.right,
+          top: targetRect.top, bottom: targetRect.bottom,
+        },
+        button: {
+          left: buttonRect.left, right: buttonRect.right,
+          top: buttonRect.top, bottom: buttonRect.bottom,
+        },
+      };
+    });
+    assertCheck(lifecycle.buttons === 1, `overlay lifecycle left ${lifecycle.buttons} buttons`);
+    assertCheck(lifecycle.listeners.scroll === 1 && lifecycle.listeners.resize === 1, `overlay listeners leaked: ${JSON.stringify(lifecycle.listeners)}`);
+    assertCheck(!boxesOverlap(lifecycle.button, lifecycle.target), 're-anchored overlay overlaps replacement target');
+
+    await lifecyclePage.evaluate(() => document.querySelector('#conversation-header-actions').remove());
+    await lifecyclePage.waitForSelector('.cam-floating-wrapper #cam-dismiss-btn', { timeout: 5000 });
+    await lifecyclePage.click('#cam-dismiss-btn');
+    await lifecyclePage.evaluate(() => {
+      const target = document.createElement('div');
+      target.id = 'conversation-header-actions';
+      document.body.appendChild(target);
+    });
+    await new Promise(r => setTimeout(r, 2400));
+    const dismissed = await lifecyclePage.evaluate(() => ({
+      buttons: document.querySelectorAll('#cam-copy-btn').length,
+      listeners: window.__camListenerCounts(),
+    }));
+    assertCheck(dismissed.buttons === 0, 'dismissed floating button re-anchored');
+    assertCheck(dismissed.listeners.scroll === 0 && dismissed.listeners.resize === 0, `dismiss left overlay listeners: ${JSON.stringify(dismissed.listeners)}`);
+    log('✅', 'Overlay falls back, re-anchors without leaks, and dismissal stops watchdog');
+  } finally {
+    await lifecyclePage.close();
+  }
+
+  console.log('');
+}
+
 async function runProductionUiChecks(browser, scriptContent) {
   console.log(`${COLORS.cyan}● Production UI guards${COLORS.reset}`);
 
@@ -294,11 +601,14 @@ async function runTests(filter) {
   }
   const scriptContent = fs.readFileSync(scriptPath, 'utf8');
 
-  const sites = filter
+  const regressionOnly = filter === '--regression';
+  const sites = regressionOnly
+    ? []
+    : filter
     ? SITES.filter(s => s.name.toLowerCase().includes(filter.toLowerCase()))
     : SITES;
 
-  if (sites.length === 0) {
+  if (!regressionOnly && sites.length === 0) {
     console.error(`❌  No site matching "${filter}". Use --list to see available sites.`);
     process.exit(1);
   }
@@ -307,7 +617,11 @@ async function runTests(filter) {
   fs.mkdirSync(screenshotDir, { recursive: true });
 
   console.log(`\n${COLORS.bold}Copy as Markdown — Integration Tests${COLORS.reset}`);
-  console.log(`${COLORS.dim}Testing ${sites.length} site(s) via Wayback Machine snapshots${COLORS.reset}\n`);
+  console.log(
+    regressionOnly
+      ? `${COLORS.dim}Running deterministic browser fixtures${COLORS.reset}\n`
+      : `${COLORS.dim}Testing ${sites.length} site(s) via Wayback Machine snapshots${COLORS.reset}\n`
+  );
 
   const browser = await puppeteer.launch({
     headless: true,
@@ -316,7 +630,14 @@ async function runTests(filter) {
 
   const results = [];
 
+  await runRegressionChecks(browser, scriptContent);
   await runProductionUiChecks(browser, scriptContent);
+
+  if (regressionOnly) {
+    await browser.close();
+    console.log(`${COLORS.green}✨ All deterministic browser checks passed!${COLORS.reset}\n`);
+    return;
+  }
 
   for (const site of sites) {
     const result = { name: site.name, checks: [], passed: true };
@@ -561,6 +882,7 @@ if (args.includes('--help') || args.includes('-h')) {
 Usage:
   node test/test-sites.js              # run all tests
   node test/test-sites.js Wikipedia    # test a single site
+  node test/test-sites.js --regression # deterministic browser guards only
   node test/test-sites.js --list       # list available sites
 `);
   process.exit(0);

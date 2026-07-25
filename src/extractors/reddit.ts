@@ -13,6 +13,7 @@ register({
     '*://old.reddit.com/r/*/comments/*',
     '*://reddit.com/r/*/comments/*',
   ],
+  buttonPlacement: 'anchor',
   anchor: {
     selector: [
       'shreddit-post [slot="post-actions"]',          // new Reddit action slot

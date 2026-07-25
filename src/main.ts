@@ -7,7 +7,7 @@
 
 import { findExtractor } from './core/registry';
 import { showButton, copyToClipboard, showToast, isHostDismissed } from './core/ui';
-import { buildPageMarkdown, elementToMarkdown, htmlToMarkdown } from './core/markdown';
+import { buildPageMarkdown, elementToMarkdown } from './core/markdown';
 
 // Import extractors — each auto-registers on import
 import './extractors/wikipedia';
@@ -61,7 +61,7 @@ declare const __IS_USERSCRIPT__: boolean;
             for (let i = 0; i < selection.rangeCount; i++) {
               container.appendChild(selection.getRangeAt(i).cloneContents());
             }
-            return buildPageMarkdown({ url: window.location.href }, htmlToMarkdown(container.innerHTML));
+            return buildPageMarkdown({ url: window.location.href }, elementToMarkdown(container));
           }
 
           // Otherwise, find the richest content container on the page

@@ -14,6 +14,7 @@ register({
     '*://youtube.com/watch*',
     '*://m.youtube.com/watch*',
   ],
+  buttonPlacement: 'anchor',
   anchor: {
     selector: [
       '#top-level-buttons-computed',                    // primary action row

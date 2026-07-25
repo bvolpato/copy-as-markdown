@@ -7,6 +7,42 @@ import { register } from '../core/registry';
 import * as Markdown from '../core/markdown';
 import * as Utils from '../core/utils';
 
+function getImageSource(img: HTMLImageElement): string {
+  return img.currentSrc || img.src || img.getAttribute('src') || '';
+}
+
+function getStandaloneImages(turn: Element, contentEl: Element | null): string[] {
+  const seenSources = new Set(
+    contentEl
+      ? Array.from(contentEl.querySelectorAll<HTMLImageElement>('img[src]'))
+          .map(getImageSource)
+          .filter(Boolean)
+      : [],
+  );
+  const images: string[] = [];
+
+  turn.querySelectorAll<HTMLImageElement>('img[src]').forEach((img) => {
+    if (contentEl?.contains(img) || img.getAttribute('aria-hidden') === 'true') return;
+
+    const src = getImageSource(img);
+    if (!src || seenSources.has(src)) return;
+
+    const rect = img.getBoundingClientRect();
+    const width = Math.max(img.naturalWidth, img.width, rect.width);
+    const height = Math.max(img.naturalHeight, img.height, rect.height);
+    const alt = img.getAttribute('alt') || '';
+    const imageContainer = img.closest('figure, [data-testid*="image"], [class*="image"]');
+    const looksGenerated = /generated image|image generated/i.test(alt);
+
+    if (Math.max(width, height) < 100 && !imageContainer && !looksGenerated) return;
+
+    seenSources.add(src);
+    images.push(`![${alt.replace(/]/g, '\\]')}](${src})`);
+  });
+
+  return images;
+}
+
 register({
   name: 'ChatGPT',
   matches: [
@@ -58,30 +94,18 @@ register({
         const isAssistant = turnType === 'assistant';
         const roleLabel = isUser ? '👤 User' : isAssistant ? '🤖 Assistant' : 'System';
 
-        // Extract content: try markdown first, then user message bubbles, then images
+        // Extract content: try markdown first, then user message bubbles.
         const markdownEl = turn.querySelector('.markdown');
         const userTextEl = turn.querySelector('.whitespace-pre-wrap');
+        const contentEl = markdownEl || userTextEl;
+        // Images within contentEl are already converted by elementToMarkdown.
+        const standaloneImages = getStandaloneImages(turn, contentEl);
 
-        // Check for generated images
-        const images = turn.querySelectorAll('img[alt]:not([aria-hidden])');
-        const meaningfulImages: { alt: string; src: string }[] = [];
-        images.forEach(img => {
-          const alt = img.getAttribute('alt') || '';
-          const src = img.getAttribute('src') || '';
-          // Skip tiny favicons/icons, only keep content images
-          const w = parseInt(img.getAttribute('width') || '0', 10);
-          if (alt && src && w > 100) {
-            meaningfulImages.push({ alt, src });
-          }
-        });
-
-        if (markdownEl || userTextEl || meaningfulImages.length > 0) {
+        if (contentEl || standaloneImages.length > 0) {
           parts.push(`## ${roleLabel}\n`);
 
-          if (meaningfulImages.length > 0) {
-            meaningfulImages.forEach(img => {
-              parts.push(`![${img.alt}](${img.src})\n`);
-            });
+          if (standaloneImages.length > 0) {
+            parts.push(standaloneImages.join('\n'));
           }
 
           if (markdownEl) {

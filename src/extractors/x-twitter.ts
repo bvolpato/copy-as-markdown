@@ -15,6 +15,7 @@ register({
     '*://mobile.twitter.com/*',
     '*://mobile.x.com/*',
   ],
+  buttonPlacement: 'anchor',
   anchor: {
     // Profile: after the More (•••) button in the action bar
     // Post: append to the engagement bar (reply/retweet/like/bookmark/share)
