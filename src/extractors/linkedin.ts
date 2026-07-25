@@ -26,7 +26,7 @@ register({
       '.pv-top-card__actions',                     // profile actions
       '.pvs-header__actions',                      // profile section header
     ].join(', '),
-    position: 'append',
+    position: 'overlay',
     style: 'icon',
     css: { marginLeft: '8px' },
   },

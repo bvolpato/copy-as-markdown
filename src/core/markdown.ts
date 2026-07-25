@@ -385,6 +385,8 @@ export function childrenToMarkdown(
  */
 export function cleanMarkdown(md: string): string {
   return md
+    // Strip invisible Unicode control chars: LTR/RTL marks, zero-width spaces/joiners, BOM, etc.
+    .replace(/[\u200B-\u200F\u2028-\u202F\uFEFF\u00AD]/g, '')
     // Fix link spacing: ensure space before [ if preceded by a word char
     .replace(/(\w)\[/g, '$1 [')
     // Fix link spacing: ensure space after ) if followed by a word char

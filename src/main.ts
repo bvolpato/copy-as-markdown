@@ -6,7 +6,7 @@
  */
 
 import { findExtractor } from './core/registry';
-import { showButton, copyToClipboard, showToast } from './core/ui';
+import { showButton, copyToClipboard, showToast, isHostDismissed } from './core/ui';
 import { buildPageMarkdown, elementToMarkdown, htmlToMarkdown } from './core/markdown';
 
 // Import extractors — each auto-registers on import
@@ -32,6 +32,8 @@ import './extractors/devto';
 import './extractors/mdn';
 import './extractors/substack';
 import './extractors/chatgpt';
+import './extractors/claude';
+import './extractors/gemini';
 import './extractors/npm';
 import './extractors/pypi';
 
@@ -102,9 +104,10 @@ declare const __IS_USERSCRIPT__: boolean;
     });
   }
 
-  // UI Injection is only for Userscript installations
-  if (typeof __IS_USERSCRIPT__ !== 'undefined' && __IS_USERSCRIPT__) {
+  // UI Injection is only for Userscript installations (top frame only)
+  if (typeof __IS_USERSCRIPT__ !== 'undefined' && __IS_USERSCRIPT__ && window.self === window.top) {
     function initUserscript(): void {
+      if (isHostDismissed()) return;
       const extractor = getExtractor();
       const anchor = extractor!.buttonPlacement === 'anchor' ? extractor!.anchor : null;
 

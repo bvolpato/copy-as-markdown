@@ -23,7 +23,7 @@ register({
       'ytd-watch-metadata #actions',                     // scoped to watch metadata
       '#above-the-fold #top-row',                        // above-the-fold row
     ].join(', '),
-    position: 'append',
+    position: 'overlay',
     style: 'pill',
     css: { marginLeft: '8px' },
   },

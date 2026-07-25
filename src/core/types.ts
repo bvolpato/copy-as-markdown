@@ -6,7 +6,7 @@
 export type AnchorStyle = 'tab' | 'icon' | 'link' | 'pill';
 
 /** Where the button is inserted relative to the anchor element. */
-export type AnchorPosition = 'append' | 'prepend' | 'before' | 'after';
+export type AnchorPosition = 'append' | 'prepend' | 'before' | 'after' | 'overlay';
 
 /**
  * How the button should be placed for a given extractor.

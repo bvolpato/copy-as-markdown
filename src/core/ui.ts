@@ -20,8 +20,11 @@ const ACTIVE_INSTANCE_ATTR = 'data-cam-active-instance';
 
 /** Max time (ms) to keep observing for the anchor element. */
 const ANCHOR_OBSERVE_TIMEOUT = 8000;
+/** Interval (ms) for the anchor watchdog that re-injects if SPA removes the button. */
+const ANCHOR_WATCHDOG_INTERVAL = 2000;
 let activeAnchorObserver: MutationObserver | null = null;
 let activeAnchorTimeout: number | null = null;
+let activeWatchdogInterval: number | null = null;
 
 function injectStyles(): void {
   if (document.getElementById(STYLE_ID)) return;
@@ -94,6 +97,68 @@ function injectStyles(): void {
     }
     #${DISMISS_ID}:hover {
       background: rgba(220, 38, 38, 0.9);
+    }
+
+    /* ---- Overlay container (near-anchor but outside React tree) ---- */
+    .cam-overlay-container {
+      position: fixed;
+      z-index: 999999;
+      pointer-events: auto;
+      display: flex;
+      align-items: center;
+    }
+
+    /* ---- Host-dismiss prompt ---- */
+    .cam-dismiss-prompt {
+      position: fixed;
+      bottom: 140px;
+      right: 24px;
+      z-index: 999999;
+      background: rgba(0, 0, 0, 0.88);
+      color: #fff;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      font-size: 12px;
+      padding: 8px 12px;
+      border-radius: 10px;
+      backdrop-filter: blur(8px);
+      -webkit-backdrop-filter: blur(8px);
+      box-shadow: 0 4px 16px rgba(0,0,0,0.25);
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      animation: cam-fade-in 0.2s ease;
+    }
+    .cam-dismiss-prompt .cam-prompt-actions {
+      display: flex;
+      gap: 8px;
+      justify-content: flex-end;
+    }
+    .cam-dismiss-prompt .cam-prompt-btn {
+      padding: 3px 10px;
+      border: none;
+      border-radius: 6px;
+      font-size: 11px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: background 0.15s ease;
+    }
+    .cam-dismiss-prompt .cam-prompt-yes {
+      background: rgba(220, 38, 38, 0.8);
+      color: #fff;
+    }
+    .cam-dismiss-prompt .cam-prompt-yes:hover {
+      background: rgba(220, 38, 38, 1);
+    }
+    .cam-dismiss-prompt .cam-prompt-no {
+      background: rgba(255, 255, 255, 0.15);
+      color: #fff;
+    }
+    .cam-dismiss-prompt .cam-prompt-no:hover {
+      background: rgba(255, 255, 255, 0.25);
+    }
+    @keyframes cam-fade-in {
+      from { opacity: 0; transform: translateY(4px); }
+      to { opacity: 1; transform: translateY(0); }
     }
 
     /* ---- Inline: pill (compact gradient pill) ---- */
@@ -274,40 +339,102 @@ function injectToastStyles(): void {
 }
 
 
-function getIcon(): string {
-  return `<svg class="cam-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128">
-  <defs>
-    <linearGradient id="cam-bg" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%" stop-color="#4f46e5"/>
-      <stop offset="100%" stop-color="#10b981"/>
-    </linearGradient>
-    <linearGradient id="cam-fold" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%" stop-color="#ffffff" stop-opacity="0.9"/>
-      <stop offset="100%" stop-color="#e2e8f0" stop-opacity="0.9"/>
-    </linearGradient>
-  </defs>
-  <rect x="0" y="0" width="128" height="128" rx="28" fill="url(#cam-bg)"/>
-  <path d="M 28 24 C 24 24 20 28 20 32 L 20 80 C 20 84 24 88 28 88 L 84 88 C 88 88 92 84 92 80 L 92 52 L 64 24 Z" fill="#ffffff" opacity="0.95"/>
-  <path d="M 92 52 L 68 52 C 65.79 52 64 50.21 64 48 L 64 24 Z" fill="url(#cam-fold)"/>
-  <path d="M 30 68 L 30 48 L 37 48 L 42 58 L 47 48 L 54 48 L 54 68 L 48 68 L 48 56 L 43 64 L 41 64 L 36 56 L 36 68 Z" fill="#1e293b"/>
-  <rect x="66" y="48" width="14" height="14" rx="2.5" fill="#1e293b"/>
-  <rect x="60" y="54" width="14" height="14" rx="2.5" fill="#1e293b" stroke="#ffffff" stroke-width="2.5"/>
-</svg>`;
+/**
+ * Create the icon SVG element using DOM APIs (no innerHTML/DOMParser).
+ * Trusted Types CSP on sites like Gemini blocks innerHTML sinks.
+ */
+function createIconElement(): SVGSVGElement {
+  const NS = 'http://www.w3.org/2000/svg';
+  const svg = document.createElementNS(NS, 'svg');
+  svg.setAttribute('class', 'cam-icon');
+  svg.setAttribute('viewBox', '0 0 128 128');
+
+  const defs = document.createElementNS(NS, 'defs');
+
+  const grad1 = document.createElementNS(NS, 'linearGradient');
+  grad1.id = 'cam-bg';
+  grad1.setAttribute('x1', '0%'); grad1.setAttribute('y1', '0%');
+  grad1.setAttribute('x2', '100%'); grad1.setAttribute('y2', '100%');
+  const s1 = document.createElementNS(NS, 'stop');
+  s1.setAttribute('offset', '0%'); s1.setAttribute('stop-color', '#4f46e5');
+  const s2 = document.createElementNS(NS, 'stop');
+  s2.setAttribute('offset', '100%'); s2.setAttribute('stop-color', '#10b981');
+  grad1.appendChild(s1); grad1.appendChild(s2);
+
+  const grad2 = document.createElementNS(NS, 'linearGradient');
+  grad2.id = 'cam-fold';
+  grad2.setAttribute('x1', '0%'); grad2.setAttribute('y1', '0%');
+  grad2.setAttribute('x2', '100%'); grad2.setAttribute('y2', '100%');
+  const s3 = document.createElementNS(NS, 'stop');
+  s3.setAttribute('offset', '0%'); s3.setAttribute('stop-color', '#ffffff'); s3.setAttribute('stop-opacity', '0.9');
+  const s4 = document.createElementNS(NS, 'stop');
+  s4.setAttribute('offset', '100%'); s4.setAttribute('stop-color', '#e2e8f0'); s4.setAttribute('stop-opacity', '0.9');
+  grad2.appendChild(s3); grad2.appendChild(s4);
+
+  defs.appendChild(grad1); defs.appendChild(grad2);
+  svg.appendChild(defs);
+
+  const rect0 = document.createElementNS(NS, 'rect');
+  rect0.setAttribute('x', '0'); rect0.setAttribute('y', '0');
+  rect0.setAttribute('width', '128'); rect0.setAttribute('height', '128');
+  rect0.setAttribute('rx', '28'); rect0.setAttribute('fill', 'url(#cam-bg)');
+  svg.appendChild(rect0);
+
+  const paths = [
+    { d: 'M 28 24 C 24 24 20 28 20 32 L 20 80 C 20 84 24 88 28 88 L 84 88 C 88 88 92 84 92 80 L 92 52 L 64 24 Z', fill: '#ffffff', opacity: '0.95' },
+    { d: 'M 92 52 L 68 52 C 65.79 52 64 50.21 64 48 L 64 24 Z', fill: 'url(#cam-fold)' },
+    { d: 'M 30 68 L 30 48 L 37 48 L 42 58 L 47 48 L 54 48 L 54 68 L 48 68 L 48 56 L 43 64 L 41 64 L 36 56 L 36 68 Z', fill: '#1e293b' },
+  ];
+  for (const p of paths) {
+    const path = document.createElementNS(NS, 'path');
+    path.setAttribute('d', p.d);
+    path.setAttribute('fill', p.fill);
+    if (p.opacity) path.setAttribute('opacity', p.opacity);
+    svg.appendChild(path);
+  }
+
+  const r1 = document.createElementNS(NS, 'rect');
+  r1.setAttribute('x', '66'); r1.setAttribute('y', '48');
+  r1.setAttribute('width', '14'); r1.setAttribute('height', '14');
+  r1.setAttribute('rx', '2.5'); r1.setAttribute('fill', '#1e293b');
+  svg.appendChild(r1);
+
+  const r2 = document.createElementNS(NS, 'rect');
+  r2.setAttribute('x', '60'); r2.setAttribute('y', '54');
+  r2.setAttribute('width', '14'); r2.setAttribute('height', '14');
+  r2.setAttribute('rx', '2.5'); r2.setAttribute('fill', '#1e293b');
+  r2.setAttribute('stroke', '#ffffff'); r2.setAttribute('stroke-width', '2.5');
+  svg.appendChild(r2);
+
+  return svg;
 }
 
-function getCheckIcon(): string {
-  return `<svg class="cam-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5"/></svg>`;
+function createCheckIconElement(): SVGSVGElement {
+  const NS = 'http://www.w3.org/2000/svg';
+  const svg = document.createElementNS(NS, 'svg');
+  svg.setAttribute('class', 'cam-icon');
+  svg.setAttribute('viewBox', '0 0 24 24');
+  svg.setAttribute('fill', 'none');
+  svg.setAttribute('stroke', 'currentColor');
+  svg.setAttribute('stroke-width', '2.5');
+  svg.setAttribute('stroke-linecap', 'round');
+  svg.setAttribute('stroke-linejoin', 'round');
+  const path = document.createElementNS(NS, 'path');
+  path.setAttribute('d', 'M20 6L9 17l-5-5');
+  svg.appendChild(path);
+  return svg;
 }
 
 /**
- * Safely set element HTML content without using innerHTML directly.
- * Uses DOMParser which does not execute scripts.
+ * Set button content using pure DOM APIs (CSP-safe, no innerHTML/DOMParser).
  */
-function safeSetHtml(el: HTMLElement, html: string): void {
-  const doc = new DOMParser().parseFromString(html, 'text/html');
+function setButtonContent(el: HTMLElement, icon: SVGSVGElement, labelText?: string): void {
   el.textContent = '';
-  while (doc.body.firstChild) {
-    el.appendChild(document.adoptNode(doc.body.firstChild));
+  el.appendChild(icon);
+  if (labelText) {
+    const span = document.createElement('span');
+    span.textContent = labelText;
+    el.appendChild(span);
   }
 }
 
@@ -375,6 +502,50 @@ function cancelAnchorObserver(): void {
   }
 }
 
+function cancelWatchdog(): void {
+  if (activeWatchdogInterval !== null) {
+    window.clearInterval(activeWatchdogInterval);
+    activeWatchdogInterval = null;
+  }
+}
+
+/**
+ * Periodically check if the anchored button is still in the DOM.
+ * SPAs (ChatGPT, Claude, Gemini) re-render and destroy injected elements.
+ * If removed, try to re-anchor. If anchor target gone, fall back to floating.
+ */
+function startAnchorWatchdog(
+  btn: HTMLButtonElement,
+  anchor: AnchorConfig,
+  instanceId: string,
+  onClick: () => Promise<string>,
+): void {
+  cancelWatchdog();
+
+  activeWatchdogInterval = window.setInterval(() => {
+    if (!isActiveInstance(instanceId)) {
+      cancelWatchdog();
+      return;
+    }
+
+    // Button still in the DOM? Nothing to do.
+    if (document.contains(btn)) return;
+
+    // Button was removed by the SPA. Try to re-anchor.
+    btn.className = '';
+    btn.removeAttribute('style');
+
+    if (attachToAnchor(btn, anchor, instanceId)) {
+      console.log('[Copy as Markdown] Re-anchored after SPA re-render');
+      return;
+    }
+
+    // Anchor target also gone. Show floating fallback.
+    console.log('[Copy as Markdown] Anchor target gone, falling back to floating');
+    showFloating(btn, instanceId);
+  }, ANCHOR_WATCHDOG_INTERVAL);
+}
+
 function buildAnchorNode(
   btn: HTMLButtonElement,
   anchor: AnchorConfig,
@@ -399,6 +570,12 @@ function buildAnchorNode(
 
 function clearInjectedUi(): void {
   cancelAnchorObserver();
+  cancelWatchdog();
+  // Clean up overlay reposition intervals
+  document.querySelectorAll('.cam-overlay-container').forEach((el) => {
+    if ((el as any)._camReposition) clearInterval((el as any)._camReposition);
+    el.remove();
+  });
   document.querySelectorAll(`[${WRAPPER_ATTR}]`).forEach((el) => el.remove());
   document.querySelector('.cam-floating-wrapper')?.remove();
   document.getElementById(BUTTON_ID)?.remove();
@@ -423,11 +600,55 @@ function attachToAnchor(
 
   // If a label is provided (or the style is not icon), show text alongside the icon
   const label = anchor.label ?? (styleKey === 'icon' ? '' : 'Copy as Markdown');
-  safeSetHtml(btn, `${getIcon()}${label ? `<span>${label}</span>` : ''}`);
+  setButtonContent(btn, createIconElement(), label || undefined);
+
+  const position = anchor.position || 'append';
+
+  // Overlay mode: create a fixed container on body positioned near the target,
+  // completely outside React's virtual DOM tree.
+  if (position === 'overlay') {
+    applyInlineCss(btn, anchor.css);
+
+    // Remove any prior overlay
+    document.querySelector('.cam-overlay-container')?.remove();
+
+    const overlay = document.createElement('div');
+    overlay.className = 'cam-overlay-container';
+    overlay.setAttribute(WRAPPER_ATTR, 'true');
+    markInjected(overlay, instanceId);
+    overlay.appendChild(btn);
+
+    const updatePosition = () => {
+      const t = findAnchorTarget(anchor.selector);
+      if (!t) {
+        overlay.style.display = 'none';
+        return;
+      }
+      overlay.style.display = '';
+      const rect = t.getBoundingClientRect();
+      // Position to the left of the target element
+      overlay.style.top = `${rect.top + (rect.height - 36) / 2}px`;
+      overlay.style.left = `${rect.left - 44}px`;
+    };
+
+    updatePosition();
+    document.body.appendChild(overlay);
+
+    // Reposition on scroll/resize and periodically (SPA layout shifts)
+    const reposition = () => {
+      if (!document.contains(overlay)) return;
+      updatePosition();
+    };
+    window.addEventListener('scroll', reposition, { passive: true });
+    window.addEventListener('resize', reposition, { passive: true });
+
+    // Store cleanup ref on the element so watchdog can update
+    (overlay as any)._camReposition = setInterval(reposition, 2000);
+    return true;
+  }
 
   const insertionNode = buildAnchorNode(btn, anchor, instanceId);
 
-  const position = anchor.position || 'append';
   switch (position) {
     case 'prepend':
       target.prepend(insertionNode);
@@ -451,8 +672,28 @@ function getDismissKey(): string {
   return `cam-dismissed:${window.location.origin}${window.location.pathname}${window.location.search}`;
 }
 
+/** Host-level permanent dismiss key for localStorage. */
+function getHostDismissKey(): string {
+  return `cam-blocked:${window.location.hostname}`;
+}
+
+export function isHostDismissed(): boolean {
+  try {
+    return localStorage.getItem(getHostDismissKey()) === '1';
+  } catch {
+    return false;
+  }
+}
+
+function dismissHost(): void {
+  try {
+    localStorage.setItem(getHostDismissKey(), '1');
+  } catch { /* storage unavailable */ }
+}
+
 function isDismissedForCurrentPage(): boolean {
   try {
+    if (isHostDismissed()) return true;
     return sessionStorage.getItem(getDismissKey()) === '1';
   } catch {
     return false;
@@ -474,7 +715,7 @@ function showFloating(btn: HTMLButtonElement, instanceId: string): void {
   if (isDismissedForCurrentPage()) return;
 
   btn.className = 'cam-floating';
-  safeSetHtml(btn, getIcon());
+  setButtonContent(btn, createIconElement());
 
   const wrapper = document.createElement('div');
   wrapper.className = 'cam-floating-wrapper';
@@ -491,6 +732,38 @@ function showFloating(btn: HTMLButtonElement, instanceId: string): void {
     e.stopPropagation();
     dismissForCurrentPage();
     wrapper.remove();
+
+    // Show host-dismiss prompt
+    const host = window.location.hostname;
+    const prompt = document.createElement('div');
+    prompt.className = 'cam-dismiss-prompt';
+    const msg = document.createElement('span');
+    msg.textContent = `Never show on ${host}?`;
+    const actions = document.createElement('div');
+    actions.className = 'cam-prompt-actions';
+    const yesBtn = document.createElement('button');
+    yesBtn.className = 'cam-prompt-btn cam-prompt-yes';
+    yesBtn.textContent = 'Yes, hide forever';
+    yesBtn.addEventListener('click', () => {
+      dismissHost();
+      prompt.remove();
+    });
+    const noBtn = document.createElement('button');
+    noBtn.className = 'cam-prompt-btn cam-prompt-no';
+    noBtn.textContent = 'No, just this page';
+    noBtn.addEventListener('click', () => {
+      prompt.remove();
+    });
+    actions.appendChild(noBtn);
+    actions.appendChild(yesBtn);
+    prompt.appendChild(msg);
+    prompt.appendChild(actions);
+    document.body.appendChild(prompt);
+
+    // Auto-dismiss after 6 seconds
+    setTimeout(() => {
+      if (prompt.parentNode) prompt.remove();
+    }, 6000);
   });
 
   wrapper.appendChild(btn);
@@ -548,6 +821,8 @@ export function showButton(
   if (anchor) {
     if (attachToAnchor(btn, anchor, instanceId)) {
       console.log('[Copy as Markdown] Anchored inline');
+      // Start watchdog to re-inject if SPA removes the button
+      startAnchorWatchdog(btn, anchor, instanceId, onClick);
       return btn;
     }
 
@@ -555,7 +830,7 @@ export function showButton(
     showFloating(btn, instanceId);
     console.log('[Copy as Markdown] Anchor not found yet, floating while observing…');
 
-    observeForAnchor(btn, anchor, instanceId);
+    observeForAnchor(btn, anchor, instanceId, onClick);
   } else {
     showFloating(btn, instanceId);
   }
@@ -571,6 +846,7 @@ function observeForAnchor(
   btn: HTMLButtonElement,
   anchor: AnchorConfig,
   instanceId: string,
+  onClick: () => Promise<string>,
 ): void {
   let settled = false;
 
@@ -602,6 +878,7 @@ function observeForAnchor(
 
       if (attachToAnchor(btn, anchor, instanceId)) {
         console.log('[Copy as Markdown] Late-anchored inline');
+        startAnchorWatchdog(btn, anchor, instanceId, onClick);
       } else {
         // Shouldn't happen, but be safe
         showFloating(btn, instanceId);
@@ -645,7 +922,7 @@ export async function copyToClipboard(text: string): Promise<void> {
 function flashSuccess(btn: HTMLElement): void {
   const savedNodes = Array.from(btn.childNodes).map(n => n.cloneNode(true));
   const wasIcon = btn.classList.contains('cam-icon-btn');
-  safeSetHtml(btn, `${getCheckIcon()}${wasIcon ? '' : ' Copied!'}`);
+  setButtonContent(btn, createCheckIconElement(), wasIcon ? undefined : 'Copied!');
   btn.classList.add('cam-success');
   setTimeout(() => {
     btn.textContent = '';

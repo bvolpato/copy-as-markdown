@@ -24,7 +24,7 @@ register({
       'article[data-testid="tweet"]:first-of-type [role="group"]',   // post: engagement bar
       'article [data-testid="caret"]',                               // post: ••• scoped to article
     ].join(', '),
-    position: 'after',
+    position: 'overlay',
     style: 'icon',
     css: {
       // Match X's circular bordered button style

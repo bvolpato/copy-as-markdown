@@ -21,7 +21,7 @@ register({
       '.Post .flat-list.buttons',                       // old Reddit
       '.Post .actionBar',                               // old Reddit variant
     ].join(', '),
-    position: 'append',
+    position: 'overlay',
     style: 'link',
     css: { marginLeft: '8px', fontSize: '12px', fontWeight: '700', textTransform: 'uppercase' },
     label: 'Copy as Markdown',

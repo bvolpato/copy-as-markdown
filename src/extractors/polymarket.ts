@@ -18,7 +18,7 @@ register({
   ],
   anchor: {
     selector: 'div.flex.items-center:has(.bookmarkButton)',
-    position: 'append',
+    position: 'overlay',
     style: 'icon',
     css: {
       width: '36px',

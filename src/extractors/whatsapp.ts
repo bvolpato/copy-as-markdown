@@ -11,7 +11,7 @@ register({
   matches: ['*://web.whatsapp.com/*'],
   anchor: {
     selector: '#main header [data-testid="chat-header-actions"], #main header',
-    position: 'prepend',
+    position: 'overlay',
     style: 'icon',
   },
 
