@@ -954,16 +954,31 @@ function observeForAnchor(
 // ----------------------------------------------------------------
 
 export async function copyToClipboard(text: string): Promise<void> {
+  let clipboardError: unknown;
+
+  if (navigator.clipboard?.writeText) {
+    try {
+      await navigator.clipboard.writeText(text);
+      return;
+    } catch (error) {
+      clipboardError = error;
+    }
+  }
+
+  const textarea = document.createElement('textarea');
+  textarea.value = text;
+  textarea.style.cssText = 'position:fixed;opacity:0;left:-9999px';
+  document.body.appendChild(textarea);
+
   try {
-    await navigator.clipboard.writeText(text);
-  } catch {
-    const textarea = document.createElement('textarea');
-    textarea.value = text;
-    textarea.style.cssText = 'position:fixed;opacity:0;left:-9999px';
-    document.body.appendChild(textarea);
     textarea.select();
-    document.execCommand('copy');
-    document.body.removeChild(textarea);
+    if (!document.execCommand('copy')) {
+      throw clipboardError instanceof Error
+        ? clipboardError
+        : new Error('Browser denied clipboard access');
+    }
+  } finally {
+    textarea.remove();
   }
 }
 

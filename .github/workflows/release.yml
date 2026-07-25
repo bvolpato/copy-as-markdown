@@ -116,6 +116,7 @@ jobs:
             echo "1. Download **copy-as-markdown-chrome.zip** below"
             echo "2. Unzip it"
             echo "3. Open \`chrome://extensions/\`, enable Developer mode, choose Load unpacked, and select the folder"
+            echo "4. If Chrome shows **Wants access to this site**, choose **Allow**, then click **Copy as Markdown** again"
             echo
             echo "### Firefox Extension"
             echo "1. Download **copy-as-markdown-firefox.zip** below"

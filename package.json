@@ -1,6 +1,6 @@
 {
   "name": "copy-as-markdown",
-  "version": "1.2.1",
+  "version": "1.2.2",
   "description": "Context-aware Copy as Markdown buttons — the fastest way to share web content with LLMs",
   "type": "module",
   "scripts": {
@@ -16,7 +16,7 @@
     "verify:release": "tsx build/verify-release.ts",
     "test": "pnpm test:regression",
     "test:live": "pnpm build && node test/test-sites.js",
-    "test:regression": "pnpm build && node test/test-sites.js --regression",
+    "test:regression": "pnpm build && node test/background.test.js && node test/test-sites.js --regression",
     "test:site": "pnpm build && node test/test-sites.js"
   },
   "repository": {

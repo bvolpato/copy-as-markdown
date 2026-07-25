@@ -79,18 +79,17 @@ declare const __IS_USERSCRIPT__: boolean;
     return extractor;
   }
 
-  function performCopy() {
-    const extractor = getExtractor();
-    Promise.resolve(extractor!.extract())
-      .then(md => {
-        copyToClipboard(md).then(() => {
-          showToast('✅ Copied as Markdown!');
-        });
-      })
-      .catch(err => {
-        console.error('[Copy as Markdown] Extraction error', err);
-        showToast('❌ Error copying markdown');
-      });
+  async function performCopy(): Promise<void> {
+    try {
+      const extractor = getExtractor();
+      const markdown = await extractor!.extract();
+      await copyToClipboard(markdown);
+      showToast('✅ Copied as Markdown!');
+    } catch (error) {
+      console.error('[Copy as Markdown] Copy failed', error);
+      showToast('❌ Copy failed. Check clipboard permissions.');
+      throw error;
+    }
   }
 
   // Listen for Extension Toolbar Icon clicks (synchronous registration)
@@ -98,8 +97,14 @@ declare const __IS_USERSCRIPT__: boolean;
     toolbarListenerAttached = true;
     chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
       if (request.action === 'copy-as-markdown') {
-        performCopy();
-        sendResponse({ success: true });
+        performCopy().then(
+          () => sendResponse({ success: true }),
+          (error) => sendResponse({
+            success: false,
+            error: error instanceof Error ? error.message : String(error),
+          }),
+        );
+        return true;
       }
     });
   }

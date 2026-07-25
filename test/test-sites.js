@@ -217,6 +217,75 @@ async function clickAndCapture(page) {
 async function runRegressionChecks(browser, scriptContent) {
   console.log(`${COLORS.cyan}● Deterministic regression guards${COLORS.reset}`);
 
+  const extensionContent = fs.readFileSync(
+    path.join(ROOT, 'dist', 'chrome', 'content.js'),
+    'utf8',
+  );
+  const toolbarPage = await browser.newPage();
+  try {
+    await toolbarPage.setContent(`<!doctype html><html><head><title>Toolbar fixture</title></head><body>
+      <main><h1>Toolbar copy</h1><p>Clipboard protocol fixture.</p></main>
+    </body></html>`);
+    await toolbarPage.evaluate(() => {
+      window.chrome = {
+        runtime: {
+          onMessage: {
+            addListener(listener) {
+              window.__camMessageListener = listener;
+            },
+          },
+        },
+      };
+      Object.defineProperty(navigator, 'clipboard', {
+        configurable: true,
+        value: {
+          async writeText(text) {
+            window.__camToolbarClipboard = text;
+          },
+        },
+      });
+      document.execCommand = () => false;
+    });
+    await toolbarPage.addScriptTag({ content: extensionContent });
+
+    const success = await toolbarPage.evaluate(() => new Promise(resolve => {
+      const keepAlive = window.__camMessageListener(
+        { action: 'copy-as-markdown' },
+        {},
+        response => resolve({ keepAlive, response }),
+      );
+    }));
+    assertCheck(success.keepAlive === true, 'toolbar listener did not keep async response channel open');
+    assertCheck(success.response.success === true, `toolbar copy failed: ${success.response.error}`);
+    const copied = await toolbarPage.evaluate(() => window.__camToolbarClipboard);
+    assertCheck(copied.includes('Toolbar copy'), 'toolbar copy response completed before clipboard write');
+
+    await toolbarPage.evaluate(() => {
+      Object.defineProperty(navigator, 'clipboard', {
+        configurable: true,
+        value: {
+          async writeText() {
+            throw new DOMException('Clipboard permission denied', 'NotAllowedError');
+          },
+        },
+      });
+      document.execCommand = () => false;
+    });
+    const failure = await toolbarPage.evaluate(() => new Promise(resolve => {
+      window.__camMessageListener(
+        { action: 'copy-as-markdown' },
+        {},
+        response => resolve(response),
+      );
+    }));
+    assertCheck(failure.success === false, 'clipboard denial was reported as success');
+    const failureToast = await toolbarPage.$eval('#cam-toast', element => element.textContent);
+    assertCheck(failureToast.includes('Copy failed'), 'clipboard denial did not show page feedback');
+    log('✅', 'Toolbar waits for clipboard result and reports denied writes');
+  } finally {
+    await toolbarPage.close();
+  }
+
   const overlayFixtures = [
     {
       name: 'Reddit',

@@ -57,12 +57,16 @@ The fastest way to get started. Works in any browser with a userscript manager.
 3. Open `chrome://extensions/` → enable **Developer mode**
 4. Click **Load unpacked** → select the `dist/chrome/` folder
 
+Chrome may show **Wants access to this site** on first use. Click **Allow**, then click **Copy as Markdown** again. The toolbar badge shows `…` while copying, `✓` on success, or `!` when the page or clipboard is unavailable.
+
 ### 🦊 Firefox Extension
 
 1. Download or clone this repository
 2. Run `pnpm install && pnpm build`
 3. Open `about:debugging#/runtime/this-firefox`
 4. Click **Load Temporary Add-on** → select `dist/firefox/manifest.json`
+
+The toolbar badge shows `…` while copying, `✓` on success, or `!` when the page or clipboard is unavailable.
 
 ---
 
