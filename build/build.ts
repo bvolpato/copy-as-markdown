@@ -122,8 +122,8 @@ function getExtractorCount(): number {
 
 // ---------- Userscript ----------
 
-function buildUserscript(code: string): string {
-  const header = `// ==UserScript==
+function buildUserscriptHeader(): string {
+  return `// ==UserScript==
 // @name         Copy as Markdown
 // @namespace    https://github.com/bvolpato/copy-as-markdown
 // @version      ${VERSION}
@@ -136,12 +136,14 @@ function buildUserscript(code: string): string {
 // @icon         ${'data:image/svg+xml;base64,' + Buffer.from(getSVGIcon()).toString('base64')}
 // @homepageURL  https://github.com/bvolpato/copy-as-markdown
 // @supportURL   https://github.com/bvolpato/copy-as-markdown/issues
-// @downloadURL  https://github.com/bvolpato/copy-as-markdown/releases/latest/download/copy-as-markdown.user.js
-// @updateURL    https://github.com/bvolpato/copy-as-markdown/releases/latest/download/copy-as-markdown.user.js
+// @downloadURL  https://github.com/bvolpato/copy-as-markdown/releases/download/v${VERSION}/copy-as-markdown-v${VERSION}.user.js
+// @updateURL    https://github.com/bvolpato/copy-as-markdown/releases/latest/download/copy-as-markdown.meta.js
 // ==/UserScript==
 `;
+}
 
-  return header + '\n' + code;
+function buildUserscript(code: string): string {
+  return buildUserscriptHeader() + '\n' + code;
 }
 
 // ---------- Chrome Extension (MV3) ----------
@@ -216,6 +218,7 @@ function main(): void {
   ensureDir(usDir);
   const userscript = buildUserscript(codeUserscript);
   fs.writeFileSync(path.join(usDir, 'copy-as-markdown.user.js'), userscript);
+  fs.writeFileSync(path.join(usDir, 'copy-as-markdown.meta.js'), buildUserscriptHeader());
   console.log(`  ✅ Userscript → dist/userscript/copy-as-markdown.user.js (${(userscript.length / 1024).toFixed(1)} KB)`);
 
   // 2. Chrome Extension

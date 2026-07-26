@@ -47,7 +47,7 @@ One click, and the page's content lands in your clipboard as clean, structured M
 The fastest way to get started. Works in any browser with a userscript manager.
 
 1. Install [Tampermonkey](https://www.tampermonkey.net/) or [Violentmonkey](https://violentmonkey.github.io/)
-2. **[Click here to install the userscript](https://raw.githubusercontent.com/bvolpato/copy-as-markdown/main/dist/userscript/copy-as-markdown.user.js)**
+2. Open the **[latest release](https://github.com/bvolpato/copy-as-markdown/releases/latest)** and download the versioned `.user.js` file
 3. That's it — you'll see the button on supported sites
 
 ### 🟢 Chrome Extension

@@ -285,10 +285,10 @@ function sha256(file: string): string {
 function verifyReleaseBundle(bundleArgument: string, expectedVersion: string): void {
   const bundle = path.resolve(ROOT, bundleArgument);
   const versionedUserscript = `copy-as-markdown-v${expectedVersion}.user.js`;
-  const stableUserscript = 'copy-as-markdown.user.js';
+  const userscriptMetadata = 'copy-as-markdown.meta.js';
   const expectedArtifacts = [
     versionedUserscript,
-    stableUserscript,
+    userscriptMetadata,
     `copy-as-markdown-chrome-v${expectedVersion}.zip`,
     `copy-as-markdown-firefox-v${expectedVersion}.zip`,
   ];
@@ -307,10 +307,10 @@ function verifyReleaseBundle(bundleArgument: string, expectedVersion: string): v
     assertDirectoryFile(bundle, artifact, bundleArgument);
   }
 
-  const versionedContents = fs.readFileSync(path.join(bundle, versionedUserscript));
-  const stableContents = fs.readFileSync(path.join(bundle, stableUserscript));
-  if (!versionedContents.equals(stableContents)) {
-    fail(`${bundleArgument}: stable userscript alias differs from ${versionedUserscript}`);
+  const versionedContents = fs.readFileSync(path.join(bundle, versionedUserscript), 'utf8');
+  const metadataContents = fs.readFileSync(path.join(bundle, userscriptMetadata), 'utf8');
+  if (!versionedContents.startsWith(`${metadataContents}\n`)) {
+    fail(`${bundleArgument}: ${userscriptMetadata} differs from ${versionedUserscript} metadata`);
   }
 
   const checksumLines = fs.readFileSync(path.join(bundle, 'SHA256SUMS'), 'utf8')
@@ -348,13 +348,30 @@ function main(): void {
   if (expectedArgument) assertVersion(packageVersion, expectedArgument, 'package.json');
 
   const userscriptPath = path.join(DIST, 'userscript', 'copy-as-markdown.user.js');
+  const userscriptMetadataPath = path.join(DIST, 'userscript', 'copy-as-markdown.meta.js');
   assertDirectoryFile(path.dirname(userscriptPath), path.basename(userscriptPath), 'dist/userscript');
+  assertDirectoryFile(
+    path.dirname(userscriptMetadataPath),
+    path.basename(userscriptMetadataPath),
+    'dist/userscript',
+  );
   const userscript = fs.readFileSync(userscriptPath, 'utf8');
+  const userscriptMetadata = fs.readFileSync(userscriptMetadataPath, 'utf8');
+  if (!userscript.startsWith(`${userscriptMetadata}\n`)) {
+    fail('dist/userscript/copy-as-markdown.meta.js: metadata differs from userscript');
+  }
   const versionMetadata = [...userscript.matchAll(/^\/\/\s+@version\s+(\S+)\s*$/gm)];
   if (versionMetadata.length !== 1) {
     fail(`dist/userscript/copy-as-markdown.user.js: expected one @version field, found ${versionMetadata.length}`);
   }
   assertVersion(versionMetadata[0][1], packageVersion, 'dist/userscript/copy-as-markdown.user.js');
+  const expectedDownloadUrl = `https://github.com/bvolpato/copy-as-markdown/releases/download/v${packageVersion}/copy-as-markdown-v${packageVersion}.user.js`;
+  if (!userscriptMetadata.includes(`// @downloadURL  ${expectedDownloadUrl}\n`)) {
+    fail('dist/userscript/copy-as-markdown.meta.js: versioned @downloadURL is missing');
+  }
+  if (!userscriptMetadata.includes('// @updateURL    https://github.com/bvolpato/copy-as-markdown/releases/latest/download/copy-as-markdown.meta.js\n')) {
+    fail('dist/userscript/copy-as-markdown.meta.js: stable metadata @updateURL is missing');
+  }
 
   for (const target of ['chrome', 'firefox']) {
     verifyDirectory(target, packageVersion);
