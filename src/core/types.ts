@@ -53,10 +53,14 @@ export interface ExtractorConfig {
   matches: string[];
   /** Optional regex alternative to match patterns. */
   regex?: RegExp;
+  /** Optional pathname constraint applied after URL pattern matching. */
+  pathnameRegex?: RegExp;
   /** The extraction function — returns a Markdown string. */
   extract: () => Promise<string>;
   /** Button placement mode. Default: 'floating'. */
   buttonPlacement?: ButtonPlacement;
+  /** Show page button in extension builds. Requires a matching manifest content script. */
+  extensionPageButton?: boolean;
   /** Optional inline button placement config. Only used when buttonPlacement is 'anchor'. */
   anchor?: AnchorConfig;
 }
@@ -68,8 +72,10 @@ export interface Extractor {
   name: string;
   matches: string[];
   regex: RegExp | null;
+  pathnameRegex: RegExp | null;
   extract: () => Promise<string>;
   buttonPlacement: ButtonPlacement;
+  extensionPageButton: boolean;
   anchor: AnchorConfig | null;
 }
 

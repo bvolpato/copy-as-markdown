@@ -537,6 +537,24 @@ function detachButtonPlacement(btn: HTMLButtonElement): void {
   }
 }
 
+function isCorrectlyAnchored(btn: HTMLButtonElement, target: Element, anchor: AnchorConfig): boolean {
+  const position = anchor.position || 'append';
+  if (position === 'overlay') return !!btn.closest('.cam-overlay-container');
+
+  const node = btn.closest<HTMLElement>(`[${WRAPPER_ATTR}]`) || btn;
+  switch (position) {
+    case 'prepend':
+      return node.parentElement === target && target.firstElementChild === node;
+    case 'before':
+      return node.parentElement === target.parentElement && node.nextElementSibling === target;
+    case 'after':
+      return node.parentElement === target.parentElement && node.previousElementSibling === target;
+    case 'append':
+    default:
+      return node.parentElement === target && target.lastElementChild === node;
+  }
+}
+
 /**
  * Periodically check if the anchored button is still in the DOM.
  * SPAs (ChatGPT, Claude, Gemini) re-render and destroy injected elements.
@@ -569,7 +587,7 @@ function startAnchorWatchdog(
       return;
     }
 
-    if (document.contains(btn) && !isFloating) return;
+    if (document.contains(btn) && !isFloating && isCorrectlyAnchored(btn, target, anchor)) return;
 
     detachButtonPlacement(btn);
     btn.className = '';
@@ -613,6 +631,11 @@ function clearInjectedUi(): void {
   document.querySelectorAll(`[${WRAPPER_ATTR}]`).forEach((el) => el.remove());
   document.querySelector('.cam-floating-wrapper')?.remove();
   document.getElementById(BUTTON_ID)?.remove();
+}
+
+export function hideButton(): void {
+  clearInjectedUi();
+  document.documentElement.removeAttribute(ACTIVE_INSTANCE_ATTR);
 }
 
 /**
@@ -944,7 +967,8 @@ function observeForAnchor(
       observer.disconnect();
       if (activeAnchorObserver === observer) activeAnchorObserver = null;
       activeAnchorTimeout = null;
-      console.log('[Copy as Markdown] Anchor not found after timeout, staying floating');
+      console.log('[Copy as Markdown] Anchor not found after timeout, staying floating while retrying');
+      startAnchorWatchdog(btn, anchor, instanceId);
     }
   }, ANCHOR_OBSERVE_TIMEOUT);
 }

@@ -3,8 +3,9 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="copy-as-markdown" content="no-page-button">
   <title>Copy as Markdown — One click. Clean Markdown. Perfect LLM context.</title>
-  <meta name="description" content="Context-aware Copy as Markdown button for sharing web pages with LLMs like ChatGPT, Claude, and Gemini. Supports 17+ sites.">
+  <meta name="description" content="Context-aware Copy as Markdown button for sharing web pages with LLMs like ChatGPT, Claude, and Gemini. Supports 28 purpose-built extractors.">
   <meta property="og:title" content="Copy as Markdown">
   <meta property="og:description" content="One click. Clean Markdown. Perfect LLM context.">
   <meta property="og:type" content="website">
@@ -402,9 +403,41 @@
       transition: all 0.2s;
     }
     .install-card:hover { border-color: rgba(99,102,241,0.3); transform: translateY(-2px); }
+    .install-card.is-disabled {
+      opacity: 0.72;
+      border-style: dashed;
+    }
+    .install-card.is-disabled:hover {
+      border-color: var(--border);
+      transform: none;
+    }
     .install-card .install-icon { font-size: 36px; margin-bottom: 16px; }
     .install-card h3 { font-size: 18px; font-weight: 700; margin-bottom: 8px; }
     .install-card p { font-size: 14px; color: var(--text-muted); margin-bottom: 20px; line-height: 1.5; }
+    .install-status {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 40px;
+      width: 100%;
+      border-radius: 12px;
+      background: rgba(245, 158, 11, 0.12);
+      border: 1px solid rgba(245, 158, 11, 0.28);
+      color: #fbbf24;
+      font-size: 13px;
+      font-weight: 700;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+    }
+    .latest-release {
+      display: inline-block;
+      margin-top: 28px;
+      color: var(--accent);
+      font-size: 14px;
+      font-weight: 600;
+      text-decoration: none;
+    }
+    .latest-release:hover { text-decoration: underline; }
     .install-card code {
       display: block;
       padding: 10px 16px;
@@ -593,10 +626,10 @@
   <!-- Hero -->
   <section class="hero">
     <div class="container">
-      <div class="badge">✨ Works on every website — 24 with first-class extraction</div>
+      <div class="badge">✨ Works on every website — 28 with first-class extraction</div>
       <h1>One click.<br><span class="gradient">Clean Markdown.</span><br>Perfect LLM context.</h1>
       <p class="subtitle">
-        Context-aware “Copy as Markdown” button that works on every website. 24 sites get purpose-built extractors — the rest use smart fallback detection. One click to share with ChatGPT, Claude, or Gemini.
+        Context-aware “Copy as Markdown” button that works on every website. 28 sites get purpose-built extractors — the rest use smart fallback detection. One click to share with ChatGPT, Claude, or Gemini.
       </p>
       <div class="ctas">
         <a href="https://github.com/bvolpato/copy-as-markdown/releases/latest" class="btn-install">
@@ -679,7 +712,7 @@ encoded with a different Caesar cipher...
   <section class="sites-section reveal" id="sites">
     <div class="container">
       <div class="section-label">First-Class Extractors</div>
-      <h2 class="section-title">24 purpose-built. Every site supported.</h2>
+      <h2 class="section-title">28 purpose-built. Every site supported.</h2>
       <p class="section-desc">These sites get tuned extractors that capture the signal and strip the noise. Every other website uses smart fallback detection via article/main element discovery.</p>
 
       <div class="sites-grid">
@@ -690,6 +723,14 @@ encoded with a different Caesar cipher...
         <div class="site-card">
           <div class="site-icon">📝</div>
           <div><h3>Google Docs</h3><p>Full document export — headings, lists, tables, links, images</p></div>
+        </div>
+        <div class="site-card">
+          <div class="site-icon">📈</div>
+          <div><h3>Datadog dashboards</h3><p>Filters, groups, widget values, top lists, visible chart annotations</p></div>
+        </div>
+        <div class="site-card">
+          <div class="site-icon">📓</div>
+          <div><h3>Datadog notebooks</h3><p>Metadata, narrative, ordered visualization cells, visible chart snapshots</p></div>
         </div>
         <div class="site-card">
           <div class="site-icon">🔍</div>
@@ -768,6 +809,18 @@ encoded with a different Caesar cipher...
           <div><h3>ChatGPT</h3><p>Shared conversations with user/assistant role labels</p></div>
         </div>
         <div class="site-card">
+          <div class="site-icon">🧠</div>
+          <div><h3>Claude</h3><p>Conversations with user/assistant role labels</p></div>
+        </div>
+        <div class="site-card">
+          <div class="site-icon">✨</div>
+          <div><h3>Gemini</h3><p>Conversations with user/model role labels</p></div>
+        </div>
+        <div class="site-card">
+          <div class="site-icon">📜</div>
+          <div><h3>Grokipedia</h3><p>Full article content with source metadata</p></div>
+        </div>
+        <div class="site-card">
           <div class="site-icon">📦</div>
           <div><h3>NPM</h3><p>Package info, version, downloads, README, dependencies</p></div>
         </div>
@@ -815,30 +868,33 @@ encoded with a different Caesar cipher...
     <div class="container">
       <div class="section-label">Get Started</div>
       <h2 class="section-title">Install in 30 seconds</h2>
-      <p class="section-desc" style="margin: 0 auto 0;">Works with Tampermonkey, Violentmonkey, Chrome, and Firefox.</p>
+      <p class="section-desc" style="margin: 0 auto 0;">Install from Firefox Add-ons or use the latest userscript release. Chrome publishing is in progress.</p>
 
       <div class="install-options">
-        <div class="install-card">
+        <div class="install-card" data-install="userscript">
           <div class="install-icon">🔧</div>
           <h3>Userscript</h3>
           <p>The fastest way. Works in any browser with a userscript manager.</p>
           <a href="https://github.com/bvolpato/copy-as-markdown/releases/latest" class="btn-install" style="width:100%;justify-content:center;">
-            Install Userscript
+            View Latest Release
           </a>
         </div>
-        <div class="install-card">
+        <div class="install-card is-disabled" data-install="chrome">
           <div class="install-icon">🟢</div>
           <h3>Chrome Extension</h3>
-          <p>Load unpacked from the dist/chrome folder.</p>
-          <code>pnpm install && pnpm build</code>
+          <p>Chrome Web Store listing is being prepared.</p>
+          <span class="install-status" aria-disabled="true">WIP</span>
         </div>
-        <div class="install-card">
+        <div class="install-card" data-install="firefox">
           <div class="install-icon">🦊</div>
           <h3>Firefox Extension</h3>
-          <p>Load temporary add-on from dist/firefox.</p>
-          <code>pnpm install && pnpm build</code>
+          <p>Install the signed extension directly from Firefox Add-ons.</p>
+          <a href="https://addons.mozilla.org/en-US/firefox/addon/copy-as-markdown-addon/" class="btn-install" style="width:100%;justify-content:center;">
+            Install Firefox Extension
+          </a>
         </div>
       </div>
+      <a class="latest-release" href="https://github.com/bvolpato/copy-as-markdown/releases/latest">Release notes and downloads →</a>
     </div>
   </section>
 

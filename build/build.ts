@@ -100,13 +100,14 @@ function bundleBackground(): string {
 
 // ---------- Collect @match patterns from TS source ----------
 
-function collectMatchPatterns(): string[] {
+function collectMatchPatterns(extensionPageButtonOnly = false): string[] {
   const patterns = new Set<string>();
   const extractorDir = path.join(SRC, 'extractors');
   const files = fs.readdirSync(extractorDir).filter((f) => f.endsWith('.ts'));
 
   for (const file of files) {
     const content = fs.readFileSync(path.join(extractorDir, file), 'utf-8');
+    if (extensionPageButtonOnly && !/extensionPageButton\s*:\s*true/.test(content)) continue;
     const matchBlock = content.match(/matches:\s*\[([\s\S]*?)\]/);
     if (matchBlock) {
       const items = matchBlock[1].match(/'([^']+)'/g);
@@ -127,7 +128,7 @@ function buildUserscriptHeader(): string {
 // @name         Copy as Markdown
 // @namespace    https://github.com/bvolpato/copy-as-markdown
 // @version      ${VERSION}
-// @description  Context-aware "Copy as Markdown" button for sharing web pages with LLMs
+// @description  Copy page content as clean, structured Markdown
 // @author       Bruno Volpato
 // @license      MIT
 // @match        *://*/*
@@ -148,30 +149,40 @@ function buildUserscript(code: string): string {
 
 // ---------- Chrome Extension (MV3) ----------
 
-function buildChromeManifest(patterns: string[]): ChromeManifest {
+function buildChromeManifest(automaticPageButtonPatterns: string[]): ChromeManifest {
   return {
     manifest_version: 3,
     name: 'Copy as Markdown',
     version: VERSION,
-    description: 'Context-aware "Copy as Markdown" button — the fastest way to share web content with LLMs like ChatGPT, Claude, and Gemini.',
+    description: 'Copy page content as clean, structured Markdown for notes, research, documentation, and AI workflows.',
     permissions: ['activeTab', 'clipboardWrite', 'scripting'],
     icons: { '16': 'icons/icon-16.png', '48': 'icons/icon-48.png', '128': 'icons/icon-128.png' },
     background: { service_worker: 'background.js' },
     action: { default_icon: { '16': 'icons/icon-16.png', '48': 'icons/icon-48.png' }, default_title: 'Copy as Markdown' },
+    content_scripts: [{
+      matches: automaticPageButtonPatterns,
+      js: ['content.js'],
+      run_at: 'document_idle',
+    }],
   } as ChromeManifest;
 }
 
 // ---------- Firefox Extension (MV2) ----------
 
-function buildFirefoxManifest(patterns: string[]): FirefoxManifest {
+function buildFirefoxManifest(automaticPageButtonPatterns: string[]): FirefoxManifest {
   return {
     manifest_version: 2,
     name: 'Copy as Markdown',
     version: VERSION,
-    description: 'Context-aware "Copy as Markdown" button — the fastest way to share web content with LLMs like ChatGPT, Claude, and Gemini.',
+    description: 'Copy page content as clean, structured Markdown for notes, research, documentation, and AI workflows.',
     permissions: ['activeTab', 'clipboardWrite'],
     icons: { '16': 'icons/icon-16.png', '48': 'icons/icon-48.png', '128': 'icons/icon-128.png' },
     background: { scripts: ['background.js'] },
+    content_scripts: [{
+      matches: automaticPageButtonPatterns,
+      js: ['content.js'],
+      run_at: 'document_idle',
+    }],
     browser_action: { default_icon: { '16': 'icons/icon-16.png', '48': 'icons/icon-48.png' }, default_title: 'Copy as Markdown' },
     browser_specific_settings: {
       gecko: {
@@ -212,6 +223,7 @@ function main(): void {
   const codeUserscript = bundle(true);
   const codeExtension = bundle(false);
   const patterns = collectMatchPatterns();
+  const automaticPageButtonPatterns = collectMatchPatterns(true);
 
   // 1. Userscript
   const usDir = path.join(DIST, 'userscript');
@@ -224,7 +236,7 @@ function main(): void {
   // 2. Chrome Extension
   const chromeDir = path.join(DIST, 'chrome');
   ensureDir(path.join(chromeDir, 'icons'));
-  fs.writeFileSync(path.join(chromeDir, 'manifest.json'), JSON.stringify(buildChromeManifest(patterns), null, 2));
+  fs.writeFileSync(path.join(chromeDir, 'manifest.json'), JSON.stringify(buildChromeManifest(automaticPageButtonPatterns), null, 2));
   fs.writeFileSync(path.join(chromeDir, 'content.js'), codeExtension);
   fs.writeFileSync(path.join(chromeDir, 'background.js'), bundleBackground());
   copyIcons(path.join(chromeDir, 'icons'));
@@ -233,7 +245,7 @@ function main(): void {
   // 3. Firefox Extension
   const firefoxDir = path.join(DIST, 'firefox');
   ensureDir(path.join(firefoxDir, 'icons'));
-  fs.writeFileSync(path.join(firefoxDir, 'manifest.json'), JSON.stringify(buildFirefoxManifest(patterns), null, 2));
+  fs.writeFileSync(path.join(firefoxDir, 'manifest.json'), JSON.stringify(buildFirefoxManifest(automaticPageButtonPatterns), null, 2));
   fs.writeFileSync(path.join(firefoxDir, 'content.js'), codeExtension);
   fs.writeFileSync(path.join(firefoxDir, 'background.js'), bundleBackground());
   copyIcons(path.join(firefoxDir, 'icons'));

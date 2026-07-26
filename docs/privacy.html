@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Privacy Policy — Copy as Markdown</title>
-  <meta name="description" content="Privacy policy for the Copy as Markdown browser extension. Zero data collection.">
+  <meta name="description" content="Privacy policy for the Copy as Markdown browser extension.">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
@@ -40,21 +40,19 @@
   <div class="container">
     <a href="./" class="back">← Back to Copy as Markdown</a>
     <h1>Privacy Policy</h1>
-    <p class="updated">Last updated: April 26, 2026</p>
+    <p class="updated">Last updated: July 26, 2026</p>
 
     <h2>Overview</h2>
     <p>Copy as Markdown is a browser extension and userscript that converts web page content to Markdown format and copies it to your clipboard. It is designed with privacy as a core principle.</p>
 
-    <h2>Data Collection</h2>
-    <p><strong>Copy as Markdown collects zero user data.</strong></p>
+    <h2>Data Handling</h2>
+    <p>Copy as Markdown handles data only when needed to convert content selected by the user into Markdown. Depending on the page, this can include:</p>
     <ul>
-      <li>No personal information is collected</li>
-      <li>No browsing history is recorded</li>
-      <li>No analytics or tracking is used</li>
-      <li>No data is sent to any server</li>
-      <li>No cookies are set</li>
-      <li>No accounts are required</li>
+      <li>Content from the current page or selection</li>
+      <li>Current page title and URL used as source metadata</li>
+      <li>Conversation text when the user chooses to copy a conversation page</li>
     </ul>
+    <p>This data is processed in memory, written to the user's clipboard, and not retained by the extension. It is not sent to the developer or unrelated third parties. The extension uses no analytics, tracking, advertising, or developer-operated data service. It sets no cookies and requires no extension account.</p>
 
     <h2>How It Works</h2>
     <p>When you click the "Copy as Markdown" extension icon in your browser toolbar:</p>
@@ -63,7 +61,8 @@
       <li>It converts the content to Markdown format <strong>locally in your browser</strong></li>
       <li>It writes the Markdown text to your <strong>local clipboard</strong></li>
     </ul>
-    <p>That's it. No data ever leaves your browser.</p>
+    <p>Some supported pages require a same-site HTTPS request to retrieve content that is not present in the visible DOM. These requests use your existing browser session and go only to the site you are viewing. Responses are processed in memory and are not retained or sent to the developer or unrelated third parties.</p>
+    <p>On Datadog dashboard and notebook URLs, the extension loads its page button automatically so it can appear in the page toolbar. After you click it, the extension can request dashboard or notebook definitions and metric series from Datadog's same-origin APIs. Conversion and clipboard access still happen in your browser.</p>
 
     <h2>Permissions</h2>
     <table>
@@ -71,10 +70,14 @@
       <tr><td><code>activeTab</code></td><td>Read the current page's DOM to extract content when you click the extension icon in the toolbar</td></tr>
       <tr><td><code>clipboardWrite</code></td><td>Write the generated Markdown to your clipboard</td></tr>
       <tr><td><code>scripting</code></td><td>Execute the content extraction script into the active tab on demand</td></tr>
+      <tr><td>Datadog dashboard and notebook site access</td><td>Place the Copy as Markdown button in page toolbars and request page data from same-origin Datadog APIs after a click</td></tr>
     </table>
 
     <h2>Third-Party Services</h2>
-    <p>Copy as Markdown does not integrate with any third-party services, APIs, or analytics platforms.</p>
+    <p>Copy as Markdown does not use developer-operated services, analytics, or advertising platforms. Supported extractors may request content from the current site's own HTTPS endpoints using your existing browser session. No content is sent to unrelated third parties.</p>
+
+    <h2>Limited Use</h2>
+    <p>Copy as Markdown uses page content, current-page metadata, and conversation text only to provide its user-facing Markdown conversion feature. It does not use this data for advertising, credit decisions, analytics, or any unrelated purpose. The developer cannot access this data, and no human review occurs.</p>
 
     <h2>Open Source</h2>
     <p>The full source code is available at <a href="https://github.com/bvolpato/copy-as-markdown">github.com/bvolpato/copy-as-markdown</a> under the MIT License. You can verify everything stated in this policy by reading the code.</p>

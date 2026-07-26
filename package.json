@@ -1,7 +1,7 @@
 {
   "name": "copy-as-markdown",
-  "version": "1.2.4",
-  "description": "Context-aware Copy as Markdown buttons — the fastest way to share web content with LLMs",
+  "version": "1.2.6",
+  "description": "Copy page content as clean, structured Markdown",
   "type": "module",
   "scripts": {
     "typecheck": "tsc --noEmit",

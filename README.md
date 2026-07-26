@@ -31,8 +31,8 @@ You're chatting with ChatGPT, Claude, or Gemini. You want to share a web page fo
 
 **Copy as Markdown** allows you to extract content with a single click. Depending on your installation method, you interact with it in two ways:
 
-- **Browser Extension:** Click the "Copy as Markdown" icon in your browser toolbar. The extension uses a privacy-first, on-demand approach — it only accesses the page when you explicitly click the icon.
-- **Userscript:** A context-aware button is added to supported websites (e.g., a floating button in the bottom-right corner, or inline buttons on Wikipedia and Google Docs).
+- **Browser Extension:** Click the "Copy as Markdown" icon in your browser toolbar. Datadog dashboards and notebooks also get an inline button through narrowly scoped site access; extraction and clipboard writes still run only after a click.
+- **Userscript:** A context-aware button is added to supported websites (e.g., a floating button in the bottom-right corner, or inline buttons on Wikipedia, Google Docs, and Datadog pages).
 
 One click, and the page's content lands in your clipboard as clean, structured Markdown — headers, tables, links, code blocks, metadata — all preserved. Paste it into your LLM conversation. Done.
 
@@ -73,8 +73,8 @@ The toolbar badge shows `…` while copying, `✓` on success, or `!` when the p
 ## Supported Sites
 
 **Interaction Model:**
-- **Browser Extension:** Click the toolbar icon on any supported site.
-- **Userscript:** Clicks are handled via injected buttons (inline for Wikipedia and Google Docs, floating for everything else).
+- **Browser Extension:** Click the toolbar icon on any supported site, or the inline button on Datadog dashboards and notebooks.
+- **Userscript:** Clicks are handled via injected buttons (inline where a site integration provides a reviewed anchor, floating otherwise).
 
 | Site | What's Extracted |
 | --- | --- |
@@ -88,6 +88,8 @@ The toolbar badge shows `…` while copying, `✓` on success, or `!` when the p
 | **WhatsApp Web** | Chat name, all messages with sender, timestamp, media indicators |
 | **X (Twitter)** | Single posts with replies, or full timelines with engagement stats |
 | **Polymarket** | Market title, description, outcome probabilities, volume, resolution rules |
+| **Datadog dashboards** | Dashboard title, timeframe, template variables, grouped widget values, top lists, and visible chart annotations |
+| **Datadog notebooks** | Notebook metadata, narrative headings and rich text, ordered visualization cells, types, no-data states, and visible chart annotations |
 | **GitHub** | Issues & PRs (with comments, labels, state), repos (README, topics, languages), code files |
 | **Stack Overflow** | Question with votes & tags, all answers (✅ accepted marked), comment threads |
 | **Hacker News** | Post title, link, score, author, nested comment threads with depth |
@@ -228,6 +230,8 @@ src/
 ├── extractors/
 │   ├── wikipedia.ts    ← extractor with active inline placement
 │   ├── google-docs.ts  ← extractor with active inline placement
+│   ├── datadog-dashboard.ts ← semantic dashboard extractor + toolbar placement
+│   ├── datadog-notebook.ts ← structured notebook extractor + toolbar placement
 │   ├── youtube.ts      ← extractor
 │   ├── reddit.ts       ← extractor
 │   ├── x-twitter.ts    ← extractor
@@ -295,11 +299,7 @@ Positioning rules:
 - Add `buttonPlacement: 'anchor'` to activate the extractor's `anchor` config
 - If the anchor selector is missing at runtime, the UI falls back to the bottom-right floating button
 
-This is the current policy in the repo:
-
-- `Wikipedia` sets `buttonPlacement: 'anchor'`
-- `Google Docs` sets `buttonPlacement: 'anchor'`
-- Every other extractor stays on the default floating placement, even if it already carries an `anchor` hook for future use
+Extractors enable anchored placement only after their site selector and SPA lifecycle are covered by browser fixtures. Others retain floating placement.
 
 ### Adding a New Site
 

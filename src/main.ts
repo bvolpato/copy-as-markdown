@@ -5,8 +5,8 @@
  * the matching one for the current page and shows the button.
  */
 
-import { findExtractor } from './core/registry';
-import { showButton, copyToClipboard, showToast, isHostDismissed } from './core/ui';
+import { findExtractor, findExtensionPageButtonCandidate } from './core/registry';
+import { showButton, hideButton, copyToClipboard, showToast, isHostDismissed } from './core/ui';
 import { buildPageMarkdown, elementToMarkdown } from './core/markdown';
 
 // Import extractors — each auto-registers on import
@@ -36,6 +36,8 @@ import './extractors/claude';
 import './extractors/gemini';
 import './extractors/npm';
 import './extractors/pypi';
+import './extractors/datadog-dashboard';
+import './extractors/datadog-notebook';
 
 declare const __IS_USERSCRIPT__: boolean;
 
@@ -109,23 +111,35 @@ declare const __IS_USERSCRIPT__: boolean;
     });
   }
 
-  // UI Injection is only for Userscript installations (top frame only)
-  if (typeof __IS_USERSCRIPT__ !== 'undefined' && __IS_USERSCRIPT__ && window.self === window.top) {
-    function initUserscript(): void {
-      if (isHostDismissed()) return;
-      const extractor = getExtractor();
-      const anchor = extractor!.buttonPlacement === 'anchor' ? extractor!.anchor : null;
+  // Userscripts show page UI everywhere. Extension builds opt in narrowly.
+  const isUserscript = typeof __IS_USERSCRIPT__ !== 'undefined' && __IS_USERSCRIPT__;
+  const pageButtonDisabled = !!document.querySelector(
+    'meta[name="copy-as-markdown"][content~="no-page-button"]',
+  );
+  const shouldMonitorPageUi =
+    !pageButtonDisabled &&
+    (isUserscript || !!findExtensionPageButtonCandidate(window.location.href));
+  if (shouldMonitorPageUi && window.self === window.top) {
+    function syncPageButton(): void {
+      const registeredExtractor = findExtractor(window.location.href);
+      if (!isUserscript && !registeredExtractor?.extensionPageButton) {
+        hideButton();
+        return;
+      }
+      if (isHostDismissed()) {
+        hideButton();
+        return;
+      }
 
-      showButton(
-        () => extractor!.extract(),
-        anchor,
-      );
+      const extractor = registeredExtractor || getExtractor()!;
+      const anchor = extractor.buttonPlacement === 'anchor' ? extractor.anchor : null;
+      showButton(() => extractor.extract(), anchor);
     }
 
     if (document.readyState === 'loading') {
-      document.addEventListener('DOMContentLoaded', initUserscript);
+      document.addEventListener('DOMContentLoaded', syncPageButton);
     } else {
-      setTimeout(initUserscript, 500);
+      setTimeout(syncPageButton, 500);
     }
 
     // Re-detect on SPA navigation
@@ -133,7 +147,7 @@ declare const __IS_USERSCRIPT__: boolean;
     const observer = new MutationObserver(() => {
       if (window.location.href !== lastUrl) {
         lastUrl = window.location.href;
-        setTimeout(initUserscript, 800);
+        setTimeout(syncPageButton, 800);
       }
     });
     observer.observe(document.body || document.documentElement, {

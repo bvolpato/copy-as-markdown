@@ -21,7 +21,7 @@
 import puppeteer from 'puppeteer';
 import * as fs from 'fs';
 import * as path from 'path';
-import { fileURLToPath } from 'url';
+import { fileURLToPath, pathToFileURL } from 'url';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -162,6 +162,7 @@ async function createFixturePage(browser, scriptContent, {
   html,
   csp = '',
   beforeLoad,
+  waitForButton = true,
 }) {
   const page = await browser.newPage();
   await page.setViewport({ width: 1280, height: 800 });
@@ -185,7 +186,7 @@ async function createFixturePage(browser, scriptContent, {
 
   await page.goto(url, { waitUntil: 'domcontentloaded' });
   if (!csp) await page.addScriptTag({ content: scriptContent });
-  await page.waitForSelector('#cam-copy-btn', { timeout: 4000 });
+  if (waitForButton) await page.waitForSelector('#cam-copy-btn', { timeout: 4000 });
   return page;
 }
 
@@ -284,6 +285,612 @@ async function runRegressionChecks(browser, scriptContent) {
     log('✅', 'Toolbar waits for clipboard result and reports denied writes');
   } finally {
     await toolbarPage.close();
+  }
+
+  const datadogPage = await createFixturePage(browser, extensionContent, {
+    url: 'https://app.datadoghq.com/dashboard/abc-def-ghi/checkout-golden-signals?live=true',
+    beforeLoad: () => {
+      window.__datadogFixtureFetches = [];
+      window.fetch = async (input) => {
+        const url = new URL(String(input), window.location.origin);
+        window.__datadogFixtureFetches.push(url.toString());
+        if (url.pathname === '/api/v1/dashboard/abc-def-ghi') {
+          return new Response(JSON.stringify({
+            template_variables: [
+              { name: 'Environment', prefix: 'environment', default: '*' },
+              { name: 'Region', prefix: 'region', default: '*' },
+            ],
+            widgets: [{
+              id: 'api',
+              definition: {
+                type: 'group',
+                widgets: [{
+                  id: 'requests',
+                  definition: {
+                    type: 'timeseries',
+                    requests: [{
+                      q: 'sum:fixture.requests{$Environment,$Region} by {route}',
+                    }],
+                  },
+                }],
+              },
+            }],
+          }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+        }
+        if (
+          url.pathname === '/api/v1/query'
+          && url.searchParams.get('query')
+            === 'sum:fixture.requests{environment:env-prod-only,region:us-east-1-only} by {route}'
+        ) {
+          return new Response(JSON.stringify({
+            series: [
+              {
+                display_name: 'fixture.requests',
+                tag_set: ['route:/checkout'],
+                pointlist: [[1, 8], [2, 16], [3, 13], [4, 30], [5, 26], [6, 42]],
+              },
+              {
+                display_name: 'fixture.requests',
+                tag_set: ['route:/search'],
+                pointlist: [[1, 40], [2, 34], [3, 38], [4, 22], [5, 18], [6, 6]],
+              },
+            ],
+          }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+        }
+        return new Response('', { status: 404 });
+      };
+    },
+    html: `<!doctype html><html><head><title>Checkout Golden Signals | Datadog</title>
+      <style>.fixture-hidden { display: none; }</style></head><body>
+      <header class="dashboard_header">
+        <div class="new-dashboard-header__board_title"><h1>Checkout Golden Signals</h1></div>
+        <div class="dashboard_header__toolbar">
+          <button>Share</button>
+          <button class="actions_trigger">NOISE_CONFIGURE</button>
+        </div>
+        <div class="dashboard_header__bottom-row">
+          <div class="template-variable-list">
+            <fieldset class="templateVariableSelect">
+              <legend>Environment</legend><span role="combobox">env-prod-only</span>
+            </fieldset>
+            <fieldset class="templateVariableSelect">
+              <legend>Region</legend><span role="combobox">us-east-1-only</span>
+            </fieldset>
+            <fieldset class="templateVariableSelect fixture-hidden">
+              <legend>Environment</legend><span role="combobox">NOISE_HIDDEN_FILTER</span>
+            </fieldset>
+          </div>
+          <input aria-label="Time range picker" value="Past 1 Hour">
+          <span class="date-range-picker__time-zone__label">UTC-04:00 (America/New_York)</span>
+        </div>
+      </header>
+      <div class="multi-size-layout__group" data-testid="group-api">
+        <div class="group-header__title">
+          <div class="druids_layout_overflower__overflow" aria-hidden="true">NOISE_GROUP_TITLE_DUPLICATE</div>
+          <div data-component-name="overflower-original">API Health</div>
+        </div>
+        <div class="group__content">
+          <div class="dashboard_widget" data-testid="widget-success">
+            <div class="widget query_value"><h3 data-testid="widget-title">Checkout success rate</h3>
+              <div data-response-state="has-some-response">
+                <div class="query-value__value">99.95</div><span class="query-value__unit">%</span>
+              </div>
+              <img alt="NOISE_STEG_WATERMARK" src="data:image/bmp;base64,Qk0=">
+            </div>
+          </div>
+          <div class="dashboard_widget" data-testid="widget-lag">
+            <div class="widget query_value"><h3 data-testid="widget-title">Queue lag</h3>
+              <div class="query-value__container--no-data">(No data)</div>
+            </div>
+          </div>
+          <div class="dashboard_widget" id="widget_requests" data-testid="widget-requests">
+            <div class="widget timeseries"><h3 data-testid="widget-title">Requests and deploys</h3>
+              <svg><text>NOISE_AXIS_TICK</text></svg>
+              <svg><g class="dataviz_y-axis left">
+                <text class="dataviz_y-axis__label">Requests/s</text>
+                <g class="tick" transform="translate(0, 0)"><text>100</text></g>
+                <g class="tick" transform="translate(0, 24)"><text>50</text></g>
+                <g class="tick" transform="translate(0, 48)"><text>0</text></g>
+              </g></svg>
+              <div class="rendering-layers-container"><div class="rendering-layer">
+                <canvas class="fixture-timeseries" width="160" height="48"></canvas>
+              </div></div>
+              <div class="dataviz-annotations-renderer">
+                <div role="note">CURRENT_DEPLOY_MARKER</div>
+                <div role="note" class="fixture-hidden">NOISE_STALE_ANNOTATION</div>
+              </div>
+              <div>NOISE_RESIZE_HANDLE</div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="multi-size-layout__group" data-testid="group-traffic">
+        <div class="group-header__title">Traffic Breakdown</div>
+        <div class="group__content">
+          <div class="dashboard_widget" data-testid="widget-endpoints">
+            <div class="widget toplist"><h3 data-testid="widget-title">Top endpoints</h3>
+              <div class="stacked-toplist">
+                <div class="stacked-toplist__item">
+                  <svg data-synthetics-toplist-label="/checkout"><text>72%</text></svg>
+                  <span class="stacked-toplist__value-label">72%</span>
+                </div>
+                <div class="stacked-toplist__item">
+                  <span data-synthetics-toplist-label>/search</span>
+                  <span class="stacked-toplist__value-label">18%</span>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div class="dashboard_widget" data-testid="widget-route-status">
+            <div class="widget query_table"><h3 data-testid="widget-title">Route status</h3>
+              <table>
+                <thead><tr><th>Route</th><th>Errors</th></tr></thead>
+                <tbody>
+                  <tr><td>/checkout</td><td>0</td></tr>
+                  <tr><td>/search</td><td>2</td></tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+          <div class="dashboard_widget" data-testid="widget-semantic-fallback">
+            <div role="group">
+              <button aria-label="Semantic fallback widget"></button>
+              <div class="widget timeseries" data-response-state="no-response"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <aside>NOISE_KEYBOARD_SHORTCUTS</aside>
+    </body></html>`,
+  });
+  try {
+    await datadogPage.evaluate(() => {
+      const canvas = document.querySelector('.fixture-timeseries');
+      const context = canvas.getContext('2d');
+      const drawSeries = (color, points) => {
+        context.strokeStyle = color;
+        context.lineWidth = 2;
+        context.beginPath();
+        points.forEach(([x, y], index) => {
+          if (index === 0) context.moveTo(x, y);
+          else context.lineTo(x, y);
+        });
+        context.stroke();
+      };
+      drawSeries('#2384ba', [[0, 40], [30, 32], [60, 35], [90, 18], [120, 22], [159, 6]]);
+      drawSeries('#e763fa', [[0, 8], [30, 14], [60, 10], [90, 26], [120, 30], [159, 42]]);
+    });
+    await datadogPage.waitForFunction(() => {
+      const button = document.querySelector('#cam-copy-btn');
+      const configure = document.querySelector('.actions_trigger');
+      return button && configure && button.nextElementSibling === configure;
+    });
+
+    const markdown = await clickAndCapture(datadogPage);
+    const datadogFixtureFetches = await datadogPage.evaluate(
+      () => window.__datadogFixtureFetches,
+    );
+    const lines = markdown.split('\n');
+    const lineFor = (text) => lines.find(line => line.includes(text)) || '';
+    const occurrenceCount = (text) => markdown.split(text).length - 1;
+
+    assertCheck(markdown.includes('# Checkout Golden Signals'), 'Datadog dashboard title missing');
+    assertCheck(
+      markdown.includes(
+        'filters: {"Environment":"env-prod-only","Region":"us-east-1-only"}',
+      ),
+      'Datadog selected filters missing from metadata',
+    );
+    assertCheck(!markdown.includes('## Filters'), 'Datadog filters duplicated in body');
+    assertCheck(markdown.includes('## API Health'), 'Datadog API group missing');
+    assertCheck(markdown.includes('## Traffic Breakdown'), 'Datadog traffic group missing');
+    assertCheck(
+      markdown.indexOf('## API Health') < markdown.indexOf('Checkout success rate')
+        && markdown.indexOf('Checkout success rate') < markdown.indexOf('Requests and deploys')
+        && markdown.indexOf('Requests and deploys') < markdown.indexOf('## Traffic Breakdown')
+        && markdown.indexOf('## Traffic Breakdown') < markdown.indexOf('Top endpoints'),
+      'Datadog group/widget order changed',
+    );
+    assertCheck(
+      lineFor('Checkout success rate').includes('99.95 %'),
+      `Datadog query value/unit pairing lost: ${lineFor('Checkout success rate')}`,
+    );
+    assertCheck(lineFor('Queue lag').includes('No data'), 'Datadog no-data state missing');
+    assertCheck(
+      lineFor('Semantic fallback widget').includes('No data'),
+      'Datadog accessible widget-title fallback missing',
+    );
+    assertCheck(
+      lineFor('Requests and deploys').includes('CURRENT_DEPLOY_MARKER'),
+      'Datadog visible chart annotation missing',
+    );
+    assertCheck(
+      lineFor('Requests and deploys').includes('route:/checkout:')
+        && lineFor('Requests and deploys').includes('route:/search:')
+        && !lineFor('Requests and deploys').includes('Series 1:')
+        && /[▁▂▃▄▅▆▇█]{8}/u.test(lineFor('Requests and deploys'))
+        && lineFor('Requests and deploys').includes('≈ first')
+        && lineFor('Requests and deploys').includes('min')
+        && lineFor('Requests and deploys').includes('max')
+        && lineFor('Requests and deploys').includes('avg')
+        && lineFor('Requests and deploys').includes('last')
+        && lineFor('Requests and deploys').includes('Requests/s'),
+      `Datadog canvas sparklines missing: ${lineFor('Requests and deploys')} FETCHES=${JSON.stringify(datadogFixtureFetches)}`,
+    );
+    assertCheck(
+      markdown.includes('### Top endpoints')
+        && markdown.includes('| /checkout | 72% |')
+        && markdown.includes('| /search | 18% |')
+        && markdown.indexOf('| /checkout | 72% |') < markdown.indexOf('| /search | 18% |'),
+      'Datadog detailed top-list table missing or reordered',
+    );
+    assertCheck(
+      markdown.includes('### Route status')
+        && markdown.includes('| Route | Errors |')
+        && markdown.includes('| /checkout | 0 |')
+        && markdown.includes('| /search | 2 |'),
+      'Datadog query table missing',
+    );
+    assertCheck(
+      !markdown.includes('| Widget | Snapshot |\n\n| --- | --- |'),
+      'Datadog widget table contains blank lines between rows',
+    );
+    assertCheck(occurrenceCount('env-prod-only') === 1, 'Datadog visible filter duplicated');
+    assertCheck(occurrenceCount('CURRENT_DEPLOY_MARKER') === 1, 'Datadog annotation duplicated');
+    for (const noise of [
+      'NOISE_CONFIGURE',
+      'NOISE_HIDDEN_FILTER',
+      'NOISE_STALE_ANNOTATION',
+      'NOISE_STEG_WATERMARK',
+      'NOISE_AXIS_TICK',
+      'NOISE_RESIZE_HANDLE',
+      'NOISE_KEYBOARD_SHORTCUTS',
+      'NOISE_GROUP_TITLE_DUPLICATE',
+      'data:image/bmp',
+    ]) {
+      assertCheck(!markdown.includes(noise), `Datadog noise leaked: ${noise}`);
+    }
+
+    await datadogPage.evaluate(() => {
+      const configure = document.querySelector('.actions_trigger');
+      configure.parentElement.prepend(configure);
+    });
+    await datadogPage.waitForFunction(() => {
+      const button = document.querySelector('#cam-copy-btn');
+      const configure = document.querySelector('.actions_trigger');
+      return button && configure && button.nextElementSibling === configure;
+    }, { timeout: 5000 });
+
+    await datadogPage.evaluate(() => {
+      const oldToolbar = document.querySelector('.dashboard_header__toolbar');
+      const toolbar = document.createElement('div');
+      toolbar.className = 'dashboard_header__toolbar';
+      const configure = document.createElement('button');
+      configure.className = 'actions_trigger';
+      configure.textContent = 'Replacement Configure';
+      toolbar.appendChild(configure);
+      oldToolbar.replaceWith(toolbar);
+    });
+    await datadogPage.waitForFunction(() => {
+      const button = document.querySelector('#cam-copy-btn');
+      const configure = document.querySelector('.actions_trigger');
+      return document.querySelectorAll('#cam-copy-btn').length === 1
+        && button && configure && button.nextElementSibling === configure;
+    }, { timeout: 5000 });
+
+    await datadogPage.evaluate(() => {
+      history.pushState({}, '', '/logs');
+      document.body.appendChild(document.createElement('span'));
+    });
+    await datadogPage.waitForFunction(() =>
+      !document.querySelector('#cam-copy-btn')
+        && !document.documentElement.hasAttribute('data-cam-active-instance'),
+    { timeout: 5000 });
+
+    await datadogPage.evaluate(() => {
+      history.pushState({}, '', '/dashboard/xyz-uvw-rst/restored');
+      document.body.appendChild(document.createElement('span'));
+    });
+    await datadogPage.waitForFunction(() => {
+      const button = document.querySelector('#cam-copy-btn');
+      const configure = document.querySelector('.actions_trigger');
+      return document.querySelectorAll('#cam-copy-btn').length === 1
+        && button && configure && button.nextElementSibling === configure;
+    }, { timeout: 5000 });
+    log('✅', 'Datadog extraction, toolbar placement, and SPA lifecycle are semantic');
+  } finally {
+    await datadogPage.close();
+  }
+
+  const datadogListPage = await createFixturePage(browser, extensionContent, {
+    url: 'https://app.datadoghq.com/dashboard/lists',
+    waitForButton: false,
+    html: `<!doctype html><html><head><title>Dashboard List | Datadog</title></head><body>
+      <div class="dashboard_header__toolbar"><button class="actions_trigger">Configure</button></div>
+    </body></html>`,
+  });
+  try {
+    await new Promise(resolve => setTimeout(resolve, 1200));
+    assertCheck(
+      await datadogListPage.$('#cam-copy-btn') === null,
+      'Datadog dashboard list incorrectly received page button',
+    );
+    log('✅', 'Datadog non-dashboard route does not receive page button');
+  } finally {
+    await datadogListPage.close();
+  }
+
+  const emptyDatadogPage = await createFixturePage(browser, extensionContent, {
+    url: 'https://app.datadoghq.com/dashboard/emp-tyd-one/empty',
+    html: `<!doctype html><html><head><title>Empty Dashboard | Datadog</title></head><body>
+      <header>
+        <div class="new-dashboard-header__board_title"><h1>Empty Dashboard</h1></div>
+        <div class="dashboard_header__toolbar"><button class="actions_trigger">Configure</button></div>
+        <div class="dashboard_header__bottom-row"><div class="template-variable-list">
+          <fieldset class="templateVariableSelect"><legend>Environment</legend>
+            <span role="combobox">prod</span></fieldset>
+        </div></div>
+      </header>
+    </body></html>`,
+  });
+  try {
+    const markdown = await clickAndCapture(emptyDatadogPage);
+    assertCheck(
+      markdown.includes('filters: {"Environment":"prod"}'),
+      'Empty Datadog dashboard lost filter metadata',
+    );
+    assertCheck(
+      markdown.includes('No dashboard widgets found'),
+      'Empty Datadog dashboard omitted loading warning',
+    );
+    log('✅', 'Datadog filters-only dashboard keeps no-widget warning');
+  } finally {
+    await emptyDatadogPage.close();
+  }
+
+  const datadogNotebookPage = await createFixturePage(browser, extensionContent, {
+    url: 'https://app.datadoghq.com/notebook/15105594/crawlerpy-trends-analysis',
+    beforeLoad: () => {
+      window.fetch = async (input) => {
+        const url = new URL(String(input), window.location.origin);
+        if (url.pathname === '/api/v1/notebooks/15105594') {
+          return new Response(JSON.stringify({
+            data: {
+              attributes: {
+                time: { live_span: '1h' },
+                template_variables: [],
+                cells: [{
+                  id: 'graph-one',
+                  attributes: {
+                    definition: {
+                      type: 'timeseries',
+                      requests: [{
+                        formulas: [{ formula: 'query1' }],
+                        queries: [{
+                          data_source: 'metrics',
+                          name: 'query1',
+                          query: 'sum:fixture.requests{service:crawlerpy} by {path,status_family}',
+                        }],
+                      }],
+                    },
+                    time: null,
+                  },
+                }],
+              },
+            },
+          }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+        }
+        if (
+          url.pathname === '/api/v1/query'
+          && url.searchParams.get('query')
+            === 'sum:fixture.requests{service:crawlerpy} by {path,status_family}'
+        ) {
+          return new Response(JSON.stringify({
+            series: [{
+              display_name: 'fixture.requests',
+              tag_set: ['path:/search', 'status_family:2xx'],
+              pointlist: [[1, 8], [2, 16], [3, 13], [4, 30], [5, 26], [6, 42]],
+            }],
+          }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+        }
+        return new Response('', { status: 404 });
+      };
+    },
+    html: `<!doctype html><html><head><title>CrawlerPy — Trends Analysis | Datadog</title>
+      <style>.fixture-hidden { display: none; }</style></head><body>
+      <div class="notebook-toolbar">
+        <div class="viewModeSelect"><span aria-selected="true">Editing</span></div>
+        <div class="NotebooksShareButton"><button aria-label="Share">NOISE_SHARE</button></div>
+        <button data-dd-action-name="Notebook Settings Button">NOISE_SETTINGS</button>
+      </div>
+      <div class="NotebookRichText__content NotebookRichText__content--has-comments">
+        <div class="NotebookRichText__editor">
+          <header class="Notebook__CellWidthContainer">
+            <div class="NotebookActionBar">
+              <button class="NotebookFavorite__button">NOISE_FAVORITE</button>
+              <button class="NotebookTypeButton__typeModalButton">
+                <span class="druids_pills_tag__text">Report</span>
+              </button>
+            </div>
+            <div class="NotebookTitle"><h1 class="NotebookTitle__text">CrawlerPy — Trends Analysis</h1></div>
+            <aside class="NotebookMetadata">
+              <span data-testid="user-pill">
+                <span aria-hidden="true">NOISE_AUTHOR_DUPLICATE</span>
+                <span data-component-name="overflower-original">Bruno Volpato</span>
+              </span>
+              <button class="Notebook__toggleVersionSidePanel">Updated 1 minute ago</button>
+              <button class="NotebookMetadata__access-pill">Unrestricted access</button>
+            </aside>
+          </header>
+          <div class="dd-rich-text-editor__content"><div class="tiptap ProseMirror">
+            <p data-cell="intro">Trends analysis for <code>service:crawlerpy</code> with <strong>live context</strong>. See <a href="/services/crawlerpy">service page</a>.</p>
+            <h2 data-cell="http">HTTP Traffic</h2>
+            <div class="react-renderer node-widget"><div data-qa="cell" data-cell="graph-one">
+              <div data-cell-id="graph-one" data-test-cell-type="timeseries">
+                <button data-toc-graph-title="HTTP Request Rate by Path and Status">
+                  HTTP Request Rate by Path and Status
+                </button>
+                <div data-response-state="has-some-response">
+                  <svg><text>NOISE_AXIS_TICK</text></svg>
+                  <svg><g class="dataviz_y-axis left">
+                    <text class="dataviz_y-axis__label">Requests/s</text>
+                    <g class="tick" transform="translate(0, 0)"><text>100</text></g>
+                    <g class="tick" transform="translate(0, 24)"><text>50</text></g>
+                    <g class="tick" transform="translate(0, 48)"><text>0</text></g>
+                  </g></svg>
+                  <div class="rendering-layers-container"><div class="rendering-layer">
+                    <canvas class="fixture-notebook-timeseries" width="160" height="48"></canvas>
+                  </div></div>
+                  <div class="dataviz-annotations-renderer">
+                    <div role="note">4.81k</div>
+                    <div role="note">3.83k</div>
+                    <div role="note" class="fixture-hidden">NOISE_HIDDEN_SNAPSHOT</div>
+                  </div>
+                </div>
+              </div>
+            </div></div>
+            <p><br></p>
+            <h2 data-cell="tools">Tool Activity</h2>
+            <div class="react-renderer node-widget"><div data-qa="cell" data-cell="graph-two">
+              <div data-cell-id="graph-two" data-test-cell-type="timeseries">
+                <button data-toc-graph-title="Tool Error Rate (%)">Tool Error Rate (%)</button>
+                <div data-response-state="no-response"></div>
+              </div>
+            </div></div>
+          </div></div>
+        </div>
+        <div class="NotebookEditor__CommentsContainer">NOISE_COMMENTS</div>
+      </div>
+      <footer class="AddCellFooter">NOISE_ADD_CELL</footer>
+    </body></html>`,
+  });
+  try {
+    await datadogNotebookPage.evaluate(() => {
+      const canvas = document.querySelector('.fixture-notebook-timeseries');
+      const context = canvas.getContext('2d');
+      context.strokeStyle = '#2384ba';
+      context.lineWidth = 2;
+      context.beginPath();
+      [[0, 40], [30, 32], [60, 35], [90, 18], [120, 22], [159, 6]]
+        .forEach(([x, y], index) => {
+          if (index === 0) context.moveTo(x, y);
+          else context.lineTo(x, y);
+        });
+      context.stroke();
+    });
+    await datadogNotebookPage.waitForFunction(() => {
+      const button = document.querySelector('#cam-copy-btn');
+      const share = document.querySelector('.NotebooksShareButton');
+      return button && share && button.nextElementSibling === share;
+    });
+
+    const markdown = await clickAndCapture(datadogNotebookPage);
+    const lines = markdown.split('\n');
+    const lineFor = (text) => lines.find(line => line.includes(text)) || '';
+    assertCheck(markdown.includes('source: Datadog Notebook'), 'Notebook source metadata missing');
+    assertCheck(markdown.includes('notebook_id: 15105594'), 'Notebook ID metadata missing');
+    assertCheck(markdown.includes('author: Bruno Volpato'), 'Notebook author metadata missing');
+    assertCheck(markdown.includes('notebook_type: Report'), 'Notebook type metadata missing');
+    assertCheck(markdown.includes('updated: Updated 1 minute ago'), 'Notebook update metadata missing');
+    assertCheck(markdown.includes('access: Unrestricted access'), 'Notebook access metadata missing');
+    assertCheck(markdown.includes('view_mode: Editing'), 'Notebook view-mode metadata missing');
+    assertCheck(
+      markdown.includes('Trends analysis for `service:crawlerpy` with **live context**.')
+        && markdown.includes('[service page](https://app.datadoghq.com/services/crawlerpy)'),
+      'Notebook rich text or inline code lost',
+    );
+    assertCheck(markdown.includes('## HTTP Traffic'), 'Notebook heading missing');
+    assertCheck(markdown.includes('### HTTP Request Rate by Path and Status'), 'Notebook graph title missing');
+    assertCheck(lineFor('Snapshot:').includes('4.81k; 3.83k'), 'Notebook visible graph snapshot missing');
+    assertCheck(
+      lineFor('path:/search, status_family:2xx:').includes('≈ first')
+        && lineFor('path:/search, status_family:2xx:').includes('min')
+        && lineFor('path:/search, status_family:2xx:').includes('max')
+        && lineFor('path:/search, status_family:2xx:').includes('avg')
+        && lineFor('path:/search, status_family:2xx:').includes('last')
+        && /[▁▂▃▄▅▆▇█]{8}/u.test(lineFor('path:/search, status_family:2xx:')),
+      `Notebook named canvas sparkline/stats missing: ${lineFor('path:/search')}`,
+    );
+    assertCheck(markdown.includes('### Tool Error Rate (%)'), 'Notebook second graph title missing');
+    assertCheck(
+      markdown.indexOf('Trends analysis') < markdown.indexOf('## HTTP Traffic')
+        && markdown.indexOf('## HTTP Traffic') < markdown.indexOf('### HTTP Request Rate')
+        && markdown.indexOf('### HTTP Request Rate') < markdown.indexOf('## Tool Activity')
+        && markdown.indexOf('## Tool Activity') < markdown.indexOf('### Tool Error Rate'),
+      'Notebook cell order changed',
+    );
+    assertCheck(
+      markdown.includes('- Type: Timeseries') && markdown.includes('- Snapshot: No data'),
+      'Notebook graph type/no-data summary missing',
+    );
+    for (const noise of [
+      'NOISE_SHARE',
+      'NOISE_SETTINGS',
+      'NOISE_FAVORITE',
+      'NOISE_AUTHOR_DUPLICATE',
+      'NOISE_AXIS_TICK',
+      'NOISE_HIDDEN_SNAPSHOT',
+      'NOISE_COMMENTS',
+      'NOISE_ADD_CELL',
+    ]) {
+      assertCheck(!markdown.includes(noise), `Notebook noise leaked: ${noise}`);
+    }
+
+    await datadogNotebookPage.evaluate(() => {
+      const oldToolbar = document.querySelector('.notebook-toolbar');
+      const toolbar = document.createElement('div');
+      toolbar.className = 'notebook-toolbar';
+      const share = document.createElement('div');
+      share.className = 'NotebooksShareButton';
+      toolbar.appendChild(share);
+      oldToolbar.replaceWith(toolbar);
+    });
+    await datadogNotebookPage.waitForFunction(() => {
+      const button = document.querySelector('#cam-copy-btn');
+      const share = document.querySelector('.NotebooksShareButton');
+      return document.querySelectorAll('#cam-copy-btn').length === 1
+        && button && share && button.nextElementSibling === share;
+    }, { timeout: 5000 });
+
+    await datadogNotebookPage.evaluate(() => {
+      history.pushState({}, '', '/logs');
+      document.body.appendChild(document.createElement('span'));
+    });
+    await datadogNotebookPage.waitForFunction(() => !document.querySelector('#cam-copy-btn'), {
+      timeout: 5000,
+    });
+
+    await datadogNotebookPage.evaluate(() => {
+      history.pushState({}, '', '/notebook/15105595/restored');
+      document.body.appendChild(document.createElement('span'));
+    });
+    await datadogNotebookPage.waitForFunction(() => {
+      const button = document.querySelector('#cam-copy-btn');
+      const share = document.querySelector('.NotebooksShareButton');
+      return document.querySelectorAll('#cam-copy-btn').length === 1
+        && button && share && button.nextElementSibling === share;
+    }, { timeout: 5000 });
+    log('✅', 'Datadog notebook extraction and toolbar SPA lifecycle are semantic');
+  } finally {
+    await datadogNotebookPage.close();
+  }
+
+  const datadogNotebookListPage = await createFixturePage(browser, extensionContent, {
+    url: 'https://app.datadoghq.com/notebook/list',
+    waitForButton: false,
+    html: `<!doctype html><html><head><title>Notebook List | Datadog</title></head><body>
+      <div class="NotebooksShareButton"></div>
+    </body></html>`,
+  });
+  try {
+    await new Promise(resolve => setTimeout(resolve, 1200));
+    assertCheck(
+      await datadogNotebookListPage.$('#cam-copy-btn') === null,
+      'Datadog notebook list incorrectly received page button',
+    );
+    log('✅', 'Datadog non-notebook route does not receive page button');
+  } finally {
+    await datadogNotebookListPage.close();
   }
 
   const overlayFixtures = [
@@ -534,6 +1141,32 @@ async function runRegressionChecks(browser, scriptContent) {
 
 async function runProductionUiChecks(browser, scriptContent) {
   console.log(`${COLORS.cyan}● Production UI guards${COLORS.reset}`);
+
+  const landingPage = await browser.newPage();
+  try {
+    await landingPage.goto(pathToFileURL(path.join(ROOT, 'docs', 'index.html')).href, {
+      waitUntil: 'domcontentloaded',
+    });
+    await landingPage.addScriptTag({ content: scriptContent });
+    await new Promise(r => setTimeout(r, 800));
+    const controls = await landingPage.evaluate(() => ({
+      injected: document.querySelectorAll('#cam-copy-btn').length,
+      demo: document.querySelectorAll('#demo-btn').length,
+      chromeDisabled: document.querySelector('[data-install="chrome"]')?.classList.contains('is-disabled'),
+      chromeLink: !!document.querySelector('[data-install="chrome"] a'),
+      chromeStatus: document.querySelector('[data-install="chrome"] .install-status')?.textContent?.trim(),
+      firefoxLink: document.querySelector('[data-install="firefox"] a')?.href,
+      latestReleaseLink: document.querySelector('.latest-release')?.href,
+    }));
+    assertCheck(controls.injected === 0, 'page opt-out still injected a Copy as Markdown button');
+    assertCheck(controls.demo === 1, 'page opt-out removed the site-owned demo control');
+    assertCheck(controls.chromeDisabled && !controls.chromeLink && controls.chromeStatus === 'WIP', 'Chrome install card is not disabled as WIP');
+    assertCheck(controls.firefoxLink === 'https://addons.mozilla.org/en-US/firefox/addon/copy-as-markdown-addon/', 'Firefox install link is incorrect');
+    assertCheck(controls.latestReleaseLink === 'https://github.com/bvolpato/copy-as-markdown/releases/latest', 'latest release link is incorrect');
+    log('✅', 'Landing page keeps Try it, hides duplicate UI, and exposes correct install states');
+  } finally {
+    await landingPage.close();
+  }
 
   const floatingPage = await browser.newPage();
   await floatingPage.setViewport({ width: 390, height: 844 });

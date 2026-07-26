@@ -12,8 +12,10 @@ export function register(config: ExtractorConfig): void {
     name: config.name,
     matches: config.matches || [],
     regex: config.regex || null,
+    pathnameRegex: config.pathnameRegex || null,
     extract: config.extract,
     buttonPlacement: config.buttonPlacement || 'floating',
+    extensionPageButton: config.extensionPageButton || false,
     anchor: config.anchor || null,
   });
 }
@@ -21,12 +23,16 @@ export function register(config: ExtractorConfig): void {
 export function findExtractor(url?: string): Extractor | null {
   const href = url || window.location.href;
   for (const ext of extractors) {
-    if (ext.regex && ext.regex.test(href)) return ext;
-    for (const pattern of ext.matches) {
-      if (matchPatternToRegex(pattern).test(href)) return ext;
-    }
+    if (matchesExtractorUrl(ext, href) && matchesPathname(ext.pathnameRegex, href)) return ext;
   }
   return null;
+}
+
+export function findExtensionPageButtonCandidate(url?: string): Extractor | null {
+  const href = url || window.location.href;
+  return extractors.find((ext) =>
+    ext.extensionPageButton && matchesExtractorUrl(ext, href),
+  ) || null;
 }
 
 export function getAll(): Extractor[] {
@@ -44,6 +50,27 @@ function matchPatternToRegex(pattern: string): RegExp {
   // 4. Convert scheme wildcard .*:// to proper group
   regex = regex.replace(/^\.\*:\/\//, '(https?|file)://');
   return new RegExp('^' + regex + '$');
+}
+
+function testRegex(regex: RegExp | null, value: string): boolean {
+  if (!regex) return false;
+  regex.lastIndex = 0;
+  return regex.test(value);
+}
+
+function matchesExtractorUrl(extractor: Extractor, href: string): boolean {
+  return testRegex(extractor.regex, href) ||
+    extractor.matches.some((pattern) => matchPatternToRegex(pattern).test(href));
+}
+
+function matchesPathname(regex: RegExp | null, href: string): boolean {
+  if (!regex) return true;
+  try {
+    regex.lastIndex = 0;
+    return regex.test(new URL(href).pathname);
+  } catch {
+    return false;
+  }
 }
 
 export function getAllMatchPatterns(): string[] {

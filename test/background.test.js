@@ -6,6 +6,14 @@ import { fileURLToPath } from 'node:url';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const backgroundCode = fs.readFileSync(path.join(ROOT, 'dist', 'firefox', 'background.js'), 'utf8');
+const DATADOG_AUTOMATIC_MATCHES = [
+  '*://*.datadoghq.com/dashboard/*',
+  '*://*.datadoghq.eu/dashboard/*',
+  '*://*.ddog-gov.com/dashboard/*',
+  '*://*.datadoghq.com/notebook/*',
+  '*://*.datadoghq.eu/notebook/*',
+  '*://*.ddog-gov.com/notebook/*',
+];
 
 function createAction() {
   const calls = [];
@@ -181,7 +189,25 @@ async function testRestrictedPageFeedback() {
   ));
 }
 
+function testDatadogAutomaticContentScripts() {
+  for (const target of ['chrome', 'firefox']) {
+    const manifest = JSON.parse(
+      fs.readFileSync(path.join(ROOT, 'dist', target, 'manifest.json'), 'utf8'),
+    );
+    assert.deepEqual(
+      manifest.content_scripts,
+      [{
+        matches: DATADOG_AUTOMATIC_MATCHES,
+        js: ['content.js'],
+        run_at: 'document_idle',
+      }],
+      `${target} manifest must auto-inject only on Datadog dashboards and notebooks`,
+    );
+  }
+}
+
 await testFirefoxCallbackFlow();
 await testChromePromiseInjectionFlow();
 await testRestrictedPageFeedback();
+testDatadogAutomaticContentScripts();
 console.log('✅ Background click, injection, and toolbar feedback checks passed');
