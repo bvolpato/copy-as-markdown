@@ -1,6 +1,7 @@
 #!/usr/bin/env tsx
 
 import { spawnSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -275,12 +276,68 @@ function verifyZip(target: string, expectedVersion: string): void {
   }
 }
 
+function sha256(file: string): string {
+  const hash = createHash('sha256');
+  hash.update(fs.readFileSync(file));
+  return hash.digest('hex');
+}
+
+function verifyReleaseBundle(bundleArgument: string, expectedVersion: string): void {
+  const bundle = path.resolve(ROOT, bundleArgument);
+  const versionedUserscript = `copy-as-markdown-v${expectedVersion}.user.js`;
+  const stableUserscript = 'copy-as-markdown.user.js';
+  const expectedArtifacts = [
+    versionedUserscript,
+    stableUserscript,
+    `copy-as-markdown-chrome-v${expectedVersion}.zip`,
+    `copy-as-markdown-firefox-v${expectedVersion}.zip`,
+  ];
+  const expectedFiles = new Set([...expectedArtifacts, 'SHA256SUMS']);
+  const actualFiles = fs.readdirSync(bundle).sort();
+
+  if (
+    actualFiles.length !== expectedFiles.size
+    || actualFiles.some((file) => !expectedFiles.has(file))
+  ) {
+    fail(
+      `${bundleArgument}: expected only ${[...expectedFiles].sort().join(', ')}, found ${actualFiles.join(', ')}`,
+    );
+  }
+  for (const artifact of expectedArtifacts) {
+    assertDirectoryFile(bundle, artifact, bundleArgument);
+  }
+
+  const versionedContents = fs.readFileSync(path.join(bundle, versionedUserscript));
+  const stableContents = fs.readFileSync(path.join(bundle, stableUserscript));
+  if (!versionedContents.equals(stableContents)) {
+    fail(`${bundleArgument}: stable userscript alias differs from ${versionedUserscript}`);
+  }
+
+  const checksumLines = fs.readFileSync(path.join(bundle, 'SHA256SUMS'), 'utf8')
+    .trim()
+    .split(/\r?\n/);
+  const expectedChecksums = expectedArtifacts.map(
+    (artifact) => `${sha256(path.join(bundle, artifact))}  ${artifact}`,
+  );
+  if (
+    checksumLines.length !== expectedChecksums.length
+    || checksumLines.some((line, index) => line !== expectedChecksums[index])
+  ) {
+    fail(`${bundleArgument}/SHA256SUMS: contents do not match release artifacts`);
+  }
+}
+
 function main(): void {
   const arguments_ = process.argv.slice(2);
   if (arguments_[0] === '--') arguments_.shift();
-  const [expectedArgument, ...extraArguments] = arguments_;
-  if (extraArguments.length > 0) {
-    fail('usage: pnpm verify:release -- [expected-version]');
+  const expectedArgument = arguments_.shift();
+  let bundleArgument: string | undefined;
+  if (arguments_[0] === '--bundle' && arguments_[1]) {
+    arguments_.shift();
+    bundleArgument = arguments_.shift();
+  }
+  if (arguments_.length > 0) {
+    fail('usage: pnpm verify:release -- [expected-version] [--bundle directory]');
   }
 
   const packageJson = readJson(fs.readFileSync(path.join(ROOT, 'package.json')), 'package.json');
@@ -303,6 +360,7 @@ function main(): void {
     verifyDirectory(target, packageVersion);
     verifyZip(target, packageVersion);
   }
+  if (bundleArgument) verifyReleaseBundle(bundleArgument, packageVersion);
 
   console.log(`✅ Release artifacts verified for v${packageVersion}`);
 }

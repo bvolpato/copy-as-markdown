@@ -86,18 +86,29 @@ jobs:
       - name: Stage release bundle
         shell: bash
         run: |
+          version="${{ steps.version.outputs.version }}"
           mkdir release-bundle
           cp dist/userscript/copy-as-markdown.user.js release-bundle/
-          cp dist/copy-as-markdown-chrome.zip release-bundle/
-          cp dist/copy-as-markdown-firefox.zip release-bundle/
+          cp dist/userscript/copy-as-markdown.user.js "release-bundle/copy-as-markdown-v${version}.user.js"
+          cp dist/copy-as-markdown-chrome.zip "release-bundle/copy-as-markdown-chrome-v${version}.zip"
+          cp dist/copy-as-markdown-firefox.zip "release-bundle/copy-as-markdown-firefox-v${version}.zip"
           (
             cd release-bundle
-            sha256sum copy-as-markdown.user.js copy-as-markdown-chrome.zip copy-as-markdown-firefox.zip > SHA256SUMS
+            sha256sum \
+              "copy-as-markdown-v${version}.user.js" \
+              copy-as-markdown.user.js \
+              "copy-as-markdown-chrome-v${version}.zip" \
+              "copy-as-markdown-firefox-v${version}.zip" \
+              > SHA256SUMS
           )
+
+      - name: Verify release bundle
+        run: pnpm verify:release -- "${{ steps.version.outputs.version }}" --bundle release-bundle
 
       - name: Generate release notes
         shell: bash
         run: |
+          version="${{ steps.version.outputs.version }}"
           release_commit="$(git rev-parse "$GITHUB_REF_NAME^{commit}")"
           previous_tag="$(git describe --tags --abbrev=0 "$release_commit^" 2>/dev/null || true)"
           if [[ -n "$previous_tag" ]]; then
@@ -110,16 +121,16 @@ jobs:
             echo "## Install"
             echo
             echo "### Userscript (Tampermonkey / Violentmonkey)"
-            echo "Download **copy-as-markdown.user.js** below, or [install directly](https://github.com/${GITHUB_REPOSITORY}/releases/download/${GITHUB_REF_NAME}/copy-as-markdown.user.js)."
+            echo "Download **copy-as-markdown-v${version}.user.js** below, or [install directly](https://github.com/${GITHUB_REPOSITORY}/releases/download/${GITHUB_REF_NAME}/copy-as-markdown.user.js)."
             echo
             echo "### Chrome Extension"
-            echo "1. Download **copy-as-markdown-chrome.zip** below"
+            echo "1. Download **copy-as-markdown-chrome-v${version}.zip** below"
             echo "2. Unzip it"
             echo "3. Open \`chrome://extensions/\`, enable Developer mode, choose Load unpacked, and select the folder"
             echo "4. If Chrome shows **Wants access to this site**, choose **Allow**, then click **Copy as Markdown** again"
             echo
             echo "### Firefox Extension"
-            echo "1. Download **copy-as-markdown-firefox.zip** below"
+            echo "1. Download **copy-as-markdown-firefox-v${version}.zip** below"
             echo "2. Open \`about:debugging#/runtime/this-firefox\`, choose Load Temporary Add-on, and select \`manifest.json\`"
             echo
             echo "## Changes"
@@ -158,7 +169,8 @@ jobs:
           fail_on_unmatched_files: true
           overwrite_files: true
           files: |
+            release-bundle/copy-as-markdown-v${{ needs.validate.outputs.version }}.user.js
             release-bundle/copy-as-markdown.user.js
-            release-bundle/copy-as-markdown-chrome.zip
-            release-bundle/copy-as-markdown-firefox.zip
+            release-bundle/copy-as-markdown-chrome-v${{ needs.validate.outputs.version }}.zip
+            release-bundle/copy-as-markdown-firefox-v${{ needs.validate.outputs.version }}.zip
             release-bundle/SHA256SUMS
