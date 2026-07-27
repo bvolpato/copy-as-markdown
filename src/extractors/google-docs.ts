@@ -71,13 +71,24 @@ register({
 
     try {
       const html = await fetchGoogleDocExport(docId, 'html');
-      const body = parseExportedGoogleDoc(html);
+      const body = parseGoogleDocHtml(html);
       const markdown = body ? Markdown.elementToMarkdown(body) : '';
       if (markdown.trim()) {
         return Markdown.buildPageMarkdown(metadata, `# ${title}\n\n${markdown}`);
       }
     } catch (err) {
       console.warn('[Copy as Markdown] Google Docs HTML export failed', err);
+    }
+
+    try {
+      const html = await fetchGoogleDocMobileView(docId);
+      const body = parseGoogleDocHtml(html, '.doc-content, #doc-contents');
+      const markdown = body ? Markdown.elementToMarkdown(body) : '';
+      if (markdown.trim()) {
+        return Markdown.buildPageMarkdown(metadata, `# ${title}\n\n${markdown}`);
+      }
+    } catch (err) {
+      console.warn('[Copy as Markdown] Google Docs mobile view failed', err);
     }
 
     try {
@@ -112,29 +123,41 @@ function getGoogleDocTitle(): string {
 }
 
 function buildGoogleDocExportUrl(docId: string, format: 'html' | 'txt'): string {
-  const current = new URL(window.location.href);
-  const exportUrl = new URL(`/document/d/${docId}/export`, current.origin);
+  const exportUrl = buildGoogleDocUrl(docId, 'export');
   exportUrl.searchParams.set('format', format);
-
-  // Preserve the current tab identifier when Docs exposes one in the URL.
-  const tab = current.searchParams.get('tab');
-  if (tab) exportUrl.searchParams.set('tab', tab);
-
   return exportUrl.toString();
 }
 
+function buildGoogleDocUrl(docId: string, endpoint: 'export' | 'mobilebasic'): URL {
+  const current = new URL(window.location.href);
+  const url = new URL(`/document/d/${docId}/${endpoint}`, current.origin);
+
+  const tab = current.searchParams.get('tab');
+  if (tab) url.searchParams.set('tab', tab);
+
+  return url;
+}
+
 async function fetchGoogleDocExport(docId: string, format: 'html' | 'txt'): Promise<string> {
-  const response = await fetch(buildGoogleDocExportUrl(docId, format), {
+  return fetchGoogleDocUrl(buildGoogleDocExportUrl(docId, format));
+}
+
+async function fetchGoogleDocMobileView(docId: string): Promise<string> {
+  return fetchGoogleDocUrl(buildGoogleDocUrl(docId, 'mobilebasic').toString());
+}
+
+async function fetchGoogleDocUrl(url: string): Promise<string> {
+  const response = await fetch(url, {
     credentials: 'include',
   });
 
   if (!response.ok) {
-    throw new Error(`Google Docs export returned ${response.status}`);
+    throw new Error(`Google Docs request returned ${response.status}`);
   }
 
   const text = await response.text();
   if (!text.trim()) {
-    throw new Error('Google Docs export returned an empty response');
+    throw new Error('Google Docs request returned an empty response');
   }
 
   if (
@@ -142,15 +165,17 @@ async function fetchGoogleDocExport(docId: string, format: 'html' | 'txt'): Prom
     /<title>\s*sign in/i.test(text) ||
     /accounts\.google\.com/i.test(text)
   ) {
-    throw new Error('Google Docs export redirected to a sign-in page');
+    throw new Error('Google Docs request redirected to a sign-in page');
   }
 
   return text;
 }
 
-function parseExportedGoogleDoc(html: string): HTMLElement | null {
-  const parsed = new DOMParser().parseFromString(html, 'text/html');
-  const body = parsed.body;
+function parseGoogleDocHtml(html: string, contentSelector?: string): HTMLElement | null {
+  const parsed = Markdown.parseHtmlDocument(html);
+  const body = contentSelector
+    ? parsed.querySelector<HTMLElement>(contentSelector) || parsed.body
+    : parsed.body;
   if (!body) return null;
 
   unwrapGoogleRedirectLinks(body);

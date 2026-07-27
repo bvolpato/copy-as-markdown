@@ -41,6 +41,8 @@ import './extractors/datadog-notebook';
 
 declare const __IS_USERSCRIPT__: boolean;
 
+const PAGE_BUTTON_OPTOUT_ID = 'copy_as_markdown_btn';
+
 (function () {
   if ((window as any).__copyAsMarkdownInit) return;
   (window as any).__copyAsMarkdownInit = true;
@@ -113,14 +115,19 @@ declare const __IS_USERSCRIPT__: boolean;
 
   // Userscripts show page UI everywhere. Extension builds opt in narrowly.
   const isUserscript = typeof __IS_USERSCRIPT__ !== 'undefined' && __IS_USERSCRIPT__;
-  const pageButtonDisabled = !!document.querySelector(
-    'meta[name="copy-as-markdown"][content~="no-page-button"]',
-  );
   const shouldMonitorPageUi =
-    !pageButtonDisabled &&
     (isUserscript || !!findExtensionPageButtonCandidate(window.location.href));
   if (shouldMonitorPageUi && window.self === window.top) {
+    function hasPageButtonOptOut(): boolean {
+      return !!document.getElementById(PAGE_BUTTON_OPTOUT_ID);
+    }
+
     function syncPageButton(): void {
+      if (hasPageButtonOptOut()) {
+        hideButton();
+        return;
+      }
+
       const registeredExtractor = findExtractor(window.location.href);
       if (!isUserscript && !registeredExtractor?.extensionPageButton) {
         hideButton();
@@ -142,11 +149,19 @@ declare const __IS_USERSCRIPT__: boolean;
       setTimeout(syncPageButton, 500);
     }
 
-    // Re-detect on SPA navigation
+    // Re-detect on SPA navigation and page-owned opt-out changes.
     let lastUrl = window.location.href;
+    let lastPageButtonOptOut = hasPageButtonOptOut();
     const observer = new MutationObserver(() => {
-      if (window.location.href !== lastUrl) {
-        lastUrl = window.location.href;
+      const currentUrl = window.location.href;
+      const pageButtonOptOut = hasPageButtonOptOut();
+      if (currentUrl !== lastUrl || pageButtonOptOut !== lastPageButtonOptOut) {
+        lastUrl = currentUrl;
+        lastPageButtonOptOut = pageButtonOptOut;
+        if (pageButtonOptOut) {
+          hideButton();
+          return;
+        }
         setTimeout(syncPageButton, 800);
       }
     });

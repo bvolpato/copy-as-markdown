@@ -68,6 +68,22 @@ Chrome may show **Wants access to this site** on first use. Click **Allow**, the
 
 The toolbar badge shows `…` while copying, `✓` on success, or `!` when the page or clipboard is unavailable.
 
+### Site-owned button contract
+
+Pages that already provide a copy control can suppress injected page UI with reserved ID:
+
+```html
+<button id="copy_as_markdown_btn">Copy as Markdown</button>
+```
+
+An empty marker works too:
+
+```html
+<div id="copy_as_markdown_btn"></div>
+```
+
+Adding or removing marker updates injected UI dynamically. Extension toolbar action remains available.
+
 ---
 
 ## Supported Sites

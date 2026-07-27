@@ -3,7 +3,6 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <meta name="copy-as-markdown" content="no-page-button">
   <title>Copy as Markdown — One click. Clean Markdown. Perfect LLM context.</title>
   <meta name="description" content="Context-aware Copy as Markdown button for sharing web pages with LLMs like ChatGPT, Claude, and Gemini. Supports 28 purpose-built extractors.">
   <meta property="og:title" content="Copy as Markdown">
@@ -918,7 +917,7 @@ encoded with a different Caesar cipher...
   </footer>
   <!-- Live demo: floating button (identical to the plugin) -->
   <div class="live-demo-wrapper" id="demo-wrapper">
-    <button class="live-demo-btn" id="demo-btn" title="Copy this page as Markdown">
+    <button class="live-demo-btn" id="copy_as_markdown_btn" title="Copy this page as Markdown">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128">
         <defs>
           <linearGradient id="demoGrad" x1="0%" y1="0%" x2="100%" y2="100%">
@@ -954,7 +953,7 @@ encoded with a different Caesar cipher...
 
   <script>
   (function() {
-    var btn = document.getElementById('demo-btn');
+    var btn = document.getElementById('copy_as_markdown_btn');
     var toast = document.getElementById('demo-toast');
     var callout = document.getElementById('try-callout');
 

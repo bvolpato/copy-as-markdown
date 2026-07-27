@@ -405,11 +405,43 @@ export function cleanMarkdown(md: string): string {
     .trim();
 }
 
+type TrustedHtmlPolicy = {
+  createHTML(input: string): unknown;
+};
+
+type TrustedTypesFactory = {
+  createPolicy(name: string, rules: { createHTML(input: string): string }): TrustedHtmlPolicy;
+};
+
+const TRUSTED_HTML_POLICY_KEY = '__copyAsMarkdownTrustedHtmlPolicy';
+
+export function parseHtmlDocument(html: string): Document {
+  const globalWithTrustedTypes = globalThis as typeof globalThis & {
+    trustedTypes?: TrustedTypesFactory;
+    [TRUSTED_HTML_POLICY_KEY]?: TrustedHtmlPolicy;
+  };
+  const trustedTypes = globalWithTrustedTypes.trustedTypes;
+  let input: string | unknown = html;
+
+  if (trustedTypes) {
+    let policy = globalWithTrustedTypes[TRUSTED_HTML_POLICY_KEY];
+    if (!policy) {
+      policy = trustedTypes.createPolicy('copy-as-markdown-html', {
+        createHTML: (value) => value,
+      });
+      globalWithTrustedTypes[TRUSTED_HTML_POLICY_KEY] = policy;
+    }
+    input = policy.createHTML(html);
+  }
+
+  return new DOMParser().parseFromString(input as string, 'text/html');
+}
+
 /**
  * Convert HTML string to Markdown.
  */
 export function htmlToMarkdown(html: string): string {
-  const doc = new DOMParser().parseFromString(html, 'text/html');
+  const doc = parseHtmlDocument(html);
   return cleanMarkdown(nodeToMarkdown(doc.body));
 }
 

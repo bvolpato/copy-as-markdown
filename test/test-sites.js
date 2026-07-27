@@ -287,6 +287,52 @@ async function runRegressionChecks(browser, scriptContent) {
     await toolbarPage.close();
   }
 
+  const googleDocsPage = await createFixturePage(browser, scriptContent, {
+    url: 'https://docs.google.com/document/d/fixture-doc/edit?tab=t.0',
+    csp: "require-trusted-types-for 'script'",
+    beforeLoad: () => {
+      window.__googleDocsFixtureFetches = [];
+      window.fetch = async (input) => {
+        const url = new URL(String(input), window.location.origin);
+        window.__googleDocsFixtureFetches.push(url.toString());
+        if (url.pathname.endsWith('/mobilebasic') && url.searchParams.get('tab') === 't.0') {
+          return new Response(`<!doctype html><html><body>
+            <main id="doc-contents">
+              <h1>Hero Run Summary &amp; Action Items</h1>
+              <p>Generation completed after the NCCL fix.</p>
+              <ul><li>Validate replay output</li></ul>
+            </main>
+          </body></html>`, {
+            status: 200,
+            headers: { 'Content-Type': 'text/html; charset=utf-8' },
+          });
+        }
+        return new Response('', { status: 400 });
+      };
+    },
+    html: `<!doctype html><html><head><title>Hero Run Summary - Google Docs</title></head><body>
+      <div class="docs-title-input-label-inner">Hero Run Summary</div>
+      <div class="docs-titlebar-buttons"><button>Share</button></div>
+      <div id="docs-editor-container"><canvas class="kix-canvas-tile-content"></canvas></div>
+    </body></html>`,
+  });
+  try {
+    const markdown = await clickAndCapture(googleDocsPage);
+    assertCheck(
+      markdown.includes('Generation completed after the NCCL fix.'),
+      'Google Docs canvas document did not fall back to mobilebasic HTML',
+    );
+    assertCheck(markdown.includes('- Validate replay output'), 'Google Docs mobilebasic list was lost');
+    const fetches = await googleDocsPage.evaluate(() => window.__googleDocsFixtureFetches);
+    assertCheck(
+      fetches.some(url => url.includes('/mobilebasic') && url.includes('tab=t.0')),
+      'Google Docs mobilebasic request did not preserve active tab',
+    );
+    log('✅', 'Google Docs canvas extraction falls back to authenticated mobilebasic HTML');
+  } finally {
+    await googleDocsPage.close();
+  }
+
   const datadogPage = await createFixturePage(browser, extensionContent, {
     url: 'https://app.datadoghq.com/dashboard/abc-def-ghi/checkout-golden-signals?live=true',
     beforeLoad: () => {
@@ -1151,7 +1197,7 @@ async function runProductionUiChecks(browser, scriptContent) {
     await new Promise(r => setTimeout(r, 800));
     const controls = await landingPage.evaluate(() => ({
       injected: document.querySelectorAll('#cam-copy-btn').length,
-      demo: document.querySelectorAll('#demo-btn').length,
+      demo: document.querySelectorAll('#copy_as_markdown_btn').length,
       chromeDisabled: document.querySelector('[data-install="chrome"]')?.classList.contains('is-disabled'),
       chromeLink: !!document.querySelector('[data-install="chrome"] a'),
       chromeStatus: document.querySelector('[data-install="chrome"] .install-status')?.textContent?.trim(),
@@ -1170,9 +1216,29 @@ async function runProductionUiChecks(browser, scriptContent) {
     assertCheck(controls.heroFirefoxLink === controls.firefoxLink, 'hero Firefox install link is incorrect');
     assertCheck(controls.heroReleaseLink === controls.latestReleaseLink, 'hero release link is incorrect');
     assertCheck(controls.heroChromeDisabled === 'true' && !controls.heroChromeLink, 'hero Chrome action is not disabled as WIP');
+    await landingPage.click('#copy_as_markdown_btn');
+    await landingPage.waitForSelector('#copy_as_markdown_btn.success', { timeout: 4000 });
     log('✅', 'Landing page keeps Try it, hides duplicate UI, and exposes correct install states');
   } finally {
     await landingPage.close();
+  }
+
+  const optOutPage = await browser.newPage();
+  try {
+    await optOutPage.setContent('<!doctype html><html><head><title>Opt-out contract</title></head><body><main>Content</main></body></html>');
+    await optOutPage.addScriptTag({ content: scriptContent });
+    await optOutPage.waitForSelector('#cam-copy-btn', { timeout: 4000 });
+    await optOutPage.evaluate(() => {
+      const marker = document.createElement('div');
+      marker.id = 'copy_as_markdown_btn';
+      document.body.appendChild(marker);
+    });
+    await optOutPage.waitForFunction(() => !document.querySelector('#cam-copy-btn'), { timeout: 4000 });
+    await optOutPage.evaluate(() => document.getElementById('copy_as_markdown_btn').remove());
+    await optOutPage.waitForSelector('#cam-copy-btn', { timeout: 5000 });
+    log('✅', 'Site-owned button contract suppresses injected UI dynamically');
+  } finally {
+    await optOutPage.close();
   }
 
   const floatingPage = await browser.newPage();
