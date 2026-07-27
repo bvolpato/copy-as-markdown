@@ -1157,12 +1157,19 @@ async function runProductionUiChecks(browser, scriptContent) {
       chromeStatus: document.querySelector('[data-install="chrome"] .install-status')?.textContent?.trim(),
       firefoxLink: document.querySelector('[data-install="firefox"] a')?.href,
       latestReleaseLink: document.querySelector('.latest-release')?.href,
+      heroFirefoxLink: document.querySelector('[data-hero-install="firefox"]')?.href,
+      heroReleaseLink: document.querySelector('[data-hero-install="userscript"]')?.href,
+      heroChromeDisabled: document.querySelector('[data-hero-install="chrome"]')?.getAttribute('aria-disabled'),
+      heroChromeLink: document.querySelector('[data-hero-install="chrome"]')?.tagName === 'A',
     }));
     assertCheck(controls.injected === 0, 'page opt-out still injected a Copy as Markdown button');
     assertCheck(controls.demo === 1, 'page opt-out removed the site-owned demo control');
     assertCheck(controls.chromeDisabled && !controls.chromeLink && controls.chromeStatus === 'WIP', 'Chrome install card is not disabled as WIP');
     assertCheck(controls.firefoxLink === 'https://addons.mozilla.org/en-US/firefox/addon/copy-as-markdown-addon/', 'Firefox install link is incorrect');
     assertCheck(controls.latestReleaseLink === 'https://github.com/bvolpato/copy-as-markdown/releases/latest', 'latest release link is incorrect');
+    assertCheck(controls.heroFirefoxLink === controls.firefoxLink, 'hero Firefox install link is incorrect');
+    assertCheck(controls.heroReleaseLink === controls.latestReleaseLink, 'hero release link is incorrect');
+    assertCheck(controls.heroChromeDisabled === 'true' && !controls.heroChromeLink, 'hero Chrome action is not disabled as WIP');
     log('✅', 'Landing page keeps Try it, hides duplicate UI, and exposes correct install states');
   } finally {
     await landingPage.close();

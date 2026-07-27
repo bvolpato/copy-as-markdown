@@ -230,6 +230,14 @@
       background: var(--bg-card-hover);
       border-color: rgba(255,255,255,0.15);
     }
+    .hero .ctas .is-disabled {
+      cursor: not-allowed;
+      opacity: 0.55;
+    }
+    .hero .ctas .is-disabled:hover {
+      background: var(--bg-card);
+      border-color: var(--border);
+    }
 
     /* ---- Demo code block ---- */
     .demo {
@@ -632,9 +640,13 @@
         Context-aware “Copy as Markdown” button that works on every website. 28 sites get purpose-built extractors — the rest use smart fallback detection. One click to share with ChatGPT, Claude, or Gemini.
       </p>
       <div class="ctas">
-        <a href="https://github.com/bvolpato/copy-as-markdown/releases/latest" class="btn-install">
-          ⬇ Install Userscript
+        <a href="https://addons.mozilla.org/en-US/firefox/addon/copy-as-markdown-addon/" class="btn-install" data-hero-install="firefox">
+          🦊 Install Firefox
         </a>
+        <a href="https://github.com/bvolpato/copy-as-markdown/releases/latest" class="btn-secondary" data-hero-install="userscript">
+          ⬇ Latest Release
+        </a>
+        <span class="btn-secondary is-disabled" data-hero-install="chrome" aria-disabled="true">🟢 Chrome: WIP</span>
         <a href="https://github.com/bvolpato/copy-as-markdown" class="btn-secondary">
           📦 View on GitHub
         </a>
