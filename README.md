@@ -32,7 +32,7 @@ You're chatting with ChatGPT, Claude, or Gemini. You want to share a web page fo
 **Copy as Markdown** allows you to extract content with a single click. Depending on your installation method, you interact with it in two ways:
 
 - **Browser Extension:** Click the "Copy as Markdown" icon in your browser toolbar. Datadog dashboards and notebooks also get an inline button through narrowly scoped site access; extraction and clipboard writes still run only after a click.
-- **Userscript:** A context-aware button is added to supported websites (e.g., a floating button in the bottom-right corner, or inline buttons on Wikipedia, Google Docs, and Datadog pages).
+- **Userscript:** A context-aware button is added to supported websites (e.g., a draggable floating button, or inline buttons on Wikipedia, Google Docs, and Datadog pages). Floating positions persist per site.
 
 One click, and the page's content lands in your clipboard as clean, structured Markdown — headers, tables, links, code blocks, metadata — all preserved. Paste it into your LLM conversation. Done.
 
@@ -90,7 +90,7 @@ Adding or removing marker updates injected UI dynamically. Extension toolbar act
 
 **Interaction Model:**
 - **Browser Extension:** Click the toolbar icon on any supported site, or the inline button on Datadog dashboards and notebooks.
-- **Userscript:** Clicks are handled via injected buttons (inline where a site integration provides a reviewed anchor, floating otherwise).
+- **Userscript:** Clicks are handled via injected buttons (inline where a site integration provides a reviewed anchor, floating otherwise). Drag floating buttons out of the way without disabling them; their positions persist per site.
 
 | Site | What's Extracted |
 | --- | --- |

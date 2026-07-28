@@ -17,6 +17,11 @@ const DISMISS_ID = 'cam-dismiss-btn';
 const WRAPPER_ATTR = 'data-cam-anchor-wrapper';
 const UI_INSTANCE_ATTR = 'data-cam-instance';
 const ACTIVE_INSTANCE_ATTR = 'data-cam-active-instance';
+const BUTTON_TITLE = 'Copy this page as Markdown';
+const FLOATING_BUTTON_TITLE = `${BUTTON_TITLE}. Drag to reposition.`;
+const FLOATING_POSITION_KEY_PREFIX = 'cam-position:';
+const FLOATING_DRAG_THRESHOLD = 4;
+const FLOATING_VIEWPORT_MARGIN = 8;
 
 /** Max time (ms) to keep observing for the anchor element. */
 const ANCHOR_OBSERVE_TIMEOUT = 8000;
@@ -38,6 +43,9 @@ function injectStyles(): void {
       z-index: 999999;
       display: flex;
       align-items: flex-start;
+      touch-action: none;
+      user-select: none;
+      -webkit-user-select: none;
     }
 
     /* ---- Floating icon button (bottom-right fallback) ---- */
@@ -50,7 +58,7 @@ function injectStyles(): void {
       background: none;
       border-radius: 10px;
       box-shadow: 0 4px 14px rgba(0,0,0,0.15);
-      cursor: pointer;
+      cursor: grab;
       opacity: 0.8;
       transition: all 0.2s cubic-bezier(0.175, 0.885, 0.32, 1.275);
     }
@@ -62,6 +70,12 @@ function injectStyles(): void {
     #${BUTTON_ID}.cam-floating:active {
       transform: scale(0.95);
       box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+    }
+    .cam-floating-wrapper.cam-dragging #${BUTTON_ID}.cam-floating {
+      cursor: grabbing;
+      transform: scale(1.02);
+      transition: none;
+      opacity: 1;
     }
     #${BUTTON_ID}.cam-floating .cam-icon {
       width: 100%;
@@ -513,12 +527,25 @@ type OverlayElement = HTMLDivElement & {
   _camCleanup?: () => void;
 };
 
+type FloatingWrapperElement = HTMLDivElement & {
+  _camCleanup?: () => void;
+};
+
 function cleanupOverlay(overlay: Element): void {
   const cleanup = (overlay as OverlayElement)._camCleanup;
   if (cleanup) {
     cleanup();
   } else {
     overlay.remove();
+  }
+}
+
+function cleanupFloatingWrapper(wrapper: Element): void {
+  const cleanup = (wrapper as FloatingWrapperElement)._camCleanup;
+  if (cleanup) {
+    cleanup();
+  } else {
+    wrapper.remove();
   }
 }
 
@@ -529,7 +556,13 @@ function detachButtonPlacement(btn: HTMLButtonElement): void {
     return;
   }
 
-  const wrapper = btn.closest<HTMLElement>(`[${WRAPPER_ATTR}], .cam-floating-wrapper`);
+  const floatingWrapper = btn.closest('.cam-floating-wrapper');
+  if (floatingWrapper) {
+    cleanupFloatingWrapper(floatingWrapper);
+    return;
+  }
+
+  const wrapper = btn.closest<HTMLElement>(`[${WRAPPER_ATTR}]`);
   if (wrapper) {
     wrapper.remove();
   } else {
@@ -629,7 +662,7 @@ function clearInjectedUi(): void {
   cancelWatchdog();
   document.querySelectorAll('.cam-overlay-container').forEach(cleanupOverlay);
   document.querySelectorAll(`[${WRAPPER_ATTR}]`).forEach((el) => el.remove());
-  document.querySelector('.cam-floating-wrapper')?.remove();
+  document.querySelectorAll('.cam-floating-wrapper').forEach(cleanupFloatingWrapper);
   document.getElementById(BUTTON_ID)?.remove();
 }
 
@@ -654,6 +687,7 @@ function attachToAnchor(
   // Use the extractor's preferred style, defaulting to icon-only
   const styleKey = anchor.style || 'icon';
   btn.className = STYLE_CLASS[styleKey] || 'cam-icon-btn';
+  btn.title = BUTTON_TITLE;
 
   // If a label is provided (or the style is not icon), show text alongside the icon
   const label = anchor.label ?? (styleKey === 'icon' ? '' : 'Copy as Markdown');
@@ -746,6 +780,136 @@ function getHostDismissKey(): string {
   return `cam-blocked:${window.location.hostname}`;
 }
 
+function getFloatingPositionKey(): string {
+  return `${FLOATING_POSITION_KEY_PREFIX}${window.location.hostname}`;
+}
+
+type FloatingPosition = {
+  left: number;
+  top: number;
+};
+
+function readFloatingPosition(): FloatingPosition | null {
+  try {
+    const raw = localStorage.getItem(getFloatingPositionKey());
+    if (!raw) return null;
+    const position = JSON.parse(raw) as Partial<FloatingPosition>;
+    if (typeof position.left !== 'number' || !Number.isFinite(position.left)) return null;
+    if (typeof position.top !== 'number' || !Number.isFinite(position.top)) return null;
+    return { left: position.left, top: position.top };
+  } catch {
+    return null;
+  }
+}
+
+function saveFloatingPosition(position: FloatingPosition): void {
+  try {
+    localStorage.setItem(getFloatingPositionKey(), JSON.stringify(position));
+  } catch { /* storage unavailable */ }
+}
+
+function clampFloatingPosition(
+  wrapper: HTMLElement,
+  left: number,
+  top: number,
+): FloatingPosition {
+  const rect = wrapper.getBoundingClientRect();
+  const maxLeft = Math.max(FLOATING_VIEWPORT_MARGIN, window.innerWidth - rect.width - FLOATING_VIEWPORT_MARGIN);
+  const maxTop = Math.max(FLOATING_VIEWPORT_MARGIN, window.innerHeight - rect.height - FLOATING_VIEWPORT_MARGIN);
+  return {
+    left: Math.min(Math.max(left, FLOATING_VIEWPORT_MARGIN), maxLeft),
+    top: Math.min(Math.max(top, FLOATING_VIEWPORT_MARGIN), maxTop),
+  };
+}
+
+function setFloatingPosition(wrapper: HTMLElement, position: FloatingPosition): void {
+  wrapper.style.left = `${position.left}px`;
+  wrapper.style.top = `${position.top}px`;
+  wrapper.style.right = 'auto';
+  wrapper.style.bottom = 'auto';
+}
+
+function enableFloatingDrag(wrapper: FloatingWrapperElement): void {
+  let activePointerId: number | null = null;
+  let startPointerX = 0;
+  let startPointerY = 0;
+  let startLeft = 0;
+  let startTop = 0;
+  let dragged = false;
+  let suppressClick = false;
+  let hasCustomPosition = false;
+
+  const storedPosition = readFloatingPosition();
+  if (storedPosition) {
+    setFloatingPosition(wrapper, clampFloatingPosition(wrapper, storedPosition.left, storedPosition.top));
+    hasCustomPosition = true;
+  }
+
+  const finishDrag = (event: PointerEvent): void => {
+    if (event.pointerId !== activePointerId) return;
+    activePointerId = null;
+    wrapper.classList.remove('cam-dragging');
+    if (wrapper.hasPointerCapture(event.pointerId)) {
+      wrapper.releasePointerCapture(event.pointerId);
+    }
+    if (dragged) {
+      const rect = wrapper.getBoundingClientRect();
+      saveFloatingPosition({ left: rect.left, top: rect.top });
+      suppressClick = true;
+      window.setTimeout(() => { suppressClick = false; }, 100);
+    }
+  };
+
+  wrapper.addEventListener('pointerdown', (event) => {
+    if (!event.isPrimary || event.button !== 0) return;
+    if ((event.target as Element).closest(`#${DISMISS_ID}`)) return;
+    const rect = wrapper.getBoundingClientRect();
+    activePointerId = event.pointerId;
+    startPointerX = event.clientX;
+    startPointerY = event.clientY;
+    startLeft = rect.left;
+    startTop = rect.top;
+    dragged = false;
+    wrapper.setPointerCapture(event.pointerId);
+  });
+
+  wrapper.addEventListener('pointermove', (event) => {
+    if (event.pointerId !== activePointerId) return;
+    const deltaX = event.clientX - startPointerX;
+    const deltaY = event.clientY - startPointerY;
+    if (!dragged && Math.hypot(deltaX, deltaY) < FLOATING_DRAG_THRESHOLD) return;
+    if (!dragged) {
+      dragged = true;
+      hasCustomPosition = true;
+      wrapper.classList.add('cam-dragging');
+    }
+    event.preventDefault();
+    setFloatingPosition(wrapper, clampFloatingPosition(wrapper, startLeft + deltaX, startTop + deltaY));
+  });
+
+  wrapper.addEventListener('pointerup', finishDrag);
+  wrapper.addEventListener('pointercancel', finishDrag);
+  wrapper.addEventListener('click', (event) => {
+    if (!suppressClick) return;
+    event.preventDefault();
+    event.stopImmediatePropagation();
+  }, true);
+
+  const keepInsideViewport = () => {
+    if (!hasCustomPosition || !document.contains(wrapper)) return;
+    const rect = wrapper.getBoundingClientRect();
+    const position = clampFloatingPosition(wrapper, rect.left, rect.top);
+    setFloatingPosition(wrapper, position);
+    saveFloatingPosition(position);
+  };
+  window.addEventListener('resize', keepInsideViewport, { passive: true });
+  wrapper._camCleanup = () => {
+    window.removeEventListener('resize', keepInsideViewport);
+    wrapper.remove();
+    wrapper._camCleanup = undefined;
+  };
+}
+
 export function isHostDismissed(): boolean {
   try {
     return localStorage.getItem(getHostDismissKey()) === '1';
@@ -785,9 +949,10 @@ function showFloating(btn: HTMLButtonElement, instanceId: string): void {
 
   detachButtonPlacement(btn);
   btn.className = 'cam-floating';
+  btn.title = FLOATING_BUTTON_TITLE;
   setButtonContent(btn, createIconElement());
 
-  const wrapper = document.createElement('div');
+  const wrapper = document.createElement('div') as FloatingWrapperElement;
   wrapper.className = 'cam-floating-wrapper';
   markInjected(wrapper, instanceId);
 
@@ -803,7 +968,7 @@ function showFloating(btn: HTMLButtonElement, instanceId: string): void {
     dismissForCurrentPage();
     cancelAnchorObserver();
     cancelWatchdog();
-    wrapper.remove();
+    cleanupFloatingWrapper(wrapper);
 
     // Show host-dismiss prompt
     const host = window.location.hostname;
@@ -841,6 +1006,7 @@ function showFloating(btn: HTMLButtonElement, instanceId: string): void {
   wrapper.appendChild(btn);
   wrapper.appendChild(dismiss);
   document.body.appendChild(wrapper);
+  enableFloatingDrag(wrapper);
 }
 
 // ----------------------------------------------------------------
@@ -868,7 +1034,7 @@ export function showButton(
 
   const btn = document.createElement('button');
   btn.id = BUTTON_ID;
-  btn.title = 'Copy this page as Markdown';
+  btn.title = BUTTON_TITLE;
   btn.setAttribute('aria-label', 'Copy this page as Markdown');
   markInjected(btn, instanceId);
 
@@ -941,7 +1107,8 @@ function observeForAnchor(
       }
 
       // Detach from floating position (remove the wrapper if present)
-      btn.closest('.cam-floating-wrapper')?.remove();
+      const floatingWrapper = btn.closest('.cam-floating-wrapper');
+      if (floatingWrapper) cleanupFloatingWrapper(floatingWrapper);
       btn.remove();
       // Re-create the id so CSS applies cleanly
       btn.className = '';

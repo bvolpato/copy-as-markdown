@@ -1241,21 +1241,19 @@ async function runProductionUiChecks(browser, scriptContent) {
     await optOutPage.close();
   }
 
-  const floatingPage = await browser.newPage();
-  await floatingPage.setViewport({ width: 390, height: 844 });
-  try {
-    await floatingPage.setContent(`
-      <!doctype html>
+  const floatingPage = await createFixturePage(browser, scriptContent, {
+    url: 'https://floating.fixture.test/regression',
+    html: `<!doctype html>
       <html>
         <head><title>Fallback page</title></head>
         <body>
           <main><h1>Fallback article</h1><p>Enough text for fallback extraction.</p></main>
           <button id="talk-widget" style="position: fixed; right: 16px; bottom: 16px; width: 64px; height: 64px;">Talk with us</button>
         </body>
-      </html>
-    `);
-    await floatingPage.addScriptTag({ content: scriptContent });
-    await floatingPage.waitForSelector('#cam-copy-btn', { timeout: 4000 });
+      </html>`,
+  });
+  await floatingPage.setViewport({ width: 390, height: 844 });
+  try {
     await new Promise(r => setTimeout(r, 800));
 
     const layout = await floatingPage.evaluate(() => {
@@ -1294,18 +1292,59 @@ async function runProductionUiChecks(browser, scriptContent) {
     assertCheck(layout.bottomGap >= 88, `floating button too low: ${layout.bottomGap}px from bottom`);
     assertCheck(!boxesOverlap(layout.button, layout.chat), 'floating button overlaps Talk with us widget');
 
+    await floatingPage.evaluate(() => {
+      window.__camCopyCount = 0;
+      Object.defineProperty(navigator, 'clipboard', {
+        configurable: true,
+        value: {
+          writeText: async () => { window.__camCopyCount += 1; },
+        },
+      });
+    });
+    const startX = layout.button.left + layout.button.width / 2;
+    const startY = layout.button.top + layout.button.height / 2;
+    await floatingPage.mouse.move(startX, startY);
+    await floatingPage.mouse.down();
+    await floatingPage.mouse.move(80, 180, { steps: 6 });
+    await floatingPage.mouse.up();
+    await new Promise(r => setTimeout(r, 150));
+
+    const dragged = await floatingPage.evaluate(() => {
+      const button = document.querySelector('#cam-copy-btn');
+      const rect = button.getBoundingClientRect();
+      return {
+        left: rect.left,
+        top: rect.top,
+        copyCount: window.__camCopyCount,
+        stored: JSON.parse(localStorage.getItem('cam-position:floating.fixture.test')),
+        title: button.title,
+      };
+    });
+    assertCheck(Math.abs(dragged.left - layout.button.left) > 100, 'floating button did not move after drag');
+    assertCheck(dragged.copyCount === 0, 'dragging floating button triggered copy');
+    assertCheck(Number.isFinite(dragged.stored?.left) && Number.isFinite(dragged.stored?.top), 'floating position was not persisted');
+    assertCheck(dragged.title.includes('Drag to reposition'), 'floating button does not advertise drag behavior');
+
     await floatingPage.addScriptTag({ content: scriptContent });
     await new Promise(r => setTimeout(r, 800));
-    const duplicateCounts = await floatingPage.evaluate(() => ({
-      buttons: document.querySelectorAll('#cam-copy-btn').length,
-      floatingWrappers: document.querySelectorAll('.cam-floating-wrapper').length,
-      anchorWrappers: document.querySelectorAll('[data-cam-anchor-wrapper]').length,
-    }));
+    const duplicateCounts = await floatingPage.evaluate(() => {
+      const rect = document.querySelector('#cam-copy-btn').getBoundingClientRect();
+      return {
+        buttons: document.querySelectorAll('#cam-copy-btn').length,
+        floatingWrappers: document.querySelectorAll('.cam-floating-wrapper').length,
+        anchorWrappers: document.querySelectorAll('[data-cam-anchor-wrapper]').length,
+        left: rect.left,
+        top: rect.top,
+      };
+    });
 
     assertCheck(duplicateCounts.buttons === 1, `duplicate userscript injection left ${duplicateCounts.buttons} buttons`);
     assertCheck(duplicateCounts.floatingWrappers === 1, `duplicate userscript injection left ${duplicateCounts.floatingWrappers} floating wrappers`);
     assertCheck(duplicateCounts.anchorWrappers === 0, `duplicate userscript injection left ${duplicateCounts.anchorWrappers} anchor wrappers`);
-    log('✅', 'Floating button is smaller, raised above chat widget, and singleton after duplicate injection');
+    assertCheck(Math.abs(duplicateCounts.left - dragged.left) < 2 && Math.abs(duplicateCounts.top - dragged.top) < 2, 'floating position was not restored after reinjection');
+    const draggedMarkdown = await clickAndCapture(floatingPage);
+    assertCheck(draggedMarkdown.includes('Fallback article'), 'floating button no longer copies after dragging');
+    log('✅', 'Floating button avoids widgets, drags without copying, persists position, and remains singleton');
   } finally {
     await floatingPage.close();
   }
