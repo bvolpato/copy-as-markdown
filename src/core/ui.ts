@@ -8,12 +8,13 @@
  * for up to 8 seconds so that SPA-rendered elements are caught.
  */
 
-import { AnchorConfig, AnchorStyle } from './types';
+import { AnchorConfig, AnchorStyle, ExtractionOption } from './types';
 
 const BUTTON_ID = 'cam-copy-btn';
 const TOAST_ID = 'cam-toast';
 const STYLE_ID = 'cam-styles';
 const DISMISS_ID = 'cam-dismiss-btn';
+const OPTION_DIALOG_ID = 'cam-option-dialog';
 const WRAPPER_ATTR = 'data-cam-anchor-wrapper';
 const UI_INSTANCE_ATTR = 'data-cam-instance';
 const ACTIVE_INSTANCE_ATTR = 'data-cam-active-instance';
@@ -30,6 +31,7 @@ const ANCHOR_WATCHDOG_INTERVAL = 2000;
 let activeAnchorObserver: MutationObserver | null = null;
 let activeAnchorTimeout: number | null = null;
 let activeWatchdogInterval: number | null = null;
+let activeOptionCancel: (() => void) | null = null;
 
 function injectStyles(): void {
   if (document.getElementById(STYLE_ID)) return;
@@ -58,7 +60,7 @@ function injectStyles(): void {
       background: none;
       border-radius: 10px;
       box-shadow: 0 4px 14px rgba(0,0,0,0.15);
-      cursor: grab;
+      cursor: pointer;
       opacity: 0.8;
       transition: all 0.2s cubic-bezier(0.175, 0.885, 0.32, 1.275);
     }
@@ -72,7 +74,6 @@ function injectStyles(): void {
       box-shadow: 0 2px 8px rgba(0,0,0,0.15);
     }
     .cam-floating-wrapper.cam-dragging #${BUTTON_ID}.cam-floating {
-      cursor: grabbing;
       transform: scale(1.02);
       transition: none;
       opacity: 1;
@@ -296,6 +297,94 @@ function injectStyles(): void {
         border-radius: 9px;
         width: 36px;
         height: 36px;
+      }
+    }
+
+    /* ---- Extraction option dialog ---- */
+    #${OPTION_DIALOG_ID} {
+      position: fixed;
+      inset: 0;
+      z-index: 2147483646;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 20px;
+      background: rgba(15, 23, 42, 0.48);
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    }
+    #${OPTION_DIALOG_ID} .cam-option-panel {
+      width: min(420px, 100%);
+      padding: 20px;
+      border: 1px solid rgba(148, 163, 184, 0.35);
+      border-radius: 14px;
+      background: #fff;
+      color: #0f172a;
+      box-shadow: 0 24px 70px rgba(15, 23, 42, 0.3);
+    }
+    #${OPTION_DIALOG_ID} .cam-option-title {
+      margin: 0 0 14px;
+      font-size: 17px;
+      font-weight: 650;
+      line-height: 1.3;
+    }
+    #${OPTION_DIALOG_ID} .cam-option-list {
+      display: grid;
+      gap: 8px;
+    }
+    #${OPTION_DIALOG_ID} .cam-option-choice {
+      display: block;
+      width: 100%;
+      padding: 12px 14px;
+      border: 1px solid #cbd5e1;
+      border-radius: 10px;
+      background: #fff;
+      color: #0f172a;
+      text-align: left;
+      cursor: pointer;
+    }
+    #${OPTION_DIALOG_ID} .cam-option-choice:hover,
+    #${OPTION_DIALOG_ID} .cam-option-choice:focus-visible {
+      border-color: #6366f1;
+      background: #eef2ff;
+      outline: none;
+    }
+    #${OPTION_DIALOG_ID} .cam-option-label {
+      display: block;
+      font-size: 14px;
+      font-weight: 650;
+    }
+    #${OPTION_DIALOG_ID} .cam-option-description {
+      display: block;
+      margin-top: 3px;
+      color: #475569;
+      font-size: 12px;
+      line-height: 1.4;
+    }
+    #${OPTION_DIALOG_ID} .cam-option-cancel {
+      display: block;
+      margin: 14px 0 0 auto;
+      padding: 7px 10px;
+      border: 0;
+      background: transparent;
+      color: #475569;
+      font-size: 13px;
+      cursor: pointer;
+    }
+    @media (prefers-color-scheme: dark) {
+      #${OPTION_DIALOG_ID} .cam-option-panel,
+      #${OPTION_DIALOG_ID} .cam-option-choice {
+        border-color: #475569;
+        background: #1e293b;
+        color: #f8fafc;
+      }
+      #${OPTION_DIALOG_ID} .cam-option-choice:hover,
+      #${OPTION_DIALOG_ID} .cam-option-choice:focus-visible {
+        border-color: #818cf8;
+        background: #312e81;
+      }
+      #${OPTION_DIALOG_ID} .cam-option-description,
+      #${OPTION_DIALOG_ID} .cam-option-cancel {
+        color: #cbd5e1;
       }
     }
   `;
@@ -660,6 +749,7 @@ function buildAnchorNode(
 function clearInjectedUi(): void {
   cancelAnchorObserver();
   cancelWatchdog();
+  activeOptionCancel?.();
   document.querySelectorAll('.cam-overlay-container').forEach(cleanupOverlay);
   document.querySelectorAll(`[${WRAPPER_ATTR}]`).forEach((el) => el.remove());
   document.querySelectorAll('.cam-floating-wrapper').forEach(cleanupFloatingWrapper);
@@ -669,6 +759,96 @@ function clearInjectedUi(): void {
 export function hideButton(): void {
   clearInjectedUi();
   document.documentElement.removeAttribute(ACTIVE_INSTANCE_ATTR);
+}
+
+/** Ask user which extraction scope to copy. Returns null when cancelled. */
+export function chooseExtractionOption(
+  title: string,
+  options: ExtractionOption[],
+): Promise<string | null> {
+  injectStyles();
+  activeOptionCancel?.();
+
+  return new Promise((resolve) => {
+    const previousFocus = document.activeElement instanceof HTMLElement
+      ? document.activeElement
+      : null;
+    const overlay = document.createElement('div');
+    overlay.id = OPTION_DIALOG_ID;
+    overlay.setAttribute('role', 'presentation');
+
+    const panel = document.createElement('div');
+    panel.className = 'cam-option-panel';
+    panel.setAttribute('role', 'dialog');
+    panel.setAttribute('aria-modal', 'true');
+    panel.setAttribute('aria-labelledby', `${OPTION_DIALOG_ID}-title`);
+
+    const heading = document.createElement('h2');
+    heading.id = `${OPTION_DIALOG_ID}-title`;
+    heading.className = 'cam-option-title';
+    heading.textContent = title;
+
+    const list = document.createElement('div');
+    list.className = 'cam-option-list';
+
+    let settled = false;
+    const finish = (value: string | null) => {
+      if (settled) return;
+      settled = true;
+      document.removeEventListener('keydown', onKeyDown, true);
+      overlay.remove();
+      if (activeOptionCancel === cancelDialog) activeOptionCancel = null;
+      previousFocus?.focus();
+      resolve(value);
+    };
+    const cancelDialog = () => finish(null);
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        finish(null);
+      }
+    };
+
+    options.forEach((option) => {
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.className = 'cam-option-choice';
+      button.dataset.optionId = option.id;
+
+      const label = document.createElement('span');
+      label.className = 'cam-option-label';
+      label.textContent = option.label;
+      button.appendChild(label);
+
+      if (option.description) {
+        const description = document.createElement('span');
+        description.className = 'cam-option-description';
+        description.textContent = option.description;
+        button.appendChild(description);
+      }
+
+      button.addEventListener('click', () => finish(option.id));
+      list.appendChild(button);
+    });
+
+    const cancel = document.createElement('button');
+    cancel.type = 'button';
+    cancel.className = 'cam-option-cancel';
+    cancel.textContent = 'Cancel';
+    cancel.addEventListener('click', () => finish(null));
+
+    panel.appendChild(heading);
+    panel.appendChild(list);
+    panel.appendChild(cancel);
+    overlay.appendChild(panel);
+    overlay.addEventListener('click', (event) => {
+      if (event.target === overlay) finish(null);
+    });
+    document.addEventListener('keydown', onKeyDown, true);
+    document.body.appendChild(overlay);
+    activeOptionCancel = cancelDialog;
+    list.querySelector<HTMLButtonElement>('button')?.focus();
+  });
 }
 
 /**
@@ -829,7 +1009,7 @@ function setFloatingPosition(wrapper: HTMLElement, position: FloatingPosition): 
   wrapper.style.bottom = 'auto';
 }
 
-function enableFloatingDrag(wrapper: FloatingWrapperElement): void {
+function enableFloatingDrag(btn: HTMLButtonElement, wrapper: FloatingWrapperElement): void {
   let activePointerId: number | null = null;
   let startPointerX = 0;
   let startPointerY = 0;
@@ -849,8 +1029,8 @@ function enableFloatingDrag(wrapper: FloatingWrapperElement): void {
     if (event.pointerId !== activePointerId) return;
     activePointerId = null;
     wrapper.classList.remove('cam-dragging');
-    if (wrapper.hasPointerCapture(event.pointerId)) {
-      wrapper.releasePointerCapture(event.pointerId);
+    if (btn.hasPointerCapture(event.pointerId)) {
+      btn.releasePointerCapture(event.pointerId);
     }
     if (dragged) {
       const rect = wrapper.getBoundingClientRect();
@@ -870,7 +1050,7 @@ function enableFloatingDrag(wrapper: FloatingWrapperElement): void {
     startLeft = rect.left;
     startTop = rect.top;
     dragged = false;
-    wrapper.setPointerCapture(event.pointerId);
+    btn.setPointerCapture(event.pointerId);
   });
 
   wrapper.addEventListener('pointermove', (event) => {
@@ -1006,7 +1186,7 @@ function showFloating(btn: HTMLButtonElement, instanceId: string): void {
   wrapper.appendChild(btn);
   wrapper.appendChild(dismiss);
   document.body.appendChild(wrapper);
-  enableFloatingDrag(wrapper);
+  enableFloatingDrag(btn, wrapper);
 }
 
 // ----------------------------------------------------------------
@@ -1023,7 +1203,7 @@ function showFloating(btn: HTMLButtonElement, instanceId: string): void {
  * 3. If no anchor config is provided, just show floating.
  */
 export function showButton(
-  onClick: () => Promise<string>,
+  onClick: () => Promise<string | null>,
   anchor?: AnchorConfig | null,
 ): HTMLButtonElement | null {
   injectStyles();

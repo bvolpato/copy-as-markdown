@@ -6,25 +6,42 @@
  */
 
 import { findExtractor, findExtensionPageButtonCandidate } from './core/registry';
-import { showButton, hideButton, copyToClipboard, showToast, isHostDismissed } from './core/ui';
+import { showButton, hideButton, copyToClipboard, showToast, isHostDismissed, chooseExtractionOption } from './core/ui';
+import type { Extractor } from './core/types';
 import { buildPageMarkdown, elementToMarkdown } from './core/markdown';
+import { addExtractionMetadata, limitMarkdown } from './core/context';
 
 // Import extractors — each auto-registers on import
 import './extractors/wikipedia';
 import './extractors/grokipedia';
 import './extractors/google-search';
 import './extractors/google-docs';
+import './extractors/google-sheets';
+import './extractors/google-slides';
+import './extractors/gmail';
+import './extractors/notion';
+import './extractors/microsoft-office';
 import './extractors/bing';
 import './extractors/reddit';
 import './extractors/youtube';
 import './extractors/whatsapp';
+import './extractors/slack';
+import './extractors/discord';
 import './extractors/polymarket';
+import './extractors/grok';
 import './extractors/x-twitter';
+import './extractors/facebook';
+import './extractors/instagram';
+import './extractors/tiktok';
 import './extractors/news';
 import './extractors/github';
+import './extractors/gitlab';
+import './extractors/bitbucket';
 import './extractors/stackoverflow';
 import './extractors/hackernews';
 import './extractors/linkedin';
+import './extractors/jira';
+import './extractors/confluence';
 import './extractors/amazon';
 import './extractors/arxiv';
 import './extractors/medium';
@@ -34,6 +51,7 @@ import './extractors/substack';
 import './extractors/chatgpt';
 import './extractors/claude';
 import './extractors/gemini';
+import './extractors/perplexity';
 import './extractors/npm';
 import './extractors/pypi';
 import './extractors/datadog-dashboard';
@@ -57,6 +75,7 @@ const PAGE_BUTTON_OPTOUT_ID = 'copy_as_markdown_btn';
       extractor = {
         name: 'Fallback',
         anchor: null,
+        options: [],
         extract: async () => {
           // If the user has highlighted text, extract just that
           const selection = window.getSelection();
@@ -65,15 +84,36 @@ const PAGE_BUTTON_OPTOUT_ID = 'copy_as_markdown_btn';
             for (let i = 0; i < selection.rangeCount; i++) {
               container.appendChild(selection.getRangeAt(i).cloneContents());
             }
-            return buildPageMarkdown({ url: window.location.href }, elementToMarkdown(container));
+            const metadata = {
+              source: 'Fallback',
+              title: document.title,
+              url: window.location.href,
+              scope: 'selection',
+            };
+            const limited = limitMarkdown(elementToMarkdown(container));
+            addExtractionMetadata(metadata, {
+              contentSource: 'selected page content',
+              truncated: limited.truncated,
+              complete: !limited.truncated,
+            });
+            return buildPageMarkdown(metadata, limited.markdown);
           }
 
           // Otherwise, find the richest content container on the page
           const contentEl = document.querySelector('article, main, [role="main"]') || document.body;
-          return buildPageMarkdown(
-            { title: document.title, url: window.location.href },
-            elementToMarkdown(contentEl)
-          );
+          const metadata = {
+            source: 'Fallback',
+            title: document.title,
+            url: window.location.href,
+            scope: 'detected main content',
+          };
+          const limited = limitMarkdown(elementToMarkdown(contentEl));
+          addExtractionMetadata(metadata, {
+            contentSource: 'live page DOM',
+            truncated: limited.truncated,
+            complete: false,
+          });
+          return buildPageMarkdown(metadata, limited.markdown);
         }
       } as any;
     } else {
@@ -83,12 +123,23 @@ const PAGE_BUTTON_OPTOUT_ID = 'copy_as_markdown_btn';
     return extractor;
   }
 
-  async function performCopy(): Promise<void> {
+  async function extractWithOptions(extractor: Extractor): Promise<string | null> {
+    let optionId: string | undefined;
+    if (extractor.options.length > 0) {
+      optionId = await chooseExtractionOption(`Copy ${extractor.name}`, extractor.options) || undefined;
+      if (!optionId) return null;
+    }
+    return extractor.extract(optionId);
+  }
+
+  async function performCopy(): Promise<boolean> {
     try {
-      const extractor = getExtractor();
-      const markdown = await extractor!.extract();
+      const extractor = getExtractor() as Extractor;
+      const markdown = await extractWithOptions(extractor);
+      if (!markdown) return false;
       await copyToClipboard(markdown);
       showToast('✅ Copied as Markdown!');
+      return true;
     } catch (error) {
       console.error('[Copy as Markdown] Copy failed', error);
       showToast('❌ Copy failed. Check clipboard permissions.');
@@ -102,7 +153,7 @@ const PAGE_BUTTON_OPTOUT_ID = 'copy_as_markdown_btn';
     chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
       if (request.action === 'copy-as-markdown') {
         performCopy().then(
-          () => sendResponse({ success: true }),
+          (copied) => sendResponse({ success: true, copied }),
           (error) => sendResponse({
             success: false,
             error: error instanceof Error ? error.message : String(error),
@@ -140,7 +191,7 @@ const PAGE_BUTTON_OPTOUT_ID = 'copy_as_markdown_btn';
 
       const extractor = registeredExtractor || getExtractor()!;
       const anchor = extractor.buttonPlacement === 'anchor' ? extractor.anchor : null;
-      showButton(() => extractor.extract(), anchor);
+      showButton(() => extractWithOptions(extractor), anchor);
     }
 
     if (document.readyState === 'loading') {

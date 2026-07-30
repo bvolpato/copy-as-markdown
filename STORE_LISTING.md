@@ -22,12 +22,12 @@ Copy page content as clean, structured Markdown for notes, research, documentati
 ```
 Copy as Markdown converts the current page or selected content into clean Markdown and writes it to your clipboard.
 
-It preserves useful structure such as headings, links, lists, tables, code blocks, and source metadata. Site-aware extraction improves results on supported page types, while a general fallback handles other pages.
+It preserves useful structure such as headings, links, lists, tables, code blocks, title, and URL. Site-aware extraction improves results on supported page types, while a general fallback handles other pages.
 
 FEATURES
 • Copy a full page or selected content
 • Preserve document structure, links, tables, and code
-• Include source metadata in YAML frontmatter
+• Include compact title and URL context in YAML frontmatter
 • Use one click from the toolbar or an inline control
 • Process content in your browser
 • No ads, analytics, account, or developer-operated data service
@@ -138,7 +138,7 @@ All executable code ships in the extension package. No external scripts, dynamic
 - [ ] Authentication information — **No**
 - [x] Personal communications — **Yes**; only when content selected by the user includes conversations
 - [ ] Location — **No**
-- [x] Web history — **Yes**; the current page URL is included as source metadata
+- [x] Web history — **Yes**; the current page URL is included in Markdown frontmatter
 - [ ] User activity — **No**
 - [x] Website content — **Yes**; required to convert the current page or selection to Markdown
 
@@ -225,12 +225,12 @@ Context-aware Markdown extraction for articles, documentation, dashboards, conve
 
 **Description:**
 ```
-Copy as Markdown converts web content into clean, structured Markdown with one click. It preserves headings, tables, links, code blocks, lists, and source metadata for AI workflows, research, notes, and documentation.
+Copy as Markdown converts web content into clean, structured Markdown with one click. It preserves headings, tables, links, code blocks, lists, title, and URL for AI workflows, research, notes, and documentation.
 
-28 FIRST-CLASS EXTRACTORS
+44 FIRST-CLASS EXTRACTORS
 
 • Wikipedia: article body, infoboxes, and tables
-• GitHub: issues, pull requests, repositories, README files, and code
+• GitHub: issues, pull requests, directory listings, full code files, and patches
 • Stack Overflow: questions, answers, vote counts, and comments
 • YouTube: title, description, chapters, comments, and transcript
 • Reddit: posts and threaded comments
@@ -247,6 +247,15 @@ Copy as Markdown converts web content into clean, structured Markdown with one c
 • PyPI: package metadata, description, and README
 • Google Search: query, snippets, knowledge panel, and ranked results
 • Google Docs: document export with headings, lists, tables, links, and images
+• Google Sheets: active sheet or selected range as a bounded table
+• Google Slides: choose current slide or full deck, with ordered text, links, and speaker notes when available
+• Gmail: authenticated threads with subjects, participants, message bodies, and attachments
+• Notion: pages and databases with properties, rich blocks, code, and tables
+• Microsoft 365: structured Word, Excel, and PowerPoint web content
+• Slack: loaded channel and thread messages with authors, timestamps, reactions, and attachments
+• Discord: loaded messages and threads with authors, replies, reactions, and attachments
+• Jira: issue metadata, fields, descriptions, links, and visible comments
+• Confluence: page content, tables, code blocks, metadata, and visible comments
 • Bing Search: results, knowledge sidebar, and related searches
 • Datadog dashboards: filters, groups, widget values, top lists, named series, sparklines, and summary statistics
 • Datadog notebooks: metadata, narrative, visualization cells, named series, sparklines, and summary statistics
@@ -256,7 +265,14 @@ Copy as Markdown converts web content into clean, structured Markdown with one c
 • Polymarket: market odds, volume, resolution rules, and comments
 • WhatsApp Web: chat messages with sender and timestamp
 • News sites: article body, author, date, and paywall state
-• Grokipedia: article content and source metadata
+• Grokipedia: clean article content with title and URL
+• GitLab: repositories, code files, issues, merge requests, comments, and visible diffs
+• Bitbucket: repositories, source files, pull requests, issues, comments, and visible diffs
+• Perplexity: conversations with role labels, citations, and source links
+• Grok: conversations with role labels, citations, code, and images
+• Facebook: posts and reels with captions, engagement, and visible comments
+• Instagram: posts and reels with captions, media descriptions, engagement, and visible comments
+• TikTok: videos with creator metadata, captions or transcripts, engagement, and visible comments
 
 OTHER WEBSITES
 
@@ -265,7 +281,7 @@ A general extractor handles other pages by using the current selection or detect
 FEATURES
 
 • Full-page and selection-aware extraction
-• YAML frontmatter with title, URL, source, and date metadata
+• Compact YAML frontmatter with title, URL, and useful page-specific context
 • Inline controls on supported pages and a floating fallback button
 • One-click clipboard output
 • No ads, analytics, or developer-operated data service

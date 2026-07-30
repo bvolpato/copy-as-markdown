@@ -96,6 +96,15 @@ Adding or removing marker updates injected UI dynamically. Extension toolbar act
 | --- | --- |
 | **Wikipedia** | Article body, tables, infoboxes — edit buttons and references stripped |
 | **Google Docs** | Full document export via Google Docs HTML export — headings, lists, tables, links, images, and off-screen content |
+| **Google Sheets** | Active sheet or selected range as a bounded Markdown table |
+| **Google Slides** | Choose current slide or full deck; preserves order, titles, text, links, and speaker notes when available |
+| **Gmail** | Full authenticated thread from Print all view — subject, participants, message headers, bodies, links, images, and attachments |
+| **Notion** | Pages and databases with properties, rich blocks, tables, code, and rendered rows |
+| **Microsoft 365** | Word, Excel, and PowerPoint web content through structured live-page views |
+| **Slack** | Loaded channel or thread messages with authors, timestamps, reactions, replies, and attachments |
+| **Discord** | Loaded channel messages and threads with authors, timestamps, replies, reactions, and attachments |
+| **Jira** | Issue metadata, fields, description, links, and visible comments |
+| **Confluence** | Page metadata, rich content, tables, code blocks, and visible comments |
 | **Grokipedia** | Full article content with metadata |
 | **Google Search** | Query, featured snippets, knowledge panel, ranked results, "People Also Ask" |
 | **Bing Search** | Query, search results, knowledge sidebar, related searches |
@@ -106,10 +115,17 @@ Adding or removing marker updates injected UI dynamically. Extension toolbar act
 | **Polymarket** | Market title, description, outcome probabilities, volume, resolution rules |
 | **Datadog dashboards** | Dashboard title, timeframe, template variables, grouped widget values, top lists, and visible chart annotations |
 | **Datadog notebooks** | Notebook metadata, narrative headings and rich text, ordered visualization cells, types, no-data states, and visible chart annotations |
-| **GitHub** | Issues & PRs (with comments, labels, state), repos (README, topics, languages), code files |
+| **GitHub** | Issues and PRs, repository/directory listings with READMEs, full code-file contents, and canonical patches with commit/file metadata |
+| **GitLab** | Repositories, trees, code files, issues, merge requests, comments, and visible diffs |
+| **Bitbucket** | Repositories, source files, pull requests, issues, comments, and visible diffs |
+| **Perplexity** | Ordered user and assistant turns with citations and source links |
+| **Grok** | Ordered user and assistant turns with citations, code, and images |
 | **Stack Overflow** | Question with votes & tags, all answers (✅ accepted marked), comment threads |
 | **Hacker News** | Post title, link, score, author, nested comment threads with depth |
 | **LinkedIn** | Profiles (experience, education, about), posts (with reactions and comments), articles |
+| **Facebook** | Posts, reels, captions, author metadata, engagement, and visible comments |
+| **Instagram** | Posts and reels with captions, media descriptions, engagement, and visible comments |
+| **TikTok** | Videos with creator, caption, engagement, transcript or captions, and visible comments |
 | **Amazon** | Product title, ASIN, price, rating, feature bullets, tech specs, reviews (top 10) |
 | **arXiv** | Paper title, authors, abstract, subjects, DOI, links; full body from HTML pages |
 | **News sites** | Fox News, CNN, BBC, NYT, Reuters, and 20+ others — article body, author, date; paywall detection |

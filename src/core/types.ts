@@ -43,6 +43,16 @@ export interface AnchorConfig {
   label?: string;
 }
 
+/** User-selectable extraction scope shown before copying. */
+export interface ExtractionOption {
+  /** Stable value passed to the extractor. */
+  id: string;
+  /** Short action label. */
+  label: string;
+  /** Optional detail shown below the label. */
+  description?: string;
+}
+
 /**
  * Configuration object passed to ExtractorRegistry.register().
  */
@@ -55,8 +65,10 @@ export interface ExtractorConfig {
   regex?: RegExp;
   /** Optional pathname constraint applied after URL pattern matching. */
   pathnameRegex?: RegExp;
+  /** Optional choices shown before extraction. */
+  options?: ExtractionOption[];
   /** The extraction function — returns a Markdown string. */
-  extract: () => Promise<string>;
+  extract: (optionId?: string) => Promise<string>;
   /** Button placement mode. Default: 'floating'. */
   buttonPlacement?: ButtonPlacement;
   /** Show page button in extension builds. Requires a matching manifest content script. */
@@ -73,7 +85,8 @@ export interface Extractor {
   matches: string[];
   regex: RegExp | null;
   pathnameRegex: RegExp | null;
-  extract: () => Promise<string>;
+  options: ExtractionOption[];
+  extract: (optionId?: string) => Promise<string>;
   buttonPlacement: ButtonPlacement;
   extensionPageButton: boolean;
   anchor: AnchorConfig | null;

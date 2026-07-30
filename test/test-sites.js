@@ -49,7 +49,7 @@ const SITES = [
     anchorSelectors: ['#p-views ul', '.mw-portlet-views ul'],
     expectAnchored: true,
     minChars: 500,
-    mustContain: ['Markdown', 'source: Wikipedia'],
+    mustContain: ['Markdown', 'url:'],
   },
   {
     name: 'GitHub',
@@ -67,7 +67,7 @@ const SITES = [
     anchorSelectors: ['#question-header + .d-flex', '#question-header', '.question-header'],
     expectAnchored: false,
     minChars: 500,
-    mustContain: ['source: Stack Overflow'],
+    mustContain: ['url:'],
   },
   {
     name: 'Hacker News',
@@ -76,7 +76,7 @@ const SITES = [
     anchorSelectors: [],
     expectAnchored: false,
     minChars: 200,
-    mustContain: ['source: Hacker News'],
+    mustContain: ['url:'],
   },
   {
     name: 'arXiv',
@@ -85,7 +85,7 @@ const SITES = [
     anchorSelectors: ['.submission-history', '.extra-services', '.abs-button-row', '.html-header-message', 'h1.title'],
     expectAnchored: false,
     minChars: 300,
-    mustContain: ['source: arXiv'],
+    mustContain: ['url:'],
   },
   {
     name: 'Reddit',
@@ -100,7 +100,7 @@ const SITES = [
     ],
     expectAnchored: false,
     minChars: 100,
-    mustContain: ['source: Reddit'],
+    mustContain: ['url:'],
   },
   {
     name: 'Bing Search',
@@ -109,7 +109,7 @@ const SITES = [
     anchorSelectors: ['#b_header .b_scopebar ul', '#b_header'],
     expectAnchored: false,
     minChars: 200,
-    mustContain: ['source: Bing Search'],
+    mustContain: ['url:'],
   },
   {
     name: 'Amazon',
@@ -118,7 +118,7 @@ const SITES = [
     anchorSelectors: ['#title', '#titleSection', '#productTitle'],
     expectAnchored: false,
     minChars: 100,
-    mustContain: ['source: Amazon'],
+    mustContain: ['url:'],
   },
   {
     name: 'Fallback (example.com)',
@@ -151,6 +151,30 @@ function log(icon, msg) {
 
 function assertCheck(condition, message) {
   if (!condition) throw new Error(message);
+}
+
+function frontmatterKeys(markdown) {
+  const match = markdown.match(/^---\n([\s\S]*?)\n---/);
+  if (!match) return [];
+  return match[1]
+    .split('\n')
+    .map((line) => line.match(/^([^:]+):/)?.[1])
+    .filter(Boolean);
+}
+
+function assertCompactMetadata(markdown, context) {
+  const omitted = new Set([
+    'source', 'content_source', 'complete', 'completeness', 'truncated', 'scope', 'route', 'type',
+    'messages', 'tables', 'code_blocks', 'media_items', 'transcript_segments',
+    'rendered_blocks', 'rendered_database_rows', 'included_database_rows',
+    'reactions', 'comments', 'shares', 'views', 'likes', 'lines', 'bytes', 'size',
+    'entries', 'directories', 'files', 'commits', 'changed_files', 'additions', 'deletions',
+    'patch_bytes', 'patch_url', 'patch_api_url', 'raw_url', 'speaker_notes', 'output_limits', 'reading_time',
+  ]);
+  const noisy = frontmatterKeys(markdown).filter((key) =>
+    omitted.has(key) || /(?:^|_)(?:count|total|included|found)$/.test(key),
+  );
+  assertCheck(noisy.length === 0, `${context} leaked noisy metadata: ${noisy.join(', ')}`);
 }
 
 function boxesOverlap(a, b) {
@@ -190,7 +214,7 @@ async function createFixturePage(browser, scriptContent, {
   return page;
 }
 
-async function clickAndCapture(page) {
+async function prepareClipboardCapture(page) {
   await page.evaluate(() => {
     window.__camCapturedMarkdown = '';
     Object.defineProperty(navigator, 'clipboard', {
@@ -209,8 +233,28 @@ async function clickAndCapture(page) {
       }
       return false;
     };
-    document.querySelector('#cam-copy-btn').click();
   });
+}
+
+async function clickAndCapture(page) {
+  await prepareClipboardCapture(page);
+  await page.evaluate(() => document.querySelector('#cam-copy-btn').click());
+  await page.waitForFunction(() => window.__camCapturedMarkdown.length > 0, { timeout: 4000 });
+  return page.evaluate(() => window.__camCapturedMarkdown);
+}
+
+async function clickAndCaptureWithPointer(page) {
+  await prepareClipboardCapture(page);
+  await page.click('#cam-copy-btn');
+  await page.waitForFunction(() => window.__camCapturedMarkdown.length > 0, { timeout: 4000 });
+  return page.evaluate(() => window.__camCapturedMarkdown);
+}
+
+async function chooseAndCapture(page, optionId) {
+  await prepareClipboardCapture(page);
+  await page.click('#cam-copy-btn');
+  await page.waitForSelector(`#cam-option-dialog [data-option-id="${optionId}"]`, { timeout: 4000 });
+  await page.click(`#cam-option-dialog [data-option-id="${optionId}"]`);
   await page.waitForFunction(() => window.__camCapturedMarkdown.length > 0, { timeout: 4000 });
   return page.evaluate(() => window.__camCapturedMarkdown);
 }
@@ -285,6 +329,354 @@ async function runRegressionChecks(browser, scriptContent) {
     log('✅', 'Toolbar waits for clipboard result and reports denied writes');
   } finally {
     await toolbarPage.close();
+  }
+
+  const gmailToolbarPage = await createFixturePage(browser, extensionContent, {
+    url: 'https://mail.google.com/mail/u/0/#search/cursor/FMfcgzQgMMHLwtbqvvsLSmnmFrtzlwhR',
+    waitForButton: false,
+    beforeLoad: () => {
+      window.chrome = {
+        runtime: {
+          onMessage: {
+            addListener(listener) {
+              window.__camMessageListener = listener;
+            },
+          },
+        },
+      };
+      Object.defineProperty(navigator, 'clipboard', {
+        configurable: true,
+        value: {
+          async writeText(text) {
+            window.__camToolbarClipboard = text;
+          },
+        },
+      });
+      document.execCommand = () => false;
+      window.fetch = async () => new Response(`<!doctype html><html><head><title>Gmail - Toolbar Thread</title></head><body>
+        <div class="maincontent"><table class="message"><tbody>
+          <tr><td>Toolbar Sender &lt;sender@example.com&gt;</td><td align="right">Jul 29</td></tr>
+          <tr><td colspan="2">to me</td></tr>
+          <tr><td colspan="2"><p>Complete toolbar thread body.</p></td></tr>
+        </tbody></table></div>
+      </body></html>`, { status: 200 });
+    },
+    html: '<!doctype html><html><head><title>Gmail</title></head><body><main><h2 class="hP">Toolbar Thread</h2></main></body></html>',
+  });
+  try {
+    const result = await gmailToolbarPage.evaluate(() => new Promise(resolve => {
+      const keepAlive = window.__camMessageListener(
+        { action: 'copy-as-markdown' },
+        {},
+        response => resolve({ keepAlive, response }),
+      );
+    }));
+    const copied = await gmailToolbarPage.evaluate(() => window.__camToolbarClipboard);
+    assertCheck(result.keepAlive === true && result.response.success === true, 'Gmail extension toolbar copy failed');
+    assertCheck(copied.includes('title: Toolbar Thread') && copied.includes('Complete toolbar thread body.'), 'Gmail extension toolbar copied incomplete thread');
+    assertCompactMetadata(copied, 'Gmail toolbar output');
+    assertCheck(await gmailToolbarPage.$('#cam-copy-btn') === null, 'Gmail extension unexpectedly added a page button');
+    log('✅', 'Gmail works through extension toolbar without adding page UI');
+  } finally {
+    await gmailToolbarPage.close();
+  }
+
+  const gmailThreadPage = await createFixturePage(browser, scriptContent, {
+    url: 'https://mail.google.com/mail/u/0/#search/cursor/FMfcgzQgMMHLwtbqvvsLSmnmFrtzlwhR',
+    csp: "require-trusted-types-for 'script'",
+    beforeLoad: () => {
+      window.__gmailPrintFetches = [];
+      window.__gmailPrintHtml = `<!doctype html><html><head><title>Gmail - Project Phoenix</title></head><body>
+        <div class="maincontent">
+          <table class="message"><tbody>
+            <tr><td><b>Alice Example</b> &lt;alice@example.com&gt;</td><td align="right" title="July 28, 2026, 10:00 AM">Jul 28</td></tr>
+            <tr><td colspan="2">to Bob Example &lt;bob@example.com&gt;</td></tr>
+            <tr><td colspan="2"><div><p>First complete message.</p><ul><li>Decision one</li></ul><a href="?view=att&amp;disp=attd">spec.pdf</a></div></td></tr>
+          </tbody></table>
+          <table class="message"><tbody>
+            <tr><td><b>Bob Example</b> &lt;bob@example.com&gt;</td><td align="right" title="July 28, 2026, 11:00 AM">Jul 28</td></tr>
+            <tr><td colspan="2">to Alice Example &lt;alice@example.com&gt;</td></tr>
+            <tr><td colspan="2"><div><p>Second complete reply.</p><blockquote>Keep this quoted context.</blockquote></div></td></tr>
+          </tbody></table>
+        </div>
+      </body></html>`;
+      window.fetch = async (input) => {
+        window.__gmailPrintFetches.push(String(input));
+        return new Response(window.__gmailPrintHtml, {
+          status: 200,
+          headers: { 'Content-Type': 'text/html; charset=utf-8' },
+        });
+      };
+    },
+    html: `<!doctype html><html><head><title>Inbox noise</title></head><body>
+      <div role="main"><h2 class="hP">Project Phoenix</h2><div>INBOX_NAVIGATION_NOISE</div></div>
+    </body></html>`,
+  });
+  try {
+    const markdown = await clickAndCaptureWithPointer(gmailThreadPage);
+    const fetches = await gmailThreadPage.evaluate(() => window.__gmailPrintFetches);
+    assertCheck(markdown.includes('thread_id: FMfcgzQgMMHLwtbqvvsLSmnmFrtzlwhR'), 'Gmail thread ID missing');
+    assertCheck(markdown.includes('title: Project Phoenix'), 'Gmail subject missing');
+    assertCompactMetadata(markdown, 'Gmail print output');
+    assertCheck(markdown.includes('## Message 1: Alice Example') && markdown.includes('First complete message.'), 'Gmail first message missing');
+    assertCheck(markdown.includes('## Message 2: Bob Example') && markdown.includes('Second complete reply.'), 'Gmail second message missing');
+    assertCheck(markdown.includes('**Attachments:** spec.pdf'), 'Gmail attachment metadata missing');
+    assertCheck(markdown.includes('> Keep this quoted context.'), 'Gmail quoted content missing');
+    assertCheck(!markdown.includes('INBOX_NAVIGATION_NOISE'), 'Gmail copied surrounding inbox UI');
+    assertCheck(fetches.length === 1 && fetches[0] === 'https://mail.google.com/mail/u/0/?ui=2&view=pt&search=all&th=FMfcgzQgMMHLwtbqvvsLSmnmFrtzlwhR', `Gmail fetched ${fetches.join(', ')}`);
+    log('✅', 'Gmail copies complete authenticated threads from Print all view');
+  } finally {
+    await gmailThreadPage.close();
+  }
+
+  const gmailLiveFallbackPage = await createFixturePage(browser, scriptContent, {
+    url: 'https://mail.google.com/mail/u/1/#inbox/FMfcgzFallbackThread123',
+    beforeLoad: () => {
+      window.fetch = async () => new Response('', { status: 500 });
+    },
+    html: `<!doctype html><html><head><title>Fallback thread</title></head><body>
+      <div role="main"><h2 class="hP">Fallback Subject</h2>
+        <div class="adn ads" data-message-id="#msg-f:1">
+          <span class="gD" name="Carol Example" email="carol@example.com">Carol</span>
+          <span class="g2">to me</span><span class="g3" title="July 29, 2026, 9:00 AM">9:00 AM</span>
+          <div class="a3s aiL"><p>Live fallback body.</p></div>
+        </div>
+      </div>
+    </body></html>`,
+  });
+  try {
+    const markdown = await clickAndCaptureWithPointer(gmailLiveFallbackPage);
+    assertCompactMetadata(markdown, 'Gmail live output');
+    assertCheck(markdown.includes('Carol Example <carol@example.com>'), 'Gmail live sender missing');
+    assertCheck(markdown.includes('Live fallback body.'), 'Gmail live body missing');
+    log('✅', 'Gmail falls back to semantic live message DOM');
+  } finally {
+    await gmailLiveFallbackPage.close();
+  }
+
+  const githubRepoPage = await createFixturePage(browser, scriptContent, {
+    url: 'https://github.com/bvolpato/SkyRL',
+    html: `<!doctype html><html><head><title>bvolpato/SkyRL</title></head><body>
+      <div itemprop="about">A modular full-stack RL library</div>
+      <script type="application/json" data-target="react-app.embeddedData">${JSON.stringify({
+        payload: {
+          codeViewRepoRoute: {
+            path: '/',
+            refInfo: { name: 'main', currentOid: 'ca813682c55e0bc6f74dbfbc4fbf13270e8f9848' },
+            tree: {
+              totalCount: 3,
+              items: [
+                { name: 'skyrl', path: 'skyrl', contentType: 'directory' },
+                { name: 'README.md', path: 'README.md', contentType: 'file' },
+                { name: 'pyproject.toml', path: 'pyproject.toml', contentType: 'file' },
+              ],
+            },
+          },
+          codeViewLayoutRoute: {
+            repo: {
+              ownerLogin: 'bvolpato',
+              name: 'SkyRL',
+              defaultBranch: 'main',
+              public: true,
+              private: false,
+              isFork: true,
+            },
+          },
+        },
+      })}</script>
+      <div id="readme"><article class="markdown-body"><h1>SkyRL</h1><p>README fixture body.</p></article></div>
+    </body></html>`,
+  });
+  try {
+    const markdown = await clickAndCaptureWithPointer(githubRepoPage);
+    assertCheck(markdown.includes('title: bvolpato/SkyRL'), 'GitHub repository title missing');
+    assertCheck(markdown.includes('| Directory | [skyrl](https://github.com/bvolpato/SkyRL/tree/main/skyrl) | `skyrl` |'), 'GitHub repository directory missing');
+    assertCheck(markdown.includes('| File | [README.md](https://github.com/bvolpato/SkyRL/blob/main/README.md) | `README.md` |'), 'GitHub repository file missing');
+    assertCheck(markdown.includes('README fixture body.'), 'GitHub repository README missing');
+    log('✅', 'GitHub repository pages include current directory entries and README');
+  } finally {
+    await githubRepoPage.close();
+  }
+
+  const githubFileLines = [
+    '"""Complete file fixture."""',
+    '',
+    'VALUE = 42',
+    'def read_value():',
+    '    return VALUE',
+  ];
+  const githubFilePage = await createFixturePage(browser, scriptContent, {
+    url: 'https://github.com/bvolpato/SkyRL/blob/main/skyrl/env_vars.py',
+    html: `<!doctype html><html><head><title>bvolpato/SkyRL: env_vars.py</title></head><body>
+      <script type="application/json" data-target="react-app.embeddedData">${JSON.stringify({
+        payload: {
+          codeViewLayoutRoute: {
+            path: 'skyrl/env_vars.py',
+            refInfo: { name: 'main', currentOid: 'ca813682c55e0bc6f74dbfbc4fbf13270e8f9848' },
+            repo: { ownerLogin: 'bvolpato', name: 'SkyRL', defaultBranch: 'main', public: true },
+          },
+          codeViewBlobLayoutRoute: {
+            path: 'skyrl/env_vars.py',
+            refInfo: { name: 'main', currentOid: 'ca813682c55e0bc6f74dbfbc4fbf13270e8f9848' },
+            blob: {
+              displayName: 'env_vars.py',
+              rawBlobUrl: 'https://github.com/bvolpato/SkyRL/raw/refs/heads/main/skyrl/env_vars.py',
+              language: 'Python',
+              truncated: false,
+              headerInfo: { blobSize: '95 Bytes', lineInfo: { truncatedLoc: '5' } },
+            },
+          },
+          'codeViewBlobLayoutRoute.StyledBlob': { rawLines: githubFileLines },
+        },
+      })}</script>
+      <main>DOM_FILE_HEADER_WITHOUT_CONTENT</main>
+    </body></html>`,
+  });
+  try {
+    const markdown = await clickAndCaptureWithPointer(githubFilePage);
+    assertCheck(markdown.includes('title: bvolpato/SkyRL/skyrl/env_vars.py'), 'GitHub file title missing');
+    assertCompactMetadata(markdown, 'GitHub file output');
+    assertCheck(markdown.includes(`\`\`\`python\n${githubFileLines.join('\n')}\n\`\`\``), 'GitHub full file content missing or altered');
+    assertCheck(!markdown.includes('DOM_FILE_HEADER_WITHOUT_CONTENT'), 'GitHub file fell back to page header');
+    log('✅', 'GitHub blob pages include complete file metadata and content');
+  } finally {
+    await githubFilePage.close();
+  }
+
+  const githubStaleBlobContent = `# LeetLLM - Project Overview
+
+## Architecture
+
+AI curriculum platform with progressive lessons.
+
+## Key Commands
+
+\`\`\`bash
+cd web && pnpm dev
+./deploy.sh
+\`\`\`
+
+## Detailed Guide
+
+See AGENTS_TESTING.md, AGENTS_DEPLOY.md, and AGENTS_MONITOR.md.
+`;
+  const githubStaleBlobPage = await createFixturePage(browser, scriptContent, {
+    url: 'https://github.com/bvolpato/leetllm.com/blob/main/AGENTS.md',
+    beforeLoad: () => {
+      window.__githubRawFetches = [];
+      window.fetch = async (input) => {
+        window.__githubRawFetches.push(String(input));
+        return new Response(window.__githubStaleBlobContent, {
+          status: 200,
+          headers: { 'Content-Type': 'text/plain; charset=utf-8' },
+        });
+      };
+    },
+    html: `<!doctype html><html><head><title>Comparing bd90a609065c28c74d0f7eac8dd4fa81f448c18e...main · bvolpato/leetllm.com</title></head><body>
+      <script>window.__githubStaleBlobContent = ${JSON.stringify(githubStaleBlobContent)};</script>
+      <script type="application/json" data-target="react-app.embeddedData">${JSON.stringify({
+        payload: {
+          codeViewLayoutRoute: {
+            repo: { ownerLogin: 'bvolpato', name: 'leetllm.com', defaultBranch: 'main', public: true },
+          },
+        },
+      })}</script>
+      <main><pre># Development\ncd web &amp;&amp; pnpm dev\n./deploy.sh</pre></main>
+    </body></html>`,
+  });
+  try {
+    const markdown = await clickAndCaptureWithPointer(githubStaleBlobPage);
+    const fetches = await githubStaleBlobPage.evaluate(() => window.__githubRawFetches);
+    assertCheck(markdown.includes('title: bvolpato/leetllm.com/AGENTS.md'), 'stale GitHub SPA title replaced current file title');
+    assertCompactMetadata(markdown, 'GitHub raw file output');
+    assertCheck(markdown.includes('# LeetLLM - Project Overview') && markdown.includes('## Detailed Guide'), 'GitHub stale page omitted full raw file');
+    assertCheck(!markdown.includes('# Comparing bd90a609065c28c74d0f7eac8dd4fa81f448c18e...main'), 'GitHub stale comparison heading leaked into output');
+    assertCheck(fetches.length === 1 && fetches[0] === 'https://github.com/bvolpato/leetllm.com/raw/refs/heads/main/AGENTS.md', `GitHub stale page fetched ${fetches.join(', ')}`);
+    log('✅', 'GitHub blob URLs ignore stale SPA DOM and fetch canonical full files');
+  } finally {
+    await githubStaleBlobPage.close();
+  }
+
+  const githubChangesPage = await createFixturePage(browser, scriptContent, {
+    url: 'https://github.com/NovaSky-AI/SkyRL/pull/1952/changes',
+    beforeLoad: () => {
+      window.__githubPatchFixture = `From ee7ab9927d5d0a3436dd98fd6b955fc9718d0260 Mon Sep 17 00:00:00 2001
+From: bvolpato <brunocvcunha@gmail.com>
+Date: Tue, 28 Jul 2026 11:38:50 -0400
+Subject: [PATCH] [fix][megatron] Bind async checkpoint finalization to GPU
+
+---
+ skyrl/megatron_strategy.py | 3 ++-
+ 1 file changed, 2 insertions(+), 1 deletion(-)
+
+diff --git a/skyrl/megatron_strategy.py b/skyrl/megatron_strategy.py
+index 1111111..2222222 100644
+--- a/skyrl/megatron_strategy.py
++++ b/skyrl/megatron_strategy.py
+@@ -1,2 +1,3 @@
+-finalize_async_calls()
++torch.cuda.set_device(local_rank)
++finalize_async_calls()
+`;
+      window.__githubPatchFetches = [];
+      window.fetch = async (input) => {
+        window.__githubPatchFetches.push(String(input));
+        return new Response(window.__githubPatchFixture, {
+          status: 200,
+          headers: { 'Content-Type': 'text/plain; charset=utf-8' },
+        });
+      };
+    },
+    html: `<!doctype html><html><head><title>SkyRL PR changes</title></head><body>
+      <h1 class="gh-header-title"><bdi class="js-issue-title">[fix][megatron] Bind async checkpoint finalization to GPU</bdi></h1>
+      <div class="gh-header-meta">
+        <span class="State" title="Status: Merged">Merged</span>
+        <a class="author">erictang000</a>
+        <span class="commit-ref" title="NovaSky-AI/SkyRL:main">main</span>
+        <span class="commit-ref head-ref" title="bvolpato/SkyRL:bvolpato/bind-async-checkpoint-device">branch</span>
+        <relative-time datetime="2026-07-28T18:35:49Z"></relative-time>
+      </div>
+      <main><div class="random-rendered-diff">DOM_DIFF_NOISE</div></main>
+    </body></html>`,
+  });
+  try {
+    const routeCases = [
+      {
+        path: '/NovaSky-AI/SkyRL/pull/1952/changes',
+        fetchUrl: 'https://api.github.com/repos/NovaSky-AI/SkyRL/pulls/1952',
+      },
+      {
+        path: '/NovaSky-AI/SkyRL/pull/1952/changes/ee7ab9927d5d0a3436dd98fd6b955fc9718d0260',
+        fetchUrl: 'https://api.github.com/repos/NovaSky-AI/SkyRL/commits/ee7ab9927d5d0a3436dd98fd6b955fc9718d0260',
+      },
+      {
+        path: '/NovaSky-AI/SkyRL/pull/1952/files',
+        type: 'GitHub Pull Request Patch',
+        patchUrl: 'https://github.com/NovaSky-AI/SkyRL/pull/1952.patch',
+        fetchUrl: 'https://api.github.com/repos/NovaSky-AI/SkyRL/pulls/1952',
+      },
+      {
+        path: '/NovaSky-AI/SkyRL/pull/1952/commits/ee7ab9927d5d0a3436dd98fd6b955fc9718d0260',
+        fetchUrl: 'https://api.github.com/repos/NovaSky-AI/SkyRL/commits/ee7ab9927d5d0a3436dd98fd6b955fc9718d0260',
+      },
+    ];
+
+    for (const routeCase of routeCases) {
+      await githubChangesPage.evaluate((path) => {
+        history.replaceState({}, '', path);
+        window.__githubPatchFetches = [];
+      }, routeCase.path);
+      const markdown = await clickAndCaptureWithPointer(githubChangesPage);
+      const fetched = await githubChangesPage.evaluate(() => window.__githubPatchFetches);
+      const patchFixture = await githubChangesPage.evaluate(() => window.__githubPatchFixture);
+      assertCompactMetadata(markdown, `${routeCase.path} patch output`);
+      assertCheck(markdown.includes(patchFixture), `${routeCase.path} did not preserve canonical patch`);
+      assertCheck(!markdown.includes('DOM_DIFF_NOISE'), `${routeCase.path} used rendered DOM diff`);
+      assertCheck(fetched.length === 1 && fetched[0] === routeCase.fetchUrl, `${routeCase.path} fetched ${fetched.join(', ')}`);
+    }
+    log('✅', 'GitHub PR and commit change routes fetch canonical patches with focused metadata');
+  } finally {
+    await githubChangesPage.close();
   }
 
   const googleDocsPage = await createFixturePage(browser, scriptContent, {
@@ -833,7 +1225,7 @@ async function runRegressionChecks(browser, scriptContent) {
     const markdown = await clickAndCapture(datadogNotebookPage);
     const lines = markdown.split('\n');
     const lineFor = (text) => lines.find(line => line.includes(text)) || '';
-    assertCheck(markdown.includes('source: Datadog Notebook'), 'Notebook source metadata missing');
+    assertCompactMetadata(markdown, 'Datadog notebook output');
     assertCheck(markdown.includes('notebook_id: 15105594'), 'Notebook ID metadata missing');
     assertCheck(markdown.includes('author: Bruno Volpato'), 'Notebook author metadata missing');
     assertCheck(markdown.includes('notebook_type: Report'), 'Notebook type metadata missing');
@@ -1185,6 +1577,230 @@ async function runRegressionChecks(browser, scriptContent) {
   console.log('');
 }
 
+async function runExpandedPlatformChecks(browser, scriptContent) {
+  console.log(`${COLORS.cyan}● Expanded platform extractor guards${COLORS.reset}`);
+
+  const sheetsPage = await createFixturePage(browser, scriptContent, {
+    url: 'https://docs.google.com/spreadsheets/d/sheet-fixture/edit?gid=42#gid=42',
+    beforeLoad: () => {
+      window.fetch = async () => new Response(
+        'Name,Value\nAlpha,10\n"Beta, Inc.",20',
+        { status: 200, headers: { 'Content-Type': 'text/csv' } },
+      );
+    },
+    html: `<!doctype html><html><head><title>Metrics - Google Sheets</title></head><body>
+      <div class="docs-title-input-label-inner">Metrics</div>
+      <div class="docs-sheet-active-tab" data-sheet-id="42">Overview</div>
+    </body></html>`,
+  });
+  try {
+    const markdown = await clickAndCaptureWithPointer(sheetsPage);
+    assertCheck(markdown.includes('spreadsheet_id: sheet-fixture'), 'Google Sheets extractor did not activate');
+    assertCheck(markdown.includes('| Alpha | 10 |'), 'Google Sheets row missing');
+    assertCheck(markdown.includes('| Beta, Inc. | 20 |'), 'Google Sheets quoted CSV cell missing');
+    assertCompactMetadata(markdown, 'Google Sheets output');
+  } finally {
+    await sheetsPage.close();
+  }
+
+  const slidesPage = await createFixturePage(browser, scriptContent, {
+    url: 'https://docs.google.com/presentation/d/slides-fixture/edit',
+    beforeLoad: () => {
+      window.fetch = async () => new Response(`<!doctype html><html><body>
+        <div class="slide" title="Slide 1">
+          <div class="slide-content">
+            <div><div class="shape" style="top:10px;left:10px"><p style="font-size:28px">Launch Plan</p></div></div>
+            <div><div class="shape" style="top:100px;left:10px"><p style="font-size:16px">Ship safely</p></div></div>
+          </div>
+          <div class="slide-notes">Discuss rollout.</div>
+        </div>
+        <div class="slide" title="Slide 2">
+          <div class="slide-content">
+            <div class="shape" style="top:10px;left:10px"><p style="font-size:28px">Launch Results</p></div>
+            <div class="shape" style="top:100px;left:10px"><p style="font-size:16px">No incidents</p></div>
+          </div>
+          <div class="slide-notes">Share metrics.</div>
+        </div>
+      </body></html>`, { status: 200, headers: { 'Content-Type': 'text/html' } });
+    },
+    html: `<!doctype html><html><head><title>Launch - Google Slides</title></head><body>
+      <div class="docs-title-input-label-inner">Launch</div>
+      <div role="listitem" aria-selected="true" aria-label="Slide 2"></div>
+    </body></html>`,
+  });
+  try {
+    const currentMarkdown = await chooseAndCapture(slidesPage, 'current');
+    assertCheck(currentMarkdown.includes('presentation_id: slides-fixture'), 'Google Slides extractor did not activate');
+    assertCheck(currentMarkdown.includes('Launch Results'), 'Google Slides current slide title missing');
+    assertCheck(currentMarkdown.includes('No incidents'), 'Google Slides current slide body missing');
+    assertCheck(currentMarkdown.includes('Share metrics.'), 'Google Slides current slide notes missing');
+    assertCheck(!currentMarkdown.includes('Launch Plan'), 'Google Slides current scope included another slide');
+    assertCompactMetadata(currentMarkdown, 'Google Slides current-slide output');
+
+    const allMarkdown = await chooseAndCapture(slidesPage, 'all');
+    assertCheck(allMarkdown.includes('Launch Plan'), 'Google Slides first slide title missing');
+    assertCheck(allMarkdown.includes('Ship safely'), 'Google Slides first slide body missing');
+    assertCheck(allMarkdown.includes('Launch Results'), 'Google Slides second slide title missing');
+    assertCheck(allMarkdown.indexOf('Launch Plan') < allMarkdown.indexOf('Launch Results'), 'Google Slides slide order changed');
+    assertCompactMetadata(allMarkdown, 'Google Slides all-slides output');
+  } finally {
+    await slidesPage.close();
+  }
+
+  const slidesTextFallbackPage = await createFixturePage(browser, scriptContent, {
+    url: 'https://docs.google.com/presentation/d/slides-text-fixture/edit',
+    beforeLoad: () => {
+      window.fetch = async (url) => {
+        if (String(url).includes('/htmlpresent')) return new Response('Unavailable', { status: 503 });
+        return new Response(
+          'Slide 1: Architecture\nService map\n\nRetry behavior\fSlide 2: Results\nAll checks passed',
+          { status: 200, headers: { 'Content-Type': 'text/plain' } },
+        );
+      };
+    },
+    html: `<!doctype html><html><head><title>Fallback - Google Slides</title></head><body>
+      <div class="docs-title-input-label-inner">Fallback</div>
+    </body></html>`,
+  });
+  try {
+    const markdown = await chooseAndCapture(slidesTextFallbackPage, 'all');
+    assertCheck(markdown.includes('## Slide 1: Architecture'), 'Google Slides text fallback lost first slide');
+    assertCheck(markdown.includes('Retry behavior'), 'Google Slides text fallback lost paragraph after blank line');
+    assertCheck(markdown.includes('## Slide 2: Results'), 'Google Slides text fallback lost second slide');
+    assertCheck(!markdown.includes('## Slide 3'), 'Google Slides text fallback treated paragraph as slide');
+  } finally {
+    await slidesTextFallbackPage.close();
+  }
+
+  const fixtures = [
+    {
+      name: 'Notion',
+      url: 'https://workspace.notion.site/project-plan',
+      html: `<main role="main"><h1 data-testid="page-title">Project Plan</h1>
+        <div data-block-id="block-1"><p>Notion fixture body.</p></div></main>`,
+      expected: ['Notion fixture body.'],
+    },
+    {
+      name: 'Microsoft 365',
+      url: 'https://www.office.com/launch/word?auth=2',
+      html: `<input aria-label="Document title" value="Quarterly Plan">
+        <div role="document"><h1>Quarterly Plan</h1><p>Office fixture body.</p></div>`,
+      expected: ['Office fixture body.'],
+    },
+    {
+      name: 'Slack',
+      url: 'https://app.slack.com/client/T123/C456',
+      html: `<main role="main" data-qa="message_pane">
+        <div data-qa="message_container" data-ts="123">
+          <button data-qa="message_sender_name">Alice</button>
+          <time datetime="2026-07-29T12:00:00Z">12:00</time>
+          <div data-qa="message-text">Slack fixture decision.</div>
+        </div></main>`,
+      expected: ['Slack fixture decision.'],
+    },
+    {
+      name: 'Discord',
+      url: 'https://discord.com/channels/1/2',
+      html: `<main role="main"><ol data-list-id="chat-messages">
+        <li id="chat-messages-1"><h3><span class="username">Bob</span></h3>
+          <time datetime="2026-07-29T12:00:00Z">12:00</time>
+          <div id="message-content-1">Discord fixture decision.</div>
+        </li></ol></main>`,
+      expected: ['Discord fixture decision.'],
+    },
+    {
+      name: 'Jira',
+      url: 'https://acme.atlassian.net/browse/PROJ-42',
+      html: `<main id="issue-content"><h1 data-testid="issue.views.issue-base.foundation.summary.heading">Fix production export</h1>
+        <div data-testid="issue.views.field.rich-text.description"><p>Jira fixture description.</p></div>
+        <dl><dt>Status</dt><dd>In Progress</dd></dl></main>`,
+      expected: ['PROJ-42', 'Jira fixture description.'],
+    },
+    {
+      name: 'Confluence',
+      url: 'https://acme.atlassian.net/wiki/spaces/ENG/pages/123/Runbook',
+      html: `<main><h1 data-testid="page-title">Operations Runbook</h1>
+        <div data-testid="renderer-container"><div class="ak-renderer-document"><p>Confluence fixture body.</p></div></div></main>`,
+      expected: ['Operations Runbook', 'Confluence fixture body.'],
+    },
+    {
+      name: 'GitLab',
+      url: 'https://gitlab.com/acme/project/-/blob/main/src/app.ts',
+      html: `<main><div data-testid="blob-content"><pre>export const gitlabFixture = true;</pre></div></main>`,
+      expected: ['export const gitlabFixture = true;'],
+    },
+    {
+      name: 'Bitbucket',
+      url: 'https://bitbucket.org/acme/project/src/main/src/app.ts',
+      html: `<main><div data-testid="source-code"><pre>export const bitbucketFixture = true;</pre></div></main>`,
+      expected: ['export const bitbucketFixture = true;'],
+    },
+    {
+      name: 'Perplexity',
+      url: 'https://www.perplexity.ai/search/fixture',
+      html: `<main><div data-testid="conversation-turn"><div data-testid="user-query">Perplexity question?</div></div>
+        <div data-testid="conversation-turn"><div data-testid="answer"><p>Perplexity fixture answer.</p></div>
+          <div data-testid="citation"><a href="https://example.com/source">Primary source</a></div></div></main>`,
+      expected: ['Perplexity question?', 'Perplexity fixture answer.', 'Primary source'],
+    },
+    {
+      name: 'Grok',
+      url: 'https://grok.com/c/fixture',
+      html: `<main><div data-testid="conversation-turn"><div data-testid="user-message">Grok question?</div></div>
+        <div data-testid="conversation-turn"><div data-testid="assistant-message"><p>Grok fixture answer.</p></div></div></main>`,
+      expected: ['Grok question?', 'Grok fixture answer.'],
+    },
+    {
+      name: 'Facebook',
+      url: 'https://www.facebook.com/acme/posts/12345/',
+      html: `<main role="main"><article role="article"><strong><a href="/acme">Alice</a></strong>
+        <div data-testid="post_message">Facebook fixture body.</div><div role="toolbar"></div></article></main>`,
+      expected: ['Facebook fixture body.'],
+    },
+    {
+      name: 'Instagram',
+      url: 'https://www.instagram.com/p/ABC123/',
+      html: `<main><article><header><a href="/alice/">alice</a></header>
+        <div data-testid="post-caption">Instagram fixture caption.</div><section></section></article></main>`,
+      expected: ['Instagram fixture caption.'],
+    },
+    {
+      name: 'TikTok',
+      url: 'https://www.tiktok.com/@alice/video/1234567890',
+      html: `<main><article data-e2e="browse-video"><span data-e2e="video-author-uniqueid">alice</span>
+        <div data-e2e="browse-video-desc">TikTok fixture caption.</div>
+        <div data-e2e="browse-share-group"></div></article></main>`,
+      expected: ['TikTok fixture caption.'],
+    },
+  ];
+
+  for (const fixture of fixtures) {
+    const page = await createFixturePage(browser, scriptContent, {
+      url: fixture.url,
+      html: `<!doctype html><html><head><title>${fixture.name} fixture</title></head><body>${fixture.html}</body></html>`,
+    });
+    try {
+      const markdown = await clickAndCapture(page);
+      for (const value of fixture.expected) {
+        assertCheck(markdown.includes(value), `${fixture.name} output missing ${JSON.stringify(value)}: ${markdown}`);
+      }
+      assertCompactMetadata(markdown, `${fixture.name} output`);
+      if (fixture.name === 'Grok') {
+        const keys = frontmatterKeys(markdown);
+        assertCheck(
+          JSON.stringify(keys) === JSON.stringify(['title', 'url']),
+          `Grok frontmatter is not focused: ${keys.join(', ')}`,
+        );
+      }
+    } finally {
+      await page.close();
+    }
+  }
+
+  log('✅', 'Fifteen new platform extractors route and capture representative content');
+  console.log('');
+}
+
 async function runProductionUiChecks(browser, scriptContent) {
   console.log(`${COLORS.cyan}● Production UI guards${COLORS.reset}`);
 
@@ -1207,6 +1823,8 @@ async function runProductionUiChecks(browser, scriptContent) {
       heroReleaseLink: document.querySelector('[data-hero-install="userscript"]')?.href,
       heroChromeDisabled: document.querySelector('[data-hero-install="chrome"]')?.getAttribute('aria-disabled'),
       heroChromeLink: document.querySelector('[data-hero-install="chrome"]')?.tagName === 'A',
+      siteCards: document.querySelectorAll('.site-card').length,
+      purposeBuiltCount: document.body.textContent.includes('44 purpose-built'),
     }));
     assertCheck(controls.injected === 0, 'page opt-out still injected a Copy as Markdown button');
     assertCheck(controls.demo === 1, 'page opt-out removed the site-owned demo control');
@@ -1216,6 +1834,8 @@ async function runProductionUiChecks(browser, scriptContent) {
     assertCheck(controls.heroFirefoxLink === controls.firefoxLink, 'hero Firefox install link is incorrect');
     assertCheck(controls.heroReleaseLink === controls.latestReleaseLink, 'hero release link is incorrect');
     assertCheck(controls.heroChromeDisabled === 'true' && !controls.heroChromeLink, 'hero Chrome action is not disabled as WIP');
+    assertCheck(controls.siteCards === 45, `landing page rendered ${controls.siteCards} site cards instead of 45`);
+    assertCheck(controls.purposeBuiltCount, 'landing page purpose-built extractor count is stale');
     await landingPage.click('#copy_as_markdown_btn');
     await landingPage.waitForSelector('#copy_as_markdown_btn.success', { timeout: 4000 });
     log('✅', 'Landing page keeps Try it, hides duplicate UI, and exposes correct install states');
@@ -1342,8 +1962,13 @@ async function runProductionUiChecks(browser, scriptContent) {
     assertCheck(duplicateCounts.floatingWrappers === 1, `duplicate userscript injection left ${duplicateCounts.floatingWrappers} floating wrappers`);
     assertCheck(duplicateCounts.anchorWrappers === 0, `duplicate userscript injection left ${duplicateCounts.anchorWrappers} anchor wrappers`);
     assertCheck(Math.abs(duplicateCounts.left - dragged.left) < 2 && Math.abs(duplicateCounts.top - dragged.top) < 2, 'floating position was not restored after reinjection');
-    const draggedMarkdown = await clickAndCapture(floatingPage);
+    const draggedMarkdown = await clickAndCaptureWithPointer(floatingPage);
     assertCheck(draggedMarkdown.includes('Fallback article'), 'floating button no longer copies after dragging');
+    assertCompactMetadata(draggedMarkdown, 'fallback output');
+    assertCheck(
+      JSON.stringify(frontmatterKeys(draggedMarkdown)) === JSON.stringify(['title', 'url']),
+      `fallback frontmatter is not focused: ${frontmatterKeys(draggedMarkdown).join(', ')}`,
+    );
     log('✅', 'Floating button avoids widgets, drags without copying, persists position, and remains singleton');
   } finally {
     await floatingPage.close();
@@ -1445,6 +2070,7 @@ async function runTests(filter) {
   const results = [];
 
   await runRegressionChecks(browser, scriptContent);
+  await runExpandedPlatformChecks(browser, scriptContent);
   await runProductionUiChecks(browser, scriptContent);
 
   if (regressionOnly) {

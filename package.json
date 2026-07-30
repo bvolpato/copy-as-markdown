@@ -1,6 +1,6 @@
 {
   "name": "copy-as-markdown",
-  "version": "1.2.7",
+  "version": "1.2.8",
   "description": "Copy page content as clean, structured Markdown",
   "type": "module",
   "scripts": {

@@ -453,17 +453,91 @@ export function elementToMarkdown(element: Element): string {
 }
 
 /**
- * Format metadata as a YAML-like frontmatter block for LLM context.
+ * Format useful page context as a YAML-like frontmatter block.
+ *
+ * Extractors may track diagnostics and collection sizes internally, but those
+ * values duplicate visible content and waste agent context. Filter them here
+ * so every extractor follows the same compact output contract.
  */
-export function formatMetadata(metadata: PageMetadata): string {
+export function formatMetadata(metadata: PageMetadata, bodyMarkdown = ''): string {
   const lines = ['---'];
-  for (const [key, value] of Object.entries(metadata)) {
+  const normalizedBody = normalizeContextText(bodyMarkdown);
+  const entries = Object.entries(metadata)
+    .filter(([key, value]) => shouldIncludeMetadata(key, value, normalizedBody))
+    .sort(([left], [right]) => metadataPriority(left) - metadataPriority(right));
+  for (const [key, value] of entries) {
     if (value !== null && value !== undefined && value !== '') {
       lines.push(`${key}: ${value}`);
     }
   }
   lines.push('---');
   return lines.join('\n');
+}
+
+const OMITTED_METADATA_KEYS = new Set([
+  'source',
+  'content_source',
+  'complete',
+  'completeness',
+  'truncated',
+  'scope',
+  'route',
+  'type',
+  'messages',
+  'tables',
+  'code_blocks',
+  'media_items',
+  'transcript_segments',
+  'rendered_blocks',
+  'rendered_database_rows',
+  'included_database_rows',
+  'reactions',
+  'comments',
+  'shares',
+  'views',
+  'likes',
+  'lines',
+  'bytes',
+  'size',
+  'entries',
+  'directories',
+  'files',
+  'commits',
+  'changed_files',
+  'additions',
+  'deletions',
+  'patch_bytes',
+  'patch_url',
+  'patch_api_url',
+  'raw_url',
+  'speaker_notes',
+  'output_limits',
+  'reading_time',
+]);
+
+function shouldIncludeMetadata(
+  key: string,
+  value: string | number | undefined,
+  normalizedBody: string,
+): boolean {
+  const normalized = key.toLowerCase();
+  if (OMITTED_METADATA_KEYS.has(normalized)) return false;
+  if (/(?:^|_)(?:count|total|included|found)$/.test(normalized)) return false;
+  if (normalized === 'title' || normalized === 'url' || value === undefined) return true;
+
+  const normalizedValue = normalizeContextText(String(value));
+  if (normalizedValue.length < 3) return true;
+  return !normalizedBody.includes(normalizedValue);
+}
+
+function normalizeContextText(value: string): string {
+  return value.toLowerCase().replace(/\s+/g, ' ').trim();
+}
+
+function metadataPriority(key: string): number {
+  if (key === 'title') return 0;
+  if (key === 'url') return 1;
+  return 2;
 }
 
 /**
@@ -475,7 +549,7 @@ export function buildPageMarkdown(
 ): string {
   const parts: string[] = [];
   if (metadata && Object.keys(metadata).length > 0) {
-    parts.push(formatMetadata(metadata));
+    parts.push(formatMetadata(metadata, bodyMarkdown));
   }
   parts.push(bodyMarkdown);
   return cleanMarkdown(parts.join('\n\n'));

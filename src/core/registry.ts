@@ -13,6 +13,7 @@ export function register(config: ExtractorConfig): void {
     matches: config.matches || [],
     regex: config.regex || null,
     pathnameRegex: config.pathnameRegex || null,
+    options: config.options || [],
     extract: config.extract,
     buttonPlacement: config.buttonPlacement || 'floating',
     extensionPageButton: config.extensionPageButton || false,
