@@ -6,6 +6,8 @@
 
 ## Chrome Web Store
 
+**Live listing:** https://chromewebstore.google.com/detail/copy-as-markdown/pcjanmkidppaeojkanbjbmmgpjfeecol
+
 ### Product Details
 
 **Title:**

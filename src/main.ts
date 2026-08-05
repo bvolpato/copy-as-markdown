@@ -69,7 +69,7 @@ const PAGE_BUTTON_OPTOUT_ID = 'copy_as_markdown_btn';
 
   function getExtractor() {
     let extractor = findExtractor(window.location.href);
-    
+
     if (!extractor) {
       // Fallback best-effort extractor for unlisted pages
       extractor = {
@@ -119,7 +119,7 @@ const PAGE_BUTTON_OPTOUT_ID = 'copy_as_markdown_btn';
     } else {
       console.log(`[Copy as Markdown] Active extractor: ${extractor.name}`);
     }
-    
+
     return extractor;
   }
 

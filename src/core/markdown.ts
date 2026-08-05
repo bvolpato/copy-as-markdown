@@ -467,11 +467,76 @@ export function formatMetadata(metadata: PageMetadata, bodyMarkdown = ''): strin
     .sort(([left], [right]) => metadataPriority(left) - metadataPriority(right));
   for (const [key, value] of entries) {
     if (value !== null && value !== undefined && value !== '') {
-      lines.push(`${key}: ${value}`);
+      lines.push(`${key}: ${formatMetadataValue(value)}`);
     }
   }
   lines.push('---');
   return lines.join('\n');
+}
+
+/**
+ * Keep ordinary metadata readable while quoting values that could change the
+ * meaning or structure of this YAML-like header. JSON-style escaping is valid
+ * for YAML double-quoted scalars and keeps every value on one physical line.
+ */
+function formatMetadataValue(value: string | number): string {
+  if (typeof value === 'number') return String(value);
+
+  if (isSafeMetadataPlainValue(value)) return value;
+
+  return `"${escapeMetadataQuotedValue(value)}"`;
+}
+
+function isSafeMetadataPlainValue(value: string): boolean {
+  if (!value || value.trim() !== value) return false;
+  if (isSafeMetadataJsonValue(value)) return true;
+  if (/^[.]{3}$|^-{3}$/.test(value)) return false;
+  if (/---|\.\.\./.test(value)) return false;
+  if (/[\u0000-\u001F\u007F-\u009F\uD800-\uDFFF\u2028\u2029]/u.test(value)) return false;
+  if (/[\\"':]/u.test(value)) return false;
+  if (/(?:^|\s)#/u.test(value)) return false;
+  if (/^[\-?:,[\]{}&*!|>@`]/u.test(value)) return false;
+  return true;
+}
+
+function isSafeMetadataJsonValue(value: string): boolean {
+  if (!/^[{[]/u.test(value)) return false;
+  if (/[\u0000-\u001F\u007F-\u009F\uD800-\uDFFF\u2028\u2029]/u.test(value)) return false;
+  try {
+    JSON.parse(value);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function escapeMetadataQuotedValue(value: string): string {
+  let escaped = '';
+  for (const character of value) {
+    const codePoint = character.codePointAt(0) || 0;
+    switch (character) {
+      case '\\': escaped += '\\\\'; break;
+      case '"': escaped += '\\"'; break;
+      case '\b': escaped += '\\b'; break;
+      case '\f': escaped += '\\f'; break;
+      case '\n': escaped += '\\n'; break;
+      case '\r': escaped += '\\r'; break;
+      case '\t': escaped += '\\t'; break;
+      default:
+        if (
+          codePoint < 0x20
+          || (codePoint >= 0x7f && codePoint <= 0x9f)
+          || (codePoint >= 0xd800 && codePoint <= 0xdfff)
+          || codePoint === 0x2028
+          || codePoint === 0x2029
+        ) {
+          escaped += `\\u${codePoint.toString(16).padStart(4, '0')}`;
+        } else {
+          escaped += character;
+        }
+    }
+  }
+  return escaped;
 }
 
 const OMITTED_METADATA_KEYS = new Set([

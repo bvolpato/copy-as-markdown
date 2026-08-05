@@ -52,6 +52,10 @@ The fastest way to get started. Works in any browser with a userscript manager.
 
 ### 🟢 Chrome Extension
 
+[Install Copy as Markdown from the Chrome Web Store](https://chromewebstore.google.com/detail/copy-as-markdown/pcjanmkidppaeojkanbjbmmgpjfeecol).
+
+For local development:
+
 1. Download or clone this repository
 2. Run `pnpm install && pnpm build`
 3. Open `chrome://extensions/` → enable **Developer mode**

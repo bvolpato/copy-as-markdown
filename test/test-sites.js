@@ -381,6 +381,42 @@ async function runRegressionChecks(browser, scriptContent) {
     await gmailToolbarPage.close();
   }
 
+  const unsafeMetadataPage = await createFixturePage(browser, scriptContent, {
+    url: 'https://en.wikipedia.org/wiki/Unsafe_metadata_fixture',
+    html: `<!doctype html><html><head><title>Safe fixture title</title></head><body>
+      <h1 id="firstHeading">Safe heading</h1>
+      <div id="p-views"><ul></ul></div>
+      <div id="mw-content-text"><p>Frontmatter fixture body.</p></div>
+    </body></html>`,
+  });
+  try {
+    const unsafeTitle = 'Unsafe "title" and \'quote\': line\n---\ninjected: true\r\u2028\u0001\uD800';
+    await unsafeMetadataPage.evaluate((title) => {
+      document.getElementById('firstHeading').textContent = title;
+    }, unsafeTitle);
+    const markdown = await clickAndCaptureWithPointer(unsafeMetadataPage);
+    const frontmatter = markdown.match(/^---\n([\s\S]*?)\n---\n/);
+    const firstBodyHeading = markdown.indexOf('\n# ');
+    const frontmatterFences = markdown.slice(0, firstBodyHeading).match(/^---$/gm) || [];
+    const escapedTitle = JSON.stringify(unsafeTitle)
+      .replace(/\u2028/g, '\\u2028')
+      .replace(/\u2029/g, '\\u2029');
+    assertCheck(frontmatter, 'unsafe metadata output lost frontmatter boundaries');
+    assertCheck(firstBodyHeading > 0, 'unsafe metadata output lost article body boundary');
+    assertCheck(frontmatterFences.length === 2, `unsafe metadata output emitted ${frontmatterFences.length} frontmatter fences`);
+    assertCheck(frontmatter[1].split('\n').length === 2, 'unsafe metadata value created extra frontmatter lines');
+    assertCheck(frontmatter[1].includes(`title: ${escapedTitle}`), `unsafe metadata value was not escaped in place: ${JSON.stringify({ expected: escapedTitle, actual: frontmatter[1] })}`);
+    assertCheck(!/^injected:/m.test(frontmatter[1]), 'unsafe metadata injected a frontmatter key');
+    assertCheck(
+      JSON.stringify(frontmatterKeys(markdown)) === JSON.stringify(['title', 'url']),
+      `unsafe metadata changed frontmatter keys: ${frontmatterKeys(markdown).join(', ')}`,
+    );
+    assertCheck(markdown.includes('Frontmatter fixture body.'), 'unsafe metadata broke body extraction');
+    log('✅', 'Page-controlled metadata stays inside escaped, two-line frontmatter');
+  } finally {
+    await unsafeMetadataPage.close();
+  }
+
   const gmailThreadPage = await createFixturePage(browser, scriptContent, {
     url: 'https://mail.google.com/mail/u/0/#search/cursor/FMfcgzQgMMHLwtbqvvsLSmnmFrtzlwhR',
     csp: "require-trusted-types-for 'script'",
@@ -1803,6 +1839,7 @@ async function runExpandedPlatformChecks(browser, scriptContent) {
 
 async function runProductionUiChecks(browser, scriptContent) {
   console.log(`${COLORS.cyan}● Production UI guards${COLORS.reset}`);
+  const chromeStoreUrl = 'https://chromewebstore.google.com/detail/copy-as-markdown/pcjanmkidppaeojkanbjbmmgpjfeecol';
 
   const landingPage = await browser.newPage();
   try {
@@ -1815,30 +1852,29 @@ async function runProductionUiChecks(browser, scriptContent) {
       injected: document.querySelectorAll('#cam-copy-btn').length,
       demo: document.querySelectorAll('#copy_as_markdown_btn').length,
       chromeDisabled: document.querySelector('[data-install="chrome"]')?.classList.contains('is-disabled'),
-      chromeLink: !!document.querySelector('[data-install="chrome"] a'),
+      chromeLink: document.querySelector('[data-install="chrome"] a')?.href,
       chromeStatus: document.querySelector('[data-install="chrome"] .install-status')?.textContent?.trim(),
       firefoxLink: document.querySelector('[data-install="firefox"] a')?.href,
       latestReleaseLink: document.querySelector('.latest-release')?.href,
       heroFirefoxLink: document.querySelector('[data-hero-install="firefox"]')?.href,
       heroReleaseLink: document.querySelector('[data-hero-install="userscript"]')?.href,
-      heroChromeDisabled: document.querySelector('[data-hero-install="chrome"]')?.getAttribute('aria-disabled'),
-      heroChromeLink: document.querySelector('[data-hero-install="chrome"]')?.tagName === 'A',
+      heroChromeLink: document.querySelector('[data-hero-install="chrome"]')?.href,
       siteCards: document.querySelectorAll('.site-card').length,
       purposeBuiltCount: document.body.textContent.includes('44 purpose-built'),
     }));
     assertCheck(controls.injected === 0, 'page opt-out still injected a Copy as Markdown button');
     assertCheck(controls.demo === 1, 'page opt-out removed the site-owned demo control');
-    assertCheck(controls.chromeDisabled && !controls.chromeLink && controls.chromeStatus === 'WIP', 'Chrome install card is not disabled as WIP');
+    assertCheck(!controls.chromeDisabled && controls.chromeLink === chromeStoreUrl && !controls.chromeStatus, 'Chrome install card does not link to the live store');
     assertCheck(controls.firefoxLink === 'https://addons.mozilla.org/en-US/firefox/addon/copy-as-markdown-addon/', 'Firefox install link is incorrect');
     assertCheck(controls.latestReleaseLink === 'https://github.com/bvolpato/copy-as-markdown/releases/latest', 'latest release link is incorrect');
     assertCheck(controls.heroFirefoxLink === controls.firefoxLink, 'hero Firefox install link is incorrect');
     assertCheck(controls.heroReleaseLink === controls.latestReleaseLink, 'hero release link is incorrect');
-    assertCheck(controls.heroChromeDisabled === 'true' && !controls.heroChromeLink, 'hero Chrome action is not disabled as WIP');
+    assertCheck(controls.heroChromeLink === chromeStoreUrl, 'hero Chrome install link is incorrect');
     assertCheck(controls.siteCards === 45, `landing page rendered ${controls.siteCards} site cards instead of 45`);
     assertCheck(controls.purposeBuiltCount, 'landing page purpose-built extractor count is stale');
     await landingPage.click('#copy_as_markdown_btn');
     await landingPage.waitForSelector('#copy_as_markdown_btn.success', { timeout: 4000 });
-    log('✅', 'Landing page keeps Try it, hides duplicate UI, and exposes correct install states');
+    log('✅', 'Landing page keeps Try it, hides duplicate UI, and exposes live store links');
   } finally {
     await landingPage.close();
   }

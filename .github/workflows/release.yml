@@ -124,10 +124,9 @@ jobs:
             echo "Download **copy-as-markdown-v${version}.user.js** below, or [install directly](https://github.com/${GITHUB_REPOSITORY}/releases/download/${GITHUB_REF_NAME}/copy-as-markdown-v${version}.user.js)."
             echo
             echo "### Chrome Extension"
-            echo "1. Download **copy-as-markdown-chrome-v${version}.zip** below"
-            echo "2. Unzip it"
-            echo "3. Open \`chrome://extensions/\`, enable Developer mode, choose Load unpacked, and select the folder"
-            echo "4. If Chrome shows **Wants access to this site**, choose **Allow**, then click **Copy as Markdown** again"
+            echo "[Install from the Chrome Web Store](https://chromewebstore.google.com/detail/copy-as-markdown/pcjanmkidppaeojkanbjbmmgpjfeecol)."
+            echo
+            echo "For local testing, download **copy-as-markdown-chrome-v${version}.zip** below, unzip it, then load the folder from \`chrome://extensions/\` with Developer mode enabled."
             echo
             echo "### Firefox Extension"
             echo "1. Download **copy-as-markdown-firefox-v${version}.zip** below"
