@@ -42,15 +42,15 @@ One click, and the page's content lands in your clipboard as clean, structured M
 
 ## Install
 
-### 🔧 Userscript (Tampermonkey / Violentmonkey)
+### <img src="assets/icon.svg" width="20" alt=""> Userscript (Tampermonkey / Violentmonkey)
 
 The fastest way to get started. Works in any browser with a userscript manager.
 
 1. Install [Tampermonkey](https://www.tampermonkey.net/) or [Violentmonkey](https://violentmonkey.github.io/)
-2. Open the **[latest release](https://github.com/bvolpato/copy-as-markdown/releases/latest)** and download the versioned `.user.js` file
+2. **[Install Copy as Markdown](https://github.com/bvolpato/copy-as-markdown/releases/latest/download/copy-as-markdown.user.js)**
 3. That's it — you'll see the button on supported sites
 
-### 🟢 Chrome Extension
+### <img src="docs/brands/chrome.svg" width="20" alt=""> Chrome Extension
 
 [Install Copy as Markdown from the Chrome Web Store](https://chromewebstore.google.com/detail/copy-as-markdown/pcjanmkidppaeojkanbjbmmgpjfeecol).
 
@@ -63,7 +63,11 @@ For local development:
 
 Chrome may show **Wants access to this site** on first use. Click **Allow**, then click **Copy as Markdown** again. The toolbar badge shows `…` while copying, `✓` on success, or `!` when the page or clipboard is unavailable.
 
-### 🦊 Firefox Extension
+### <img src="docs/brands/firefox.svg" width="20" alt=""> Firefox Extension
+
+[Install Copy as Markdown from Firefox Add-ons](https://addons.mozilla.org/en-US/firefox/addon/copy-as-markdown-addon/).
+
+For local development:
 
 1. Download or clone this repository
 2. Run `pnpm install && pnpm build`

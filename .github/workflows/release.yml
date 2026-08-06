@@ -89,6 +89,7 @@ jobs:
           version="${{ steps.version.outputs.version }}"
           mkdir release-bundle
           cp dist/userscript/copy-as-markdown.user.js "release-bundle/copy-as-markdown-v${version}.user.js"
+          cp dist/userscript/copy-as-markdown.user.js release-bundle/copy-as-markdown.user.js
           cp dist/userscript/copy-as-markdown.meta.js release-bundle/
           cp dist/copy-as-markdown-chrome.zip "release-bundle/copy-as-markdown-chrome-v${version}.zip"
           cp dist/copy-as-markdown-firefox.zip "release-bundle/copy-as-markdown-firefox-v${version}.zip"
@@ -96,6 +97,7 @@ jobs:
             cd release-bundle
             sha256sum \
               "copy-as-markdown-v${version}.user.js" \
+              copy-as-markdown.user.js \
               copy-as-markdown.meta.js \
               "copy-as-markdown-chrome-v${version}.zip" \
               "copy-as-markdown-firefox-v${version}.zip" \
@@ -121,7 +123,7 @@ jobs:
             echo "## Install"
             echo
             echo "### Userscript (Tampermonkey / Violentmonkey)"
-            echo "Download **copy-as-markdown-v${version}.user.js** below, or [install directly](https://github.com/${GITHUB_REPOSITORY}/releases/download/${GITHUB_REF_NAME}/copy-as-markdown-v${version}.user.js)."
+            echo "[Install the userscript](https://github.com/${GITHUB_REPOSITORY}/releases/latest/download/copy-as-markdown.user.js), or download **copy-as-markdown-v${version}.user.js** below."
             echo
             echo "### Chrome Extension"
             echo "[Install from the Chrome Web Store](https://chromewebstore.google.com/detail/copy-as-markdown/pcjanmkidppaeojkanbjbmmgpjfeecol)."
@@ -169,6 +171,7 @@ jobs:
           overwrite_files: true
           files: |
             release-bundle/copy-as-markdown-v${{ needs.validate.outputs.version }}.user.js
+            release-bundle/copy-as-markdown.user.js
             release-bundle/copy-as-markdown.meta.js
             release-bundle/copy-as-markdown-chrome-v${{ needs.validate.outputs.version }}.zip
             release-bundle/copy-as-markdown-firefox-v${{ needs.validate.outputs.version }}.zip

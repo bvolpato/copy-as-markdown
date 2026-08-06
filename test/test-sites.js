@@ -1840,12 +1840,18 @@ async function runExpandedPlatformChecks(browser, scriptContent) {
 async function runProductionUiChecks(browser, scriptContent) {
   console.log(`${COLORS.cyan}● Production UI guards${COLORS.reset}`);
   const chromeStoreUrl = 'https://chromewebstore.google.com/detail/copy-as-markdown/pcjanmkidppaeojkanbjbmmgpjfeecol';
+  const userscriptUrl = 'https://github.com/bvolpato/copy-as-markdown/releases/latest/download/copy-as-markdown.user.js';
 
   const landingPage = await browser.newPage();
   try {
     await landingPage.goto(pathToFileURL(path.join(ROOT, 'docs', 'index.html')).href, {
       waitUntil: 'domcontentloaded',
     });
+    await landingPage.waitForFunction(
+      () => [...document.querySelectorAll('[data-hero-install] img, .install-card .install-logo')]
+        .every((logo) => logo.complete && logo.naturalWidth > 0),
+      { timeout: 4000 },
+    );
     await landingPage.addScriptTag({ content: scriptContent });
     await new Promise(r => setTimeout(r, 800));
     const controls = await landingPage.evaluate(() => ({
@@ -1859,6 +1865,15 @@ async function runProductionUiChecks(browser, scriptContent) {
       heroFirefoxLink: document.querySelector('[data-hero-install="firefox"]')?.href,
       heroReleaseLink: document.querySelector('[data-hero-install="userscript"]')?.href,
       heroChromeLink: document.querySelector('[data-hero-install="chrome"]')?.href,
+      userscriptLink: document.querySelector('[data-install="userscript"] a')?.href,
+      installChoices: [...document.querySelectorAll('[data-hero-install]')].map((link) => ({
+        type: link.dataset.heroInstall,
+        primary: link.classList.contains('btn-install'),
+        logo: link.querySelector('img')?.getAttribute('src'),
+        logoLoaded: Boolean(link.querySelector('img')?.naturalWidth),
+      })),
+      cardLogosLoaded: [...document.querySelectorAll('.install-card .install-logo')]
+        .every((logo) => logo.naturalWidth > 0),
       siteCards: document.querySelectorAll('.site-card').length,
       purposeBuiltCount: document.body.textContent.includes('44 purpose-built'),
     }));
@@ -1868,13 +1883,19 @@ async function runProductionUiChecks(browser, scriptContent) {
     assertCheck(controls.firefoxLink === 'https://addons.mozilla.org/en-US/firefox/addon/copy-as-markdown-addon/', 'Firefox install link is incorrect');
     assertCheck(controls.latestReleaseLink === 'https://github.com/bvolpato/copy-as-markdown/releases/latest', 'latest release link is incorrect');
     assertCheck(controls.heroFirefoxLink === controls.firefoxLink, 'hero Firefox install link is incorrect');
-    assertCheck(controls.heroReleaseLink === controls.latestReleaseLink, 'hero release link is incorrect');
+    assertCheck(controls.heroReleaseLink === userscriptUrl && controls.userscriptLink === userscriptUrl, 'userscript install link is incorrect');
     assertCheck(controls.heroChromeLink === chromeStoreUrl, 'hero Chrome install link is incorrect');
+    assertCheck(
+      controls.installChoices.length === 3
+        && controls.installChoices.every(({ primary, logoLoaded }) => primary && logoLoaded),
+      `install choices are not equal first-class actions: ${JSON.stringify(controls.installChoices)}`,
+    );
+    assertCheck(controls.cardLogosLoaded, 'install card logos did not load');
     assertCheck(controls.siteCards === 45, `landing page rendered ${controls.siteCards} site cards instead of 45`);
     assertCheck(controls.purposeBuiltCount, 'landing page purpose-built extractor count is stale');
     await landingPage.click('#copy_as_markdown_btn');
     await landingPage.waitForSelector('#copy_as_markdown_btn.success', { timeout: 4000 });
-    log('✅', 'Landing page keeps Try it, hides duplicate UI, and exposes live store links');
+    log('✅', 'Landing page exposes equal logo-backed userscript and extension installs');
   } finally {
     await landingPage.close();
   }

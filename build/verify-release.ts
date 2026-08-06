@@ -285,9 +285,11 @@ function sha256(file: string): string {
 function verifyReleaseBundle(bundleArgument: string, expectedVersion: string): void {
   const bundle = path.resolve(ROOT, bundleArgument);
   const versionedUserscript = `copy-as-markdown-v${expectedVersion}.user.js`;
+  const stableUserscript = 'copy-as-markdown.user.js';
   const userscriptMetadata = 'copy-as-markdown.meta.js';
   const expectedArtifacts = [
     versionedUserscript,
+    stableUserscript,
     userscriptMetadata,
     `copy-as-markdown-chrome-v${expectedVersion}.zip`,
     `copy-as-markdown-firefox-v${expectedVersion}.zip`,
@@ -308,6 +310,10 @@ function verifyReleaseBundle(bundleArgument: string, expectedVersion: string): v
   }
 
   const versionedContents = fs.readFileSync(path.join(bundle, versionedUserscript), 'utf8');
+  const stableContents = fs.readFileSync(path.join(bundle, stableUserscript), 'utf8');
+  if (stableContents !== versionedContents) {
+    fail(`${bundleArgument}: ${stableUserscript} differs from ${versionedUserscript}`);
+  }
   const metadataContents = fs.readFileSync(path.join(bundle, userscriptMetadata), 'utf8');
   if (!versionedContents.startsWith(`${metadataContents}\n`)) {
     fail(`${bundleArgument}: ${userscriptMetadata} differs from ${versionedUserscript} metadata`);
