@@ -387,6 +387,16 @@ function injectStyles(): void {
         color: #cbd5e1;
       }
     }
+
+    @media print {
+      [${UI_INSTANCE_ATTR}],
+      #${BUTTON_ID},
+      #${TOAST_ID},
+      #${OPTION_DIALOG_ID},
+      .cam-dismiss-prompt {
+        display: none !important;
+      }
+    }
   `;
 
   const style = document.createElement('style');
@@ -431,6 +441,11 @@ function injectToastStyles(): void {
         top: auto;
         bottom: 80px;
         right: 16px;
+      }
+    }
+    @media print {
+      #${TOAST_ID} {
+        display: none !important;
       }
     }
   `;

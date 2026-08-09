@@ -617,6 +617,13 @@
       .demo { margin-top: 40px; }
       .try-it-callout { display: none; }
     }
+    @media print {
+      .live-demo-wrapper,
+      .try-it-callout,
+      .demo-toast {
+        display: none !important;
+      }
+    }
   </style>
 </head>
 <body>

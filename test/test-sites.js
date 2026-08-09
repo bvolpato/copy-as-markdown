@@ -1893,6 +1893,10 @@ async function runProductionUiChecks(browser, scriptContent) {
     assertCheck(controls.cardLogosLoaded, 'install card logos did not load');
     assertCheck(controls.siteCards === 45, `landing page rendered ${controls.siteCards} site cards instead of 45`);
     assertCheck(controls.purposeBuiltCount, 'landing page purpose-built extractor count is stale');
+    await landingPage.emulateMediaType('print');
+    const printDemoDisplay = await landingPage.$eval('.live-demo-wrapper', (element) => getComputedStyle(element).display);
+    assertCheck(printDemoDisplay === 'none', 'landing page demo button remains visible when printing');
+    await landingPage.emulateMediaType('screen');
     await landingPage.click('#copy_as_markdown_btn');
     await landingPage.waitForSelector('#copy_as_markdown_btn.success', { timeout: 4000 });
     log('✅', 'Landing page exposes equal logo-backed userscript and extension installs');
@@ -1969,6 +1973,18 @@ async function runProductionUiChecks(browser, scriptContent) {
     assertCheck(layout.bottomGap >= 88, `floating button too low: ${layout.bottomGap}px from bottom`);
     assertCheck(!boxesOverlap(layout.button, layout.chat), 'floating button overlaps Talk with us widget');
 
+    await floatingPage.emulateMediaType('print');
+    const printControls = await floatingPage.evaluate(() => ({
+      button: getComputedStyle(document.querySelector('#cam-copy-btn')).display,
+      wrapper: getComputedStyle(document.querySelector('.cam-floating-wrapper')).display,
+      dismiss: getComputedStyle(document.querySelector('#cam-dismiss-btn')).display,
+    }));
+    assertCheck(
+      Object.values(printControls).every((display) => display === 'none'),
+      `Copy as Markdown controls remain visible when printing: ${JSON.stringify(printControls)}`,
+    );
+    await floatingPage.emulateMediaType('screen');
+
     await floatingPage.evaluate(() => {
       window.__camCopyCount = 0;
       Object.defineProperty(navigator, 'clipboard', {
@@ -2026,7 +2042,7 @@ async function runProductionUiChecks(browser, scriptContent) {
       JSON.stringify(frontmatterKeys(draggedMarkdown)) === JSON.stringify(['title', 'url']),
       `fallback frontmatter is not focused: ${frontmatterKeys(draggedMarkdown).join(', ')}`,
     );
-    log('✅', 'Floating button avoids widgets, drags without copying, persists position, and remains singleton');
+    log('✅', 'Floating button hides when printing, avoids widgets, drags safely, and remains singleton');
   } finally {
     await floatingPage.close();
   }
