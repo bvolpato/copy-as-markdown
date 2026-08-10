@@ -38,8 +38,9 @@ register({
     '*://www.tiktok.com/*',
     '*://tiktok.com/*',
     '*://m.tiktok.com/*',
+    '*://vm.tiktok.com/*',
   ],
-  pathnameRegex: /^\/(?:@[^/]+\/(?:video|photo)\/\d+\/?|(?:foryou|following)\/?|)$/,
+  pathnameRegex: /^\/(?:$|@[^/]+\/(?:video|photo)\/\d+\/?|embed\/v2\/\d+\/?|player\/v1\/\d+\/?|(?:foryou|following|discover|search|tag|music)(?:\/|$))/,
   buttonPlacement: 'anchor',
   anchor: {
     selector: [
@@ -53,12 +54,13 @@ register({
 
   async extract() {
     const url = Utils.getCanonicalUrl();
-    const routeId = window.location.pathname.match(/\/(?:video|photo)\/(\d+)/)?.[1] || '';
+    const routeId = window.location.pathname.match(/\/(?:video|photo)\/(\d+)/)?.[1]
+      || window.location.pathname.match(/\/(?:embed\/v2|player\/v1)\/(\d+)/)?.[1] || '';
     const active = findActiveVideo(routeId);
     const domItem = extractDomItem(active, routeId);
     const embeddedItem = routeId ? findEmbeddedItem(routeId) : null;
     const item = mergeItems(embeddedItem, domItem);
-    const comments = extractComments(active || document);
+    const comments = routeId ? extractComments(active || document) : [];
     const limitedComments = limitCollection(comments, COMMENT_LIMIT);
     const captions = limitCollection(extractCaptions(active || document), CAPTION_LIMIT);
 
@@ -137,12 +139,14 @@ function emptyItem(id = ''): TikTokItem {
 }
 
 function findActiveVideo(routeId: string): Element | null {
-  const candidates = Array.from(document.querySelectorAll(
-    '[data-e2e="feed-item"], [data-e2e="browse-video"], main article, article',
-  ));
+  const candidates = Array.from(document.querySelectorAll<HTMLElement>([
+    '[data-e2e="feed-item"]', '[data-e2e="browse-video"]', '[data-video-id]',
+    '[data-e2e="search-video-card"]', 'main article', 'article',
+  ].join(', ')));
   if (routeId) {
     const matching = candidates.find((candidate) =>
-      candidate.querySelector(`a[href*="/video/${routeId}"], a[href*="/photo/${routeId}"]`),
+      candidate.getAttribute('data-video-id') === routeId
+      || candidate.querySelector(`a[href*="/video/${routeId}"], a[href*="/photo/${routeId}"], a[href*="/embed/v2/${routeId}"]`),
     );
     if (matching) return matching;
   }
@@ -164,24 +168,35 @@ function mostVisible(elements: Element[]): Element | null {
 
 function extractDomItem(scope: Element | null, routeId: string): TikTokItem {
   const item = emptyItem(routeId);
-  if (!scope) return item;
+  if (!scope) {
+    item.author = window.location.pathname.match(/^\/@([^/]+)/)?.[1] || '';
+    item.body = clean(Utils.getMeta('description'));
+    return item;
+  }
   item.author = text(scope, [
     '[data-e2e="video-author-uniqueid"]', '[data-e2e="browse-username"]',
     'a[href^="/@"] strong', 'a[href^="/@"]',
   ]).replace(/^@/, '');
-  item.displayName = text(scope, ['[data-e2e="video-author-nickname"]', '[data-e2e="browser-nickname"]']);
+  item.displayName = text(scope, [
+    '[data-e2e="video-author-nickname"]', '[data-e2e="browse-nickname"]', '[data-e2e="browser-nickname"]',
+  ]);
   item.body = text(scope, [
     '[data-e2e="browse-video-desc"]', '[data-e2e="video-desc"]',
     '[data-e2e="feed-video-desc"]', 'h1[data-e2e="browse-video-desc"]',
-  ]);
+  ]) || clean(Utils.getMeta('description'));
   item.timestamp = attr(scope, ['time[datetime]'], 'datetime') || text(scope, ['time']);
   item.likes = text(scope, ['[data-e2e="like-count"]', '[data-e2e="browse-like-count"]']);
   item.comments = text(scope, ['[data-e2e="comment-count"]', '[data-e2e="browse-comment-count"]']);
   item.shares = text(scope, ['[data-e2e="share-count"]', '[data-e2e="browse-share-count"]']);
   item.plays = text(scope, ['[data-e2e="video-views"]', '[data-e2e="video-play-count"]']);
-  item.mediaAlt = unique(Array.from(scope.querySelectorAll<HTMLImageElement>('img[alt]'))
-    .map((image) => clean(image.alt))
-    .filter((alt) => alt && !/profile|avatar/i.test(alt))).slice(0, 20);
+  item.mediaAlt = unique(Array.from(scope.querySelectorAll<HTMLImageElement>('img[src], img[data-src]'))
+    .map((image) => {
+      const alt = clean(image.alt) || 'TikTok image';
+      if (/profile|avatar|logo|icon/i.test(alt)) return '';
+      const src = safeHttpUrl(image.currentSrc || image.src || image.getAttribute('data-src') || '');
+      return src ? `[${escapeLabel(alt)}](${src})` : alt;
+    })
+    .filter(Boolean)).slice(0, 20);
   return item;
 }
 
@@ -241,7 +256,10 @@ function mapEmbeddedItem(record: Record<string, unknown>, routeId: string): TikT
 
   const video = isRecord(record.video) ? record.video : {};
   const coverAlt = stringValue(video.title) || stringValue(record.accessibilityText);
-  if (coverAlt) item.mediaAlt.push(coverAlt);
+  const cover = stringValue(video.cover || video.coverUrl || video.originCover);
+  const coverUrl = safeHttpUrl(cover);
+  if (coverUrl) item.mediaAlt.push(`[TikTok cover](${coverUrl})`);
+  else if (coverAlt) item.mediaAlt.push(coverAlt);
   const subtitleInfos = Array.isArray(video.subtitleInfos) ? video.subtitleInfos : [];
   item.captionLanguages = unique(subtitleInfos.map((entry) => {
     if (!isRecord(entry)) return '';
@@ -258,7 +276,8 @@ function mapLdItem(record: Record<string, unknown>, routeId: string): TikTokItem
   item.body = stringValue(record.caption || record.description || record.name);
   item.timestamp = stringValue(record.uploadDate || record.datePublished);
   const thumbnail = stringValue(record.thumbnailUrl);
-  if (thumbnail) item.mediaAlt.push(`Thumbnail: ${thumbnail}`);
+  const thumbnailUrl = safeHttpUrl(thumbnail);
+  if (thumbnailUrl) item.mediaAlt.push(`[Thumbnail](${thumbnailUrl})`);
   const stats = Array.isArray(record.interactionStatistic) ? record.interactionStatistic : [];
   stats.forEach((entry) => {
     if (!isRecord(entry)) return;
@@ -299,7 +318,10 @@ function extractComments(scope: ParentNode): Comment[] {
   const comments: Comment[] = [];
   nodes.forEach((node) => {
     const author = text(node, ['[data-e2e="comment-username-1"]', '[data-e2e="comment-username-2"]', 'a[href^="/@"]']);
-    const body = text(node, ['[data-e2e="comment-level-1"]', '[data-e2e="comment-level-2"]', '[class*="CommentText"]', 'p']);
+    const body = text(node, [
+      '[data-e2e="comment-text-1"]', '[data-e2e="comment-text-2"]', '[data-e2e="comment-text"]',
+      '[data-e2e="comment-level-1"]', '[data-e2e="comment-level-2"]', '[class*="CommentText"]', 'p',
+    ]);
     if (!body) return;
     const key = `${author}\n${body}`;
     if (seen.has(key)) return;
@@ -363,7 +385,8 @@ function findObject(
 
 function text(scope: ParentNode, selectors: string[]): string {
   for (const selector of selectors) {
-    const value = clean(scope.querySelector(selector)?.textContent || '');
+    const own = scope instanceof Element && scope.matches(selector) ? scope : null;
+    const value = clean((own || scope.querySelector(selector))?.textContent || '');
     if (value) return value;
   }
   return '';
@@ -387,11 +410,22 @@ function countValue(value: unknown): string {
   return typeof value === 'number' || typeof value === 'string' ? String(value) : '';
 }
 function formatTimestamp(value: unknown): string {
-  if (typeof value === 'number' || (typeof value === 'string' && /^\d{10}$/.test(value))) {
-    return new Date(Number(value) * 1000).toISOString();
+  if (typeof value === 'number' || (typeof value === 'string' && /^\d{10,13}$/.test(value))) {
+    const number = Number(value);
+    return new Date(number < 1e12 ? number * 1000 : number).toISOString();
   }
   return stringValue(value);
 }
+
+function safeHttpUrl(value: string): string {
+  try {
+    const url = new URL(value, document.baseURI);
+    return /^https?:$/.test(url.protocol) ? url.href : '';
+  } catch {
+    return '';
+  }
+}
+function escapeLabel(value: string): string { return value.replace(/[\\\[\]]/g, '\\$&'); }
 function parseCount(value: string): number | null {
   const normalized = value.trim().toLowerCase().replace(/,/g, '');
   const match = normalized.match(/([\d.]+)\s*([kmb])?/);

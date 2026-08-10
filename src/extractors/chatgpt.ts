@@ -1,47 +1,18 @@
 /**
  * ChatGPT conversation extractor.
- * Extracts the full conversation from shared AND live ChatGPT pages.
+ * Extracts rendered user and assistant turns from shared and live ChatGPT
+ * routes, including citations, code, and generated images.
  */
 
 import { register } from '../core/registry';
 import * as Markdown from '../core/markdown';
 import * as Utils from '../core/utils';
+import { addExtractionMetadata, limitCollection, limitMarkdown } from '../core/context';
 
-function getImageSource(img: HTMLImageElement): string {
-  return img.currentSrc || img.src || img.getAttribute('src') || '';
-}
+const MAX_TURNS = 200;
 
-function getStandaloneImages(turn: Element, contentEl: Element | null): string[] {
-  const seenSources = new Set(
-    contentEl
-      ? Array.from(contentEl.querySelectorAll<HTMLImageElement>('img[src]'))
-          .map(getImageSource)
-          .filter(Boolean)
-      : [],
-  );
-  const images: string[] = [];
-
-  turn.querySelectorAll<HTMLImageElement>('img[src]').forEach((img) => {
-    if (contentEl?.contains(img) || img.getAttribute('aria-hidden') === 'true') return;
-
-    const src = getImageSource(img);
-    if (!src || seenSources.has(src)) return;
-
-    const rect = img.getBoundingClientRect();
-    const width = Math.max(img.naturalWidth, img.width, rect.width);
-    const height = Math.max(img.naturalHeight, img.height, rect.height);
-    const alt = img.getAttribute('alt') || '';
-    const imageContainer = img.closest('figure, [data-testid*="image"], [class*="image"]');
-    const looksGenerated = /generated image|image generated/i.test(alt);
-
-    if (Math.max(width, height) < 100 && !imageContainer && !looksGenerated) return;
-
-    seenSources.add(src);
-    images.push(`![${alt.replace(/]/g, '\\]')}](${src})`);
-  });
-
-  return images;
-}
+type Role = 'user' | 'assistant';
+type Turn = { role: Role; element: Element; container: Element };
 
 register({
   name: 'ChatGPT',
@@ -51,6 +22,7 @@ register({
     '*://chat.openai.com/share/*',
     '*://chat.openai.com/c/*',
   ],
+  pathnameRegex: /^\/(?:share|c)\//,
 
   buttonPlacement: 'anchor',
   anchor: {
@@ -67,78 +39,290 @@ register({
 
   async extract() {
     const url = Utils.getCanonicalUrl();
-
-    const titleEl = document.querySelector('h1, title');
-    const title = titleEl?.textContent?.trim() || Utils.getPageTitle();
-
-    const modelEl = document.querySelector('[data-message-model-slug]');
-    const model = modelEl?.getAttribute('data-message-model-slug') || '';
-
-    const metadata: Record<string, string> = {
+    const title = cleanTitle(
+      document.querySelector('h1')?.textContent?.trim()
+      || Utils.getPageTitle(),
+    ) || 'ChatGPT Conversation';
+    const metadata: Record<string, string | number> = {
       source: 'ChatGPT',
       title,
       url,
+      route: conversationRoute(window.location.pathname),
     };
+
+    const model = document.querySelector('[data-message-model-slug], [data-model], [data-model-name]')
+      ?.getAttribute('data-message-model-slug')
+      || document.querySelector('[data-model]')?.getAttribute('data-model')
+      || document.querySelector('[data-model-name]')?.getAttribute('data-model-name')
+      || '';
     if (model) metadata.model = model;
 
-    const parts: string[] = [`# ${title}\n`];
-    if (model) parts.push(`**Model:** ${model}\n`);
+    const turns = limitCollection(collectTurns(), MAX_TURNS);
+    const parts: string[] = [`# ${title}`];
+    if (model) parts.push('', `**Model:** ${model}`);
+    const seen = new Set<string>();
+    const citationUrls = new Set<string>();
+    let userCount = 0;
+    let assistantCount = 0;
+    let imageCount = 0;
+    let codeBlockCount = 0;
 
-    // Each conversation turn is a <section data-testid="conversation-turn-N">
-    const turns = document.querySelectorAll('section[data-testid^="conversation-turn-"]');
+    for (const turn of turns.items) {
+      const cleaned = clean(turn.element);
+      let content = Markdown.elementToMarkdown(cleaned);
+      const images = standaloneImages(turn.container, turn.element);
+      if (images.length) content = `${content}\n\n${images.join('\n')}`.trim();
+      const key = `${turn.role}:${normalize(content)}`;
+      if (!content || seen.has(key)) continue;
+      seen.add(key);
 
-    if (turns.length > 0) {
-      turns.forEach(turn => {
-        const turnType = turn.getAttribute('data-turn');
-        const isUser = turnType === 'user';
-        const isAssistant = turnType === 'assistant';
-        const roleLabel = isUser ? '👤 User' : isAssistant ? '🤖 Assistant' : 'System';
+      const citations = extractCitations(turn.container);
+      citations.forEach((citation) => citationUrls.add(citation.href));
+      if (turn.role === 'user') userCount += 1;
+      else assistantCount += 1;
+      imageCount += cleaned.querySelectorAll('img[src]').length + images.length;
+      codeBlockCount += cleaned.querySelectorAll('pre').length;
 
-        // Extract content: try markdown first, then user message bubbles.
-        const markdownEl = turn.querySelector('.markdown');
-        const userTextEl = turn.querySelector('.whitespace-pre-wrap');
-        const contentEl = markdownEl || userTextEl;
-        // Images within contentEl are already converted by elementToMarkdown.
-        const standaloneImages = getStandaloneImages(turn, contentEl);
-
-        if (contentEl || standaloneImages.length > 0) {
-          parts.push(`## ${roleLabel}\n`);
-
-          if (standaloneImages.length > 0) {
-            parts.push(standaloneImages.join('\n'));
-          }
-
-          if (markdownEl) {
-            parts.push(Markdown.elementToMarkdown(markdownEl));
-          } else if (userTextEl) {
-            parts.push(userTextEl.textContent?.trim() || '');
-          }
-
-          parts.push('');
-        }
-      });
-    } else {
-      // Fallback for shared links or older UI
-      const msgDivs = document.querySelectorAll('[data-message-author-role]');
-      if (msgDivs.length > 0) {
-        msgDivs.forEach(div => {
-          const role = div.getAttribute('data-message-author-role') || '';
-          const roleLabel = role === 'user' ? '👤 User' : role === 'assistant' ? '🤖 Assistant' : 'System';
-          const contentEl = div.querySelector('.markdown, .whitespace-pre-wrap, [class*="markdown"]');
-          if (contentEl) {
-            parts.push(`## ${roleLabel}\n`);
-            parts.push(Markdown.elementToMarkdown(contentEl));
-            parts.push('');
-          }
-        });
-      } else {
-        const container = document.querySelector('[class*="thread"], main');
-        if (container) {
-          parts.push(Markdown.elementToMarkdown(container));
-        }
+      parts.push('', `## ${turn.role === 'user' ? '👤 User' : '🤖 Assistant'}`, '', content);
+      if (turn.role === 'assistant' && citations.length) {
+        parts.push('', '### Sources', '', ...citations.map((citation) => `- [${citation.label}](${citation.href})`));
       }
     }
 
-    return Markdown.buildPageMarkdown(metadata, parts.join('\n'));
+    const captured = userCount + assistantCount;
+    const structuralIncomplete = turns.truncated || hasUnrenderedHistory();
+    if (!captured) {
+      const fallback = document.querySelector('main, [role="main"], [class*="thread"], #__next');
+      if (fallback) parts.push('', Markdown.elementToMarkdown(clean(fallback)));
+    }
+
+    metadata.turn_count = captured;
+    metadata.user_turn_count = userCount;
+    metadata.assistant_turn_count = assistantCount;
+    metadata.citation_count = citationUrls.size;
+    metadata.image_count = imageCount;
+    metadata.code_block_count = codeBlockCount;
+    metadata.completeness = !captured || structuralIncomplete
+      ? 'visible_only'
+      : 'complete_rendered_conversation';
+
+    const output = limitMarkdown(parts.join('\n'));
+    const truncated = structuralIncomplete || output.truncated;
+    if (output.truncated) metadata.completeness = 'truncated_by_limit';
+    addExtractionMetadata(metadata, {
+      contentSource: 'ChatGPT rendered conversation DOM',
+      total: turns.total,
+      included: captured,
+      truncated,
+      complete: captured > 0 && !truncated,
+    });
+    return Markdown.buildPageMarkdown(metadata, output.markdown);
   },
 });
+
+function collectTurns(): Turn[] {
+  const result: Turn[] = [];
+  const roots = firstElements([
+    'section[data-testid^="conversation-turn-"]',
+    '[data-message-author-role="user"], [data-message-author-role="assistant"]',
+    '[data-testid="conversation-turn"]',
+    '[data-message-id]',
+    'article[data-role]',
+  ]);
+
+  if (roots.length) {
+    for (const root of roots) {
+      const explicitRole = roleFor(root);
+      if (explicitRole) {
+        result.push({ role: explicitRole, element: messageContent(root) || root, container: root });
+        continue;
+      }
+      const user = queryFirst(root, [
+        '[data-message-author-role="user"]',
+        '[data-testid="user-message"]',
+        '[data-role="user"]',
+      ]);
+      const assistant = queryFirst(root, [
+        '[data-message-author-role="assistant"]',
+        '[data-testid="assistant-message"]',
+        '[data-role="assistant"]',
+      ]);
+      if (user) result.push({ role: 'user', element: messageContent(user) || user, container: root });
+      if (assistant) result.push({ role: 'assistant', element: messageContent(assistant) || assistant, container: root });
+    }
+    return dedupeTurns(result);
+  }
+
+  const standalone = Array.from(document.querySelectorAll([
+    '[data-message-author-role="user"]',
+    '[data-message-author-role="assistant"]',
+    '[data-testid="user-message"]',
+    '[data-testid="assistant-message"]',
+  ].join(',')));
+  standalone.sort(compareDomOrder);
+  for (const element of standalone) {
+    const role = roleFor(element);
+    if (!role) continue;
+    result.push({ role, element: messageContent(element) || element, container: closestTurn(element) });
+  }
+  return dedupeTurns(result);
+}
+
+function roleFor(element: Element): Role | null {
+  const value = [
+    element.getAttribute('data-turn'),
+    element.getAttribute('data-message-author-role'),
+    element.getAttribute('data-role'),
+    element.getAttribute('aria-label'),
+    element.getAttribute('data-testid'),
+    element.className,
+  ].filter(Boolean).join(' ').toLowerCase();
+  if (/user|human|you|prompt/.test(value)) return 'user';
+  if (/assistant|chatgpt|model|response|answer/.test(value)) return 'assistant';
+  return null;
+}
+
+function messageContent(element: Element): Element | null {
+  return queryFirst(element, [
+    '.markdown',
+    '[data-testid="message-content"]',
+    '[data-testid="conversation-turn-content"]',
+    '[data-testid*="markdown"]',
+    '.whitespace-pre-wrap',
+    '[class*="markdown"]',
+  ]);
+}
+
+function dedupeTurns(turns: Turn[]): Turn[] {
+  const seenElements = new Set<Element>();
+  const seenContent = new Set<string>();
+  return turns.filter((turn) => {
+    if (seenElements.has(turn.element)) return false;
+    seenElements.add(turn.element);
+    const key = `${turn.role}:${normalize(turn.element.textContent || '')}`;
+    if (!key.endsWith(':') && seenContent.has(key)) return false;
+    if (!key.endsWith(':')) seenContent.add(key);
+    return true;
+  });
+}
+
+function extractCitations(container: Element): Array<{ label: string; href: string }> {
+  const links = container.querySelectorAll<HTMLAnchorElement>([
+    'a[data-citation][href]',
+    '[data-testid*="citation"] a[href]',
+    '[data-testid*="source"] a[href]',
+    '.citation a[href]',
+    'sup a[href]',
+  ].join(','));
+  const seen = new Set<string>();
+  const result: Array<{ label: string; href: string }> = [];
+  for (const link of links) {
+    const href = safeHttpUrl(link.href);
+    if (!href || seen.has(href)) continue;
+    seen.add(href);
+    const label = normalize(link.textContent || '')
+      || link.getAttribute('aria-label')?.trim()
+      || hostname(href);
+    result.push({ label: escapeLinkText(label), href });
+  }
+  return result;
+}
+
+function standaloneImages(container: Element, content: Element): string[] {
+  const seenSources = new Set(
+    Array.from(content.querySelectorAll<HTMLImageElement>('img[src]'))
+      .map(imageSource)
+      .filter(Boolean),
+  );
+  const images: string[] = [];
+  container.querySelectorAll<HTMLImageElement>('img[src]').forEach((image) => {
+    if (content.contains(image) || image.getAttribute('aria-hidden') === 'true') return;
+    const source = imageSource(image);
+    if (!source || seenSources.has(source)) return;
+    const rect = image.getBoundingClientRect();
+    const width = Math.max(image.naturalWidth, image.width, rect.width);
+    const height = Math.max(image.naturalHeight, image.height, rect.height);
+    const alt = image.getAttribute('alt') || '';
+    const imageContainer = image.closest('figure, [data-testid*="image"], [class*="image"]');
+    const meaningful = Boolean(imageContainer)
+      || /generated image|uploaded image|image generated/i.test(alt)
+      || Math.max(width, height) >= 100;
+    if (!meaningful) return;
+    seenSources.add(source);
+    images.push(`![${escapeLinkText(alt)}](${source})`);
+  });
+  return images;
+}
+
+function clean(element: Element): Element {
+  return Utils.removeNoise(element, [
+    ...Utils.NOISE_SELECTORS,
+    'button', '[data-testid*="actions"]', '[data-testid*="feedback"]',
+    '[class*="toolbar"]', 'textarea', '[contenteditable="true"]',
+    '[class*="avatar"]', '[class*="profile"]',
+  ]);
+}
+
+function firstElements(selectors: string[]): Element[] {
+  for (const selector of selectors) {
+    const elements = Array.from(document.querySelectorAll(selector));
+    if (elements.length) return elements;
+  }
+  return [];
+}
+
+function queryFirst(root: Element, selectors: string[]): Element | null {
+  for (const selector of selectors) {
+    const element = root.querySelector(selector);
+    if (element) return element;
+  }
+  return null;
+}
+
+function closestTurn(element: Element): Element {
+  return element.closest('section[data-testid^="conversation-turn-"], [data-message-id], article') || element;
+}
+
+function compareDomOrder(left: Element, right: Element): number {
+  if (left === right) return 0;
+  return left.compareDocumentPosition(right) & Node.DOCUMENT_POSITION_FOLLOWING ? -1 : 1;
+}
+
+function hasUnrenderedHistory(): boolean {
+  return Boolean(document.querySelector(
+    '[data-testid*="load-more"], button[aria-label*="older" i], button[aria-label*="previous" i], [data-virtualized="true"]',
+  ));
+}
+
+function conversationRoute(path: string): string {
+  return /^\/share\//.test(path) ? 'shared' : 'authenticated';
+}
+
+function imageSource(image: HTMLImageElement): string {
+  return image.currentSrc || image.src || image.getAttribute('src') || '';
+}
+
+function safeHttpUrl(value: string): string {
+  try {
+    const url = new URL(value, document.baseURI);
+    return /^https?:$/.test(url.protocol) ? url.href : '';
+  } catch {
+    return '';
+  }
+}
+
+function hostname(value: string): string {
+  try { return new URL(value).hostname; } catch { return 'Source'; }
+}
+
+function cleanTitle(value: string): string {
+  return value.replace(/\s*[·|\-]\s*ChatGPT\s*$/i, '').trim();
+}
+
+function normalize(value: string): string {
+  return value.replace(/\s+/g, ' ').trim();
+}
+
+function escapeLinkText(value: string): string {
+  return value.replace(/]/g, '\\]');
+}

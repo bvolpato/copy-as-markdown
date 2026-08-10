@@ -27,6 +27,7 @@ register({
     '*://www.amazon.co.jp/*/dp/*',
     '*://www.amazon.co.jp/dp/*',
   ],
+  buttonPlacement: 'anchor',
   anchor: {
     selector: [
       '#title',                               // product title container

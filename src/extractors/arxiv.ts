@@ -17,6 +17,7 @@ register({
     '*://www.arxiv.org/abs/*',
     '*://www.arxiv.org/html/*',
   ],
+  buttonPlacement: 'anchor',
   anchor: {
     selector: [
       '.submission-history',              // submission history section

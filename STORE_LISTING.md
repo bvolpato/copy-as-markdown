@@ -229,7 +229,7 @@ Context-aware Markdown extraction for articles, documentation, dashboards, conve
 ```
 Copy as Markdown converts web content into clean, structured Markdown with one click. It preserves headings, tables, links, code blocks, lists, title, and URL for AI workflows, research, notes, and documentation.
 
-44 FIRST-CLASS EXTRACTORS
+61 FIRST-CLASS EXTRACTORS
 
 • Wikipedia: article body, infoboxes, and tables
 • GitHub: issues, pull requests, directory listings, full code files, and patches
@@ -256,11 +256,12 @@ Copy as Markdown converts web content into clean, structured Markdown with one c
 • Microsoft 365: structured Word, Excel, and PowerPoint web content
 • Slack: loaded channel and thread messages with authors, timestamps, reactions, and attachments
 • Discord: loaded messages and threads with authors, replies, reactions, and attachments
-• Jira: issue metadata, fields, descriptions, links, and visible comments
-• Confluence: page content, tables, code blocks, metadata, and visible comments
+• Jira: authenticated REST issue fields, ADF descriptions/comments, and links, with rendered DOM fallback
+• Confluence: authenticated REST page content, labels, tables, and code, with visible comments and rendered DOM fallback
 • Bing Search: results, knowledge sidebar, and related searches
 • Datadog dashboards: filters, groups, widget values, top lists, named series, sparklines, and summary statistics
 • Datadog notebooks: metadata, narrative, visualization cells, named series, sparklines, and summary statistics
+• Datadog Documentation: authored Markdown source when available, with cleaned rendered-page fallback
 • Amazon: product title, price, rating, features, specifications, and reviews
 • LinkedIn: profiles, posts, articles, reactions, and comments
 • X: posts, replies, timelines, and engagement statistics
@@ -275,6 +276,22 @@ Copy as Markdown converts web content into clean, structured Markdown with one c
 • Facebook: posts and reels with captions, engagement, and visible comments
 • Instagram: posts and reels with captions, media descriptions, engagement, and visible comments
 • TikTok: videos with creator metadata, captions or transcripts, engagement, and visible comments
+• Meta AI: conversations with role labels, citations, code, and images
+• LeetLLM: lessons, glossary pages, practice content, code, links, and learning context
+• DuckDuckGo Search: query, ranked results, snippets, and related searches
+• Yahoo Search: query, ranked results, snippets, and destination links
+• Yandex Search: query, answer cards, ranked results, and related searches
+• Baidu Search: query, ranked results, abstracts, and destination links
+• Brave Search: query, answer cards, ranked results, discussions, and related searches
+• Netflix: title metadata, synopsis, cast, genres, ratings, seasons, and visible episodes
+• Pinterest: pins with creator, description, destination, media, engagement, and visible comments
+• Temu: product title, price, availability, ratings, variants, specifications, and description
+• Weather.com: current conditions, alerts, hourly outlook, and daily forecast
+• Twitch: channels, live streams, videos, and clips with game, viewers, tags, and description
+• VK: posts with author, timestamp, text, media, engagement, and visible comments
+• Globo: articles and videos with headline, author, date, structured metadata, and clean body
+• FOX: shows, episodes, movies, and videos with synopsis and structured details
+• Booking.com: hotels and search results with prices, scores, facilities, policies, and availability
 
 OTHER WEBSITES
 

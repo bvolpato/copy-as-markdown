@@ -18,6 +18,7 @@ register({
     '*://x.com/i/grok*',
     '*://twitter.com/i/grok*',
   ],
+  pathnameRegex: /^\/(?:c|chat|conversation|share|imagine)(?:\/|$)|^\/i\/grok(?:\/|$)|^\/$/,
 
   async extract() {
     const title = cleanTitle(Utils.getPageTitle()) || 'Grok Conversation';

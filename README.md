@@ -32,7 +32,7 @@ You're chatting with ChatGPT, Claude, or Gemini. You want to share a web page fo
 **Copy as Markdown** allows you to extract content with a single click. Depending on your installation method, you interact with it in two ways:
 
 - **Browser Extension:** Click the "Copy as Markdown" icon in your browser toolbar. Datadog dashboards and notebooks also get an inline button through narrowly scoped site access; extraction and clipboard writes still run only after a click.
-- **Userscript:** A context-aware button is added to supported websites (e.g., a draggable floating button, or inline buttons on Wikipedia, Google Docs, and Datadog pages). Floating positions persist per site.
+- **Userscript:** A context-aware button is added to supported websites (e.g., a draggable floating button, or inline buttons on Wikipedia, Google Docs, Atlassian, and Datadog pages). Floating positions persist per site.
 
 One click, and the page's content lands in your clipboard as clean, structured Markdown — headers, tables, links, code blocks, metadata — all preserved. Paste it into your LLM conversation. Done.
 
@@ -111,11 +111,16 @@ Adding or removing marker updates injected UI dynamically. Extension toolbar act
 | **Microsoft 365** | Word, Excel, and PowerPoint web content through structured live-page views |
 | **Slack** | Loaded channel or thread messages with authors, timestamps, reactions, replies, and attachments |
 | **Discord** | Loaded channel messages and threads with authors, timestamps, replies, reactions, and attachments |
-| **Jira** | Issue metadata, fields, description, links, and visible comments |
-| **Confluence** | Page metadata, rich content, tables, code blocks, and visible comments |
+| **Jira** | Authenticated REST issue fields, ADF descriptions/comments, and links; rendered issue DOM fallback |
+| **Confluence** | Authenticated REST page body, labels, tables, and code; visible comments and rendered DOM fallback |
 | **Grokipedia** | Full article content with metadata |
 | **Google Search** | Query, featured snippets, knowledge panel, ranked results, "People Also Ask" |
 | **Bing Search** | Query, search results, knowledge sidebar, related searches |
+| **DuckDuckGo Search** | Query, ranked results, snippets, destination links, and related searches |
+| **Yahoo Search** | Query, ranked results, snippets, and destination links |
+| **Yandex Search** | Query, answer cards, ranked results, and related searches |
+| **Baidu Search** | Query, ranked results, abstracts, and destination links |
+| **Brave Search** | Query, answer cards, ranked results, discussions, and related searches |
 | **Reddit** | Post title, body, subreddit, author, score, threaded comments with depth |
 | **YouTube** | Video title, channel, views, likes, description, chapters, comments, transcript |
 | **WhatsApp Web** | Chat name, all messages with sender, timestamp, media indicators |
@@ -123,19 +128,34 @@ Adding or removing marker updates injected UI dynamically. Extension toolbar act
 | **Polymarket** | Market title, description, outcome probabilities, volume, resolution rules |
 | **Datadog dashboards** | Dashboard title, timeframe, template variables, grouped widget values, top lists, and visible chart annotations |
 | **Datadog notebooks** | Notebook metadata, narrative headings and rich text, ordered visualization cells, types, no-data states, and visible chart annotations |
+| **Datadog Documentation** | Authored `.md` source when available; cleaned rendered documentation DOM otherwise |
 | **GitHub** | Issues and PRs, repository/directory listings with READMEs, full code-file contents, and canonical patches with commit/file metadata |
 | **GitLab** | Repositories, trees, code files, issues, merge requests, comments, and visible diffs |
 | **Bitbucket** | Repositories, source files, pull requests, issues, comments, and visible diffs |
 | **Perplexity** | Ordered user and assistant turns with citations and source links |
 | **Grok** | Ordered user and assistant turns with citations, code, and images |
+| **ChatGPT** | Ordered user and assistant turns with Markdown, code, model metadata, and images |
+| **Claude** | Ordered user and assistant turns with Markdown, code, citations, and images |
+| **Gemini** | Ordered user and model turns with Markdown, code, citations, and images |
+| **Meta AI** | Ordered user and assistant turns with citations, code, and images |
+| **LeetLLM** | Lessons, glossary pages, practice content, code, links, and learning context |
 | **Stack Overflow** | Question with votes & tags, all answers (✅ accepted marked), comment threads |
 | **Hacker News** | Post title, link, score, author, nested comment threads with depth |
 | **LinkedIn** | Profiles (experience, education, about), posts (with reactions and comments), articles |
 | **Facebook** | Posts, reels, captions, author metadata, engagement, and visible comments |
 | **Instagram** | Posts and reels with captions, media descriptions, engagement, and visible comments |
 | **TikTok** | Videos with creator, caption, engagement, transcript or captions, and visible comments |
+| **Pinterest** | Pins with creator, description, destination, media, engagement, and visible comments |
+| **VK** | Posts with author, timestamp, text, media, engagement, and visible comments |
 | **Amazon** | Product title, ASIN, price, rating, feature bullets, tech specs, reviews (top 10) |
+| **Temu** | Product title, price, availability, ratings, variants, specifications, and description |
+| **Booking.com** | Hotels and search results with prices, scores, facilities, policies, and availability |
+| **Netflix** | Title metadata, synopsis, cast, genres, ratings, seasons, and visible episodes |
+| **Twitch** | Channels, live streams, videos, and clips with game, viewers, tags, and description |
+| **Weather.com** | Current conditions, alerts, hourly outlook, and daily forecast |
 | **arXiv** | Paper title, authors, abstract, subjects, DOI, links; full body from HTML pages |
+| **Globo** | Articles and videos with headline, author, date, structured metadata, and clean body |
+| **FOX** | Shows, episodes, movies, and videos with synopsis and structured details |
 | **News sites** | Fox News, CNN, BBC, NYT, Reuters, and 20+ others — article body, author, date; paywall detection |
 
 Every extractor is purpose-built to separate **signal from noise**: no ads, no navigation menus, no cookie banners, no related-articles sidebars. Just the content that matters.

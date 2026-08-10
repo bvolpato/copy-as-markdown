@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Copy as Markdown — One click. Clean Markdown. Perfect LLM context.</title>
-  <meta name="description" content="Context-aware Copy as Markdown button for sharing web pages with LLMs like ChatGPT, Claude, and Gemini. Supports 44 purpose-built extractors.">
+  <meta name="description" content="Context-aware Copy as Markdown button for sharing web pages with LLMs like ChatGPT, Claude, and Gemini. Supports 61 purpose-built extractors.">
   <meta property="og:title" content="Copy as Markdown">
   <meta property="og:description" content="One click. Clean Markdown. Perfect LLM context.">
   <meta property="og:type" content="website">
@@ -651,10 +651,10 @@
   <!-- Hero -->
   <section class="hero">
     <div class="container">
-      <div class="badge">✨ Works on every website — 44 with first-class extraction</div>
+      <div class="badge">✨ Works on every website — 61 with first-class extraction</div>
       <h1>One click.<br><span class="gradient">Clean Markdown.</span><br>Perfect LLM context.</h1>
       <p class="subtitle">
-        Context-aware “Copy as Markdown” button that works on every website. 44 sites get purpose-built extractors — the rest use smart fallback detection. One click to share with ChatGPT, Claude, or Gemini.
+        Context-aware “Copy as Markdown” button that works on every website. 61 sites get purpose-built extractors — the rest use smart fallback detection. One click to share with ChatGPT, Claude, or Gemini.
       </p>
       <div class="ctas">
         <a href="https://github.com/bvolpato/copy-as-markdown/releases/latest/download/copy-as-markdown.user.js" class="btn-install" data-hero-install="userscript">
@@ -743,7 +743,7 @@ encoded with a different Caesar cipher...
   <section class="sites-section reveal" id="sites">
     <div class="container">
       <div class="section-label">First-Class Extractors</div>
-      <h2 class="section-title">44 purpose-built. Every site supported.</h2>
+      <h2 class="section-title">61 purpose-built. Every site supported.</h2>
       <p class="section-desc">These sites get tuned extractors that capture the signal and strip the noise. Every other website uses smart fallback detection via article/main element discovery.</p>
 
       <div class="sites-grid">
@@ -785,11 +785,11 @@ encoded with a different Caesar cipher...
         </div>
         <div class="site-card">
           <div class="site-icon">🎫</div>
-          <div><h3>Jira</h3><p>Issue metadata, fields, descriptions, links, and visible comments</p></div>
+          <div><h3>Jira</h3><p>Authenticated REST fields, ADF descriptions/comments, links, and rendered DOM fallback</p></div>
         </div>
         <div class="site-card">
           <div class="site-icon">📘</div>
-          <div><h3>Confluence</h3><p>Page content, tables, code blocks, metadata, and visible comments</p></div>
+          <div><h3>Confluence</h3><p>Authenticated REST page body, labels, tables, code, visible comments, and DOM fallback</p></div>
         </div>
         <div class="site-card">
           <div class="site-icon">📈</div>
@@ -798,6 +798,10 @@ encoded with a different Caesar cipher...
         <div class="site-card">
           <div class="site-icon">📓</div>
           <div><h3>Datadog notebooks</h3><p>Metadata, narrative, ordered visualization cells, visible chart snapshots</p></div>
+        </div>
+        <div class="site-card">
+          <div class="site-icon">📚</div>
+          <div><h3>Datadog Documentation</h3><p>Authored Markdown source when available, cleaned rendered DOM otherwise</p></div>
         </div>
         <div class="site-card">
           <div class="site-icon">🔍</div>
@@ -922,6 +926,70 @@ encoded with a different Caesar cipher...
         <div class="site-card">
           <div class="site-icon">🐍</div>
           <div><h3>PyPI</h3><p>Python packages with version, description, full README</p></div>
+        </div>
+        <div class="site-card">
+          <div class="site-icon">∞</div>
+          <div><h3>Meta AI</h3><p>Conversations with ordered user/assistant turns, citations, code, and images</p></div>
+        </div>
+        <div class="site-card">
+          <div class="site-icon">🧑‍🏫</div>
+          <div><h3>LeetLLM</h3><p>Lessons, glossary pages, practice content, code, links, and learning context</p></div>
+        </div>
+        <div class="site-card">
+          <div class="site-icon">🦆</div>
+          <div><h3>DuckDuckGo Search</h3><p>Query, ranked results, snippets, and related searches</p></div>
+        </div>
+        <div class="site-card">
+          <div class="site-icon">Y!</div>
+          <div><h3>Yahoo Search</h3><p>Query, ranked results, snippets, and destination links</p></div>
+        </div>
+        <div class="site-card">
+          <div class="site-icon">Я</div>
+          <div><h3>Yandex Search</h3><p>Query, answer cards, ranked results, and related searches</p></div>
+        </div>
+        <div class="site-card">
+          <div class="site-icon">百</div>
+          <div><h3>Baidu Search</h3><p>Query, ranked results, abstracts, and destination links</p></div>
+        </div>
+        <div class="site-card">
+          <div class="site-icon">🦁</div>
+          <div><h3>Brave Search</h3><p>Query, answer cards, ranked results, discussions, and related searches</p></div>
+        </div>
+        <div class="site-card">
+          <div class="site-icon">N</div>
+          <div><h3>Netflix</h3><p>Title metadata, synopsis, cast, genres, ratings, seasons, and episodes when visible</p></div>
+        </div>
+        <div class="site-card">
+          <div class="site-icon">P</div>
+          <div><h3>Pinterest</h3><p>Pins with creator, description, destination, media, engagement, and comments</p></div>
+        </div>
+        <div class="site-card">
+          <div class="site-icon">🛍️</div>
+          <div><h3>Temu</h3><p>Product title, price, availability, ratings, variants, specifications, and description</p></div>
+        </div>
+        <div class="site-card">
+          <div class="site-icon">🌦️</div>
+          <div><h3>Weather.com</h3><p>Current conditions, alerts, hourly outlook, and daily forecast</p></div>
+        </div>
+        <div class="site-card">
+          <div class="site-icon">◉</div>
+          <div><h3>Twitch</h3><p>Channels, live streams, videos, and clips with game, viewers, tags, and description</p></div>
+        </div>
+        <div class="site-card">
+          <div class="site-icon">VK</div>
+          <div><h3>VK</h3><p>Posts with author, timestamp, text, media, engagement, and visible comments</p></div>
+        </div>
+        <div class="site-card">
+          <div class="site-icon">G</div>
+          <div><h3>Globo</h3><p>Articles and videos with headline, author, date, structured metadata, and clean body</p></div>
+        </div>
+        <div class="site-card">
+          <div class="site-icon">FOX</div>
+          <div><h3>FOX</h3><p>Shows, episodes, movies, and videos with synopsis and structured details</p></div>
+        </div>
+        <div class="site-card">
+          <div class="site-icon">🏨</div>
+          <div><h3>Booking.com</h3><p>Hotels and search results with prices, scores, facilities, policies, and availability</p></div>
         </div>
         <div class="site-card">
           <div class="site-icon">🌐</div>

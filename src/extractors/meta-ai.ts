@@ -1,4 +1,12 @@
-/** Perplexity authenticated and shared conversation extractor. */
+/**
+ * Meta AI conversation extractor.
+ *
+ * Meta AI is a client-rendered application and has changed class names more
+ * than once. Prefer semantic message attributes, then fall back to the
+ * message elements used by the current web client. Do not treat the whole
+ * Meta platform as a conversation: this extractor is scoped to meta.ai chat
+ * and share routes.
+ */
 
 import { register } from '../core/registry';
 import * as Markdown from '../core/markdown';
@@ -11,24 +19,38 @@ type Role = 'user' | 'assistant';
 type Turn = { role: Role; element: Element; container: Element };
 
 register({
-  name: 'Perplexity',
+  name: 'Meta AI',
   matches: [
-    '*://perplexity.ai/*',
-    '*://www.perplexity.ai/*',
+    '*://meta.ai/*',
+    '*://www.meta.ai/*',
   ],
-  pathnameRegex: /^\/(?:search|page|spaces|collections|discover|thread|chat)(?:\/|$)/,
+  pathnameRegex: /^\/(?:chat|c|conversation|share|search|discover|ask|home)(?:\/|$)|^\/$/i,
 
   async extract() {
-    const title = cleanTitle(Utils.getPageTitle()) || 'Perplexity Conversation';
+    const title = cleanTitle(
+      document.querySelector('h1')?.textContent?.trim()
+      || Utils.getPageTitle(),
+    ) || 'Meta AI Conversation';
     const metadata: Record<string, string | number> = {
-      source: 'Perplexity',
+      source: 'Meta AI',
       title,
       url: Utils.getCanonicalUrl(),
       route: conversationRoute(window.location.pathname),
     };
-    const turns = collectTurns();
-    const limitedTurns = limitCollection(turns, MAX_TURNS);
+
+    const model = document.querySelector(
+      '[data-model], [data-model-name], [data-testid*="model"], meta[name="model"]',
+    )?.getAttribute('data-model')
+      || document.querySelector('[data-model-name]')?.getAttribute('data-model-name')
+      || document.querySelector('[data-testid*="model"]')?.textContent?.trim()
+      || document.querySelector('meta[name="model"]')?.getAttribute('content')
+      || '';
+    if (model) metadata.model = model;
+
+    const turns = limitCollection(collectTurns(), MAX_TURNS);
     const parts = [`# ${title}`];
+    if (model) parts.push('', `**Model:** ${model}`);
+
     const seen = new Set<string>();
     const citationUrls = new Set<string>();
     let userCount = 0;
@@ -36,11 +58,11 @@ register({
     let imageCount = 0;
     let codeBlockCount = 0;
 
-    for (const turn of limitedTurns.items) {
+    for (const turn of turns.items) {
       const cleaned = clean(turn.element);
       let content = Markdown.elementToMarkdown(cleaned);
-      const standalone = standaloneImages(turn.container, turn.element);
-      if (standalone.length) content = `${content}\n\n${standalone.join('\n')}`.trim();
+      const images = standaloneImages(turn.container, turn.element);
+      if (images.length) content = `${content}\n\n${images.join('\n')}`.trim();
       const key = `${turn.role}:${normalize(content)}`;
       if (!content || seen.has(key)) continue;
       seen.add(key);
@@ -49,20 +71,19 @@ register({
       citations.forEach((citation) => citationUrls.add(citation.href));
       if (turn.role === 'user') userCount += 1;
       else assistantCount += 1;
-      imageCount += cleaned.querySelectorAll('img[src]').length + standalone.length;
+      imageCount += cleaned.querySelectorAll('img[src]').length + images.length;
       codeBlockCount += cleaned.querySelectorAll('pre').length;
 
-      parts.push('', `## ${turn.role === 'user' ? '👤 User' : '🤖 Perplexity'}`, '', content);
+      parts.push('', `## ${turn.role === 'user' ? '👤 User' : '🤖 Meta AI'}`, '', content);
       if (turn.role === 'assistant' && citations.length) {
         parts.push('', '### Sources', '', ...citations.map((citation) => `- [${citation.label}](${citation.href})`));
       }
     }
 
     const captured = userCount + assistantCount;
-    const loadMore = hasUnrenderedHistory();
-    const structuralIncomplete = limitedTurns.truncated || loadMore;
+    const structuralIncomplete = turns.truncated || hasUnrenderedHistory();
     if (!captured) {
-      const fallback = document.querySelector('main, [role="main"], #__next');
+      const fallback = document.querySelector('main, [role="main"], [data-testid*="conversation"], #__next');
       if (fallback) parts.push('', Markdown.elementToMarkdown(clean(fallback)));
     }
 
@@ -80,8 +101,8 @@ register({
     const truncated = structuralIncomplete || output.truncated;
     if (output.truncated) metadata.completeness = 'truncated_by_limit';
     addExtractionMetadata(metadata, {
-      contentSource: 'Perplexity rendered conversation DOM',
-      total: limitedTurns.total,
+      contentSource: 'Meta AI rendered conversation DOM',
+      total: turns.total,
       included: captured,
       truncated,
       complete: captured > 0 && !truncated,
@@ -92,53 +113,89 @@ register({
 
 function collectTurns(): Turn[] {
   const result: Turn[] = [];
-  const conversationUnits = firstElements([
-    '[data-testid="conversation-turn"]',
-    '[data-testid="thread-item"]',
-    '[data-testid^="conversation-item-"]',
-    '.conversation-turn',
+  const roots = firstElements([
+    '[data-message-id]',
+    '[data-testid="message"]',
+    '[data-testid*="message"]',
+    '[data-role="user"], [data-role="assistant"]',
+    '[role="article"]',
+    '[role="listitem"]',
   ]);
 
-  if (conversationUnits.length) {
-    for (const unit of conversationUnits) {
-      const user = queryFirst(unit, [
-        '[data-testid="user-query"]',
-        '[data-testid="query"]',
+  if (roots.length) {
+    for (const root of roots) {
+      const explicitRole = roleFor(root);
+      if (explicitRole) {
+        const element = messageContent(root) || root;
+        result.push({ role: explicitRole, element, container: root });
+        continue;
+      }
+
+      const user = queryFirst(root, [
+        '[data-testid="user-message"]',
+        '[data-testid*="user-message"]',
         '[data-message-author-role="user"]',
         '[data-role="user"]',
-        '.query-text',
+        '[data-author="user"]',
       ]);
-      const assistant = queryFirst(unit, [
-        '[data-testid="answer"]',
-        '[data-testid="assistant-response"]',
-        '[data-testid="copilot-answer"]',
+      const assistant = queryFirst(root, [
+        '[data-testid="assistant-message"]',
+        '[data-testid*="assistant-message"]',
+        '[data-testid*="meta-ai-message"]',
         '[data-message-author-role="assistant"]',
         '[data-role="assistant"]',
-        '.answer-content',
+        '[data-author="assistant"]',
       ]);
-      if (user) result.push({ role: 'user', element: user, container: unit });
-      if (assistant) result.push({ role: 'assistant', element: assistant, container: unit });
+      if (user) result.push({ role: 'user', element: messageContent(user) || user, container: root });
+      if (assistant) result.push({ role: 'assistant', element: messageContent(assistant) || assistant, container: root });
     }
     return dedupeTurns(result);
   }
 
   const standalone = Array.from(document.querySelectorAll([
-    '[data-testid="user-query"]',
-    '[data-testid="query"]',
+    '[data-testid="user-message"]',
+    '[data-testid*="user-message"]',
     '[data-message-author-role="user"]',
     '[data-role="user"]',
-    '[data-testid="answer"]',
-    '[data-testid="assistant-response"]',
-    '[data-testid="copilot-answer"]',
+    '[data-testid="assistant-message"]',
+    '[data-testid*="assistant-message"]',
+    '[data-testid*="meta-ai-message"]',
     '[data-message-author-role="assistant"]',
     '[data-role="assistant"]',
   ].join(',')));
   standalone.sort(compareDomOrder);
   for (const element of standalone) {
-    const role = isUserElement(element) ? 'user' : 'assistant';
-    result.push({ role, element, container: closestTurn(element) });
+    const role = roleFor(element);
+    if (!role) continue;
+    result.push({ role, element: messageContent(element) || element, container: closestTurn(element) });
   }
   return dedupeTurns(result);
+}
+
+function roleFor(element: Element): Role | null {
+  const value = [
+    element.getAttribute('data-role'),
+    element.getAttribute('data-message-author-role'),
+    element.getAttribute('data-author'),
+    element.getAttribute('aria-label'),
+    element.getAttribute('data-testid'),
+    element.className,
+  ].filter(Boolean).join(' ').toLowerCase();
+  if (/user|human|you|prompt/.test(value)) return 'user';
+  if (/assistant|meta[ -]?ai|model|response|answer/.test(value)) return 'assistant';
+  return null;
+}
+
+function messageContent(element: Element): Element | null {
+  return queryFirst(element, [
+    '[data-testid="message-content"]',
+    '[data-testid*="message-content"]',
+    '[data-testid*="markdown"]',
+    '[data-message-content]',
+    '.markdown',
+    '.prose',
+    '[dir="auto"]',
+  ]);
 }
 
 function dedupeTurns(turns: Turn[]): Turn[] {
@@ -159,6 +216,7 @@ function extractCitations(container: Element): Array<{ label: string; href: stri
     'a[data-citation][href]',
     '[data-testid*="citation"] a[href]',
     '[data-testid*="source"] a[href]',
+    '[data-source] a[href]',
     '.citation a[href]',
     'sup a[href]',
   ].join(','));
@@ -197,7 +255,8 @@ function clean(element: Element): Element {
   return Utils.removeNoise(element, [
     ...Utils.NOISE_SELECTORS,
     'button', '[data-testid*="actions"]', '[data-testid*="feedback"]',
-    '[class*="toolbar"]', '[class*="follow-up"]', 'textarea',
+    '[class*="toolbar"]', '[class*="avatar"]', '[class*="profile"]',
+    'textarea', '[contenteditable="true"]',
   ]);
 }
 
@@ -217,12 +276,8 @@ function queryFirst(root: Element, selectors: string[]): Element | null {
   return null;
 }
 
-function isUserElement(element: Element): boolean {
-  return element.matches('[data-testid="user-query"], [data-testid="query"], [data-message-author-role="user"], [data-role="user"]');
-}
-
 function closestTurn(element: Element): Element {
-  return element.closest('[data-testid="conversation-turn"], [data-testid="thread-item"], .conversation-turn') || element;
+  return element.closest('[data-message-id], [data-testid*="message"], [role="article"], [role="listitem"]') || element;
 }
 
 function compareDomOrder(left: Element, right: Element): number {
@@ -237,10 +292,10 @@ function hasUnrenderedHistory(): boolean {
 }
 
 function conversationRoute(path: string): string {
-  if (/^\/page\//.test(path)) return 'shared';
-  if (/^\/search\//.test(path)) return 'search';
-  if (/^\/(?:spaces|collections)\//.test(path)) return 'space';
-  return 'authenticated';
+  if (/^\/share\//i.test(path)) return 'shared';
+  if (/^\/(?:chat|c|conversation)\//i.test(path)) return 'authenticated';
+  if (/^\/(?:search|discover|ask)\//i.test(path)) return 'search';
+  return 'conversation';
 }
 
 function imageSource(image: HTMLImageElement): string {
@@ -261,7 +316,7 @@ function hostname(value: string): string {
 }
 
 function cleanTitle(value: string): string {
-  return value.replace(/\s*[·|\-]\s*Perplexity\s*$/i, '').trim();
+  return value.replace(/\s*[·|\-]\s*Meta\s*AI\s*$/i, '').trim();
 }
 
 function normalize(value: string): string {

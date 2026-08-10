@@ -16,6 +16,7 @@ register({
     '*://askubuntu.com/questions/*',
     '*://*.stackexchange.com/questions/*',
   ],
+  buttonPlacement: 'anchor',
   anchor: {
     selector: [
       '#question-header + .d-flex',            // question action bar

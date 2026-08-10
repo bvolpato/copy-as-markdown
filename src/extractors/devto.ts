@@ -13,6 +13,7 @@ register({
     '*://dev.to/*/*',
   ],
 
+  buttonPlacement: 'anchor',
   anchor: {
     selector: '.crayons-article__header__meta, #article-show-container .spec__header, .article-header',
     position: 'after',

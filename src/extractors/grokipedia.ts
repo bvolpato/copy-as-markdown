@@ -12,6 +12,7 @@ register({
     '*://grokipedia.com/*',
     '*://www.grokipedia.com/*',
   ],
+  buttonPlacement: 'anchor',
   anchor: {
     // Append to the header toolbar next to Listen / Copy link / Edits history buttons
     selector: [

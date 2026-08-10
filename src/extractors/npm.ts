@@ -13,6 +13,7 @@ register({
     '*://www.npmjs.com/package/*',
   ],
 
+  buttonPlacement: 'anchor',
   anchor: {
     selector: '#top .flex, #package-tab-readme, .fdbf4038',
     position: 'after',

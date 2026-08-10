@@ -11,9 +11,12 @@ register({
   name: 'News (Generic)',
   matches: [
     '*://www.foxnews.com/*',
+    '*://foxnews.com/*',
     '*://www.cnn.com/*',
     '*://www.bbc.com/*',
+    '*://bbc.com/*',
     '*://www.bbc.co.uk/*',
+    '*://bbc.co.uk/*',
     '*://www.nytimes.com/*',
     '*://www.washingtonpost.com/*',
     '*://www.theguardian.com/*',
@@ -35,6 +38,7 @@ register({
     '*://arstechnica.com/*',
     '*://www.wired.com/*',
   ],
+  buttonPlacement: 'anchor',
   anchor: {
     selector: [
       'article header',              // semantic article header

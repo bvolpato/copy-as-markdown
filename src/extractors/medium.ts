@@ -15,6 +15,7 @@ register({
   ],
   regex: /^https?:\/\/([a-z0-9-]+\.)?medium\.com\/.+/,
 
+  buttonPlacement: 'anchor',
   anchor: {
     selector: 'article [data-testid="headerSocialShareButton"], article .pw-multi-vote-count, article button[data-testid="headerClapButton"]',
     position: 'after',

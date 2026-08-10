@@ -131,6 +131,44 @@ const SITES = [
   },
 ];
 
+const REQUESTED_FIRST_CLASS_SITES = new Map([
+  ['Gmail', 'Gmail'],
+  ['Grok', 'Grok'],
+  ['Meta AI', 'Meta AI'],
+  ['Gemini', 'Gemini'],
+  ['ChatGPT', 'ChatGPT'],
+  ['Claude', 'Claude'],
+  ['Perplexity', 'Perplexity'],
+  ['X', 'X (Twitter)'],
+  ['LeetLLM', 'LeetLLM'],
+  ['WhatsApp', 'WhatsApp'],
+  ['Google Search', 'Google Search'],
+  ['DuckDuckGo Search', 'DuckDuckGo Search'],
+  ['Wikipedia', 'Wikipedia'],
+  ['YouTube', 'YouTube'],
+  ['Facebook', 'Facebook'],
+  ['Reddit', 'Reddit'],
+  ['Bing Search', 'Bing Search'],
+  ['TikTok', 'TikTok'],
+  ['Yahoo Search', 'Yahoo Search'],
+  ['Yandex Search', 'Yandex Search'],
+  ['Netflix', 'Netflix'],
+  ['Baidu Search', 'Baidu Search'],
+  ['Pinterest', 'Pinterest'],
+  ['Temu', 'Temu'],
+  ['Weather.com', 'Weather.com'],
+  ['Twitch', 'Twitch'],
+  ['VK', 'VK'],
+  ['Globo', 'Globo'],
+  ['FOX', 'FOX'],
+  ['Fox News', 'News (Generic)'],
+  ['BBC', 'News (Generic)'],
+  ['Discord', 'Discord'],
+  ['GitHub', 'GitHub'],
+  ['Brave Search', 'Brave Search'],
+  ['Booking.com', 'Booking.com'],
+]);
+
 // ----------------------------------------------------------------
 // Test runner
 // ----------------------------------------------------------------
@@ -186,6 +224,7 @@ async function createFixturePage(browser, scriptContent, {
   html,
   csp = '',
   beforeLoad,
+  afterLoad,
   waitForButton = true,
 }) {
   const page = await browser.newPage();
@@ -209,6 +248,7 @@ async function createFixturePage(browser, scriptContent, {
   });
 
   await page.goto(url, { waitUntil: 'domcontentloaded' });
+  if (afterLoad) await page.evaluate(afterLoad);
   if (!csp) await page.addScriptTag({ content: scriptContent });
   if (waitForButton) await page.waitForSelector('#cam-copy-btn', { timeout: 4000 });
   return page;
@@ -257,6 +297,17 @@ async function chooseAndCapture(page, optionId) {
   await page.click(`#cam-option-dialog [data-option-id="${optionId}"]`);
   await page.waitForFunction(() => window.__camCapturedMarkdown.length > 0, { timeout: 4000 });
   return page.evaluate(() => window.__camCapturedMarkdown);
+}
+
+async function assertRouteIdentity(page, expectedExtractor, context) {
+  const actualExtractor = await page.$eval(
+    '#cam-copy-btn',
+    (button) => button.dataset.camExtractor || '',
+  );
+  assertCheck(
+    actualExtractor === expectedExtractor,
+    `${context} routed to ${JSON.stringify(actualExtractor)} instead of ${JSON.stringify(expectedExtractor)}`,
+  );
 }
 
 async function runRegressionChecks(browser, scriptContent) {
@@ -1367,34 +1418,125 @@ index 1111111..2222222 100644
     await datadogNotebookListPage.close();
   }
 
+  const datadogDocsSource = `---
+title: Quickstart fixture
+description: Source Markdown wins.
+---
+
+# Quickstart fixture
+
+Fetched from the Datadog Documentation Markdown endpoint.
+
+\`\`\`bash
+DD_SITE=datadoghq.com
+\`\`\``;
+  const datadogDocsMarkdownPage = await createFixturePage(browser, scriptContent, {
+    url: 'https://docs.datadoghq.com/llm_observability/quickstart/?site=us5#setup',
+    beforeLoad: () => {
+      window.__datadogDocsFetches = [];
+      window.fetch = async (url, options) => {
+        window.__datadogDocsFetches.push({ url: String(url), options });
+        return new Response(`---
+title: Quickstart fixture
+description: Source Markdown wins.
+---
+
+# Quickstart fixture
+
+Fetched from the Datadog Documentation Markdown endpoint.
+
+\`\`\`bash
+DD_SITE=datadoghq.com
+\`\`\``, {
+          status: 200,
+          headers: { 'Content-Type': 'text/markdown' },
+        });
+      };
+    },
+    html: `<!doctype html><html><head><title>Quickstart | Datadog Documentation</title></head><body>
+      <div id="mainContent"><h1 id="pagetitle">Quickstart</h1><p>DOM fallback must not replace source Markdown.</p></div>
+    </body></html>`,
+  });
+  try {
+    await assertRouteIdentity(datadogDocsMarkdownPage, 'Datadog Documentation', 'Datadog Documentation Markdown');
+    const markdown = await clickAndCapture(datadogDocsMarkdownPage);
+    const fetches = await datadogDocsMarkdownPage.evaluate(() => window.__datadogDocsFetches);
+    assertCheck(markdown === datadogDocsSource, `Datadog Documentation changed source Markdown: ${markdown}`);
+    assertCheck(
+      fetches.length === 1
+        && fetches[0].url === 'https://docs.datadoghq.com/llm_observability/quickstart.md',
+      `Datadog Documentation fetched wrong Markdown URL: ${JSON.stringify(fetches)}`,
+    );
+    assertCheck(!markdown.includes('DOM fallback'), 'Datadog Documentation used DOM despite successful Markdown fetch');
+    log('✅', 'Datadog Documentation copies successful .md responses unchanged');
+  } finally {
+    await datadogDocsMarkdownPage.close();
+  }
+
+  const datadogDocsFallbackPage = await createFixturePage(browser, scriptContent, {
+    url: 'https://docs.datadoghq.com/example/no-markdown/',
+    beforeLoad: () => {
+      window.fetch = async () => new Response('Not found', { status: 404 });
+    },
+    html: `<!doctype html><html><head>
+      <title>DOM Fallback | Datadog Documentation</title>
+      <link rel="canonical" href="https://docs.datadoghq.com/example/no-markdown/">
+    </head><body><div class="mainContent-wrapper"><div id="mainContent">
+      <div id="breadcrumbs">NOISE_BREADCRUMBS</div>
+      <h1 id="pagetitle">DOM Fallback</h1>
+      <p>Rendered Datadog documentation body.</p>
+      <pre><code class="language-bash">datadog-agent status</code></pre>
+      <div data-nosnippet>NOISE_REGION_MESSAGE</div>
+    </div></div></body></html>`,
+  });
+  try {
+    await assertRouteIdentity(datadogDocsFallbackPage, 'Datadog Documentation', 'Datadog Documentation fallback');
+    const markdown = await clickAndCapture(datadogDocsFallbackPage);
+    assertCheck(markdown.includes('# DOM Fallback'), 'Datadog Documentation DOM fallback lost title');
+    assertCheck(markdown.includes('Rendered Datadog documentation body.'), 'Datadog Documentation DOM fallback lost body');
+    assertCheck(markdown.includes('datadog-agent status'), 'Datadog Documentation DOM fallback lost code');
+    assertCheck(!markdown.includes('NOISE_BREADCRUMBS'), 'Datadog Documentation DOM fallback leaked breadcrumbs');
+    assertCheck(!markdown.includes('NOISE_REGION_MESSAGE'), 'Datadog Documentation DOM fallback leaked regional noise');
+    assertCompactMetadata(markdown, 'Datadog Documentation DOM fallback');
+    log('✅', 'Datadog Documentation falls back to cleaned rendered DOM');
+  } finally {
+    await datadogDocsFallbackPage.close();
+  }
+
   const overlayFixtures = [
     {
       name: 'Reddit',
+      extractor: 'Reddit',
       url: 'https://www.reddit.com/r/test/comments/123/test/',
       anchor: '<shreddit-post><div id="anchor" slot="post-actions"></div></shreddit-post>',
     },
     {
       name: 'YouTube',
+      extractor: 'YouTube',
       url: 'https://www.youtube.com/watch?v=test',
       anchor: '<div id="top-level-buttons-computed"></div>',
     },
     {
       name: 'X',
+      extractor: 'X (Twitter)',
       url: 'https://x.com/test/status/123',
       anchor: '<div id="anchor" data-testid="userActions"></div>',
     },
     {
       name: 'LinkedIn',
+      extractor: 'LinkedIn',
       url: 'https://www.linkedin.com/posts/test',
       anchor: '<div id="anchor" class="feed-shared-control-menu"></div>',
     },
     {
       name: 'WhatsApp',
+      extractor: 'WhatsApp',
       url: 'https://web.whatsapp.com/',
       anchor: '<div id="main"><header><div id="anchor" data-testid="chat-header-actions"></div></header></div>',
     },
     {
       name: 'Polymarket',
+      extractor: 'Polymarket',
       url: 'https://polymarket.com/event/test',
       anchor: '<div id="anchor" class="flex items-center"><button class="bookmarkButton"></button></div>',
     },
@@ -1411,6 +1553,7 @@ index 1111111..2222222 100644
       </body></html>`,
     });
     try {
+      await assertRouteIdentity(page, fixture.extractor, fixture.name);
       await page.waitForSelector('.cam-overlay-container #cam-copy-btn', { timeout: 4000 });
       const geometry = await page.evaluate(() => {
         const target = document.querySelector(
@@ -1457,6 +1600,7 @@ index 1111111..2222222 100644
     </body></html>`,
   });
   try {
+    await assertRouteIdentity(chatgptPage, 'ChatGPT', 'ChatGPT');
     const markdown = await clickAndCapture(chatgptPage);
     const inlineCount = markdown.split('https://assets.test/inline.png').length - 1;
     const generatedCount = markdown.split('https://assets.test/generated.png').length - 1;
@@ -1508,6 +1652,7 @@ index 1111111..2222222 100644
     </body></html>`,
   });
   try {
+    await assertRouteIdentity(claudePage, 'Claude', 'Claude');
     const markdown = await clickAndCapture(claudePage);
     assertCheck(markdown.includes('Claude question'), 'Claude user message missing');
     assertCheck(markdown.includes('Claude answer'), 'Claude response missing');
@@ -1526,6 +1671,7 @@ index 1111111..2222222 100644
     </body></html>`,
   });
   try {
+    await assertRouteIdentity(geminiPage, 'Gemini', 'Gemini');
     const markdown = await clickAndCapture(geminiPage);
     assertCheck(markdown.includes('Gemini question'), 'Gemini user message missing');
     assertCheck(markdown.includes('Gemini answer'), 'Gemini response missing');
@@ -1708,9 +1854,184 @@ async function runExpandedPlatformChecks(browser, scriptContent) {
     await slidesTextFallbackPage.close();
   }
 
+  const jiraApiPage = await createFixturePage(browser, scriptContent, {
+    url: 'https://acme.atlassian.net/browse/API-77',
+    beforeLoad: () => {
+      window.__atlassianFetches = [];
+      window.fetch = async (url, options) => {
+        window.__atlassianFetches.push({ url: String(url), options });
+        return new Response(JSON.stringify({
+          key: 'API-77',
+          names: {
+            status: 'Status',
+            assignee: 'Assignee',
+            customfield_10001: 'Customer impact',
+          },
+          renderedFields: {},
+          fields: {
+            summary: 'REST-backed issue copy',
+            description: {
+              type: 'doc', version: 1, content: [
+                { type: 'heading', attrs: { level: 2 }, content: [{ type: 'text', text: 'API checklist' }] },
+                { type: 'paragraph', content: [
+                  { type: 'text', text: 'Preserve ' },
+                  { type: 'text', text: 'complete context', marks: [{ type: 'strong' }] },
+                  { type: 'text', text: ' from Jira.' },
+                ] },
+                { type: 'bulletList', content: [
+                  { type: 'listItem', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'First ADF item' }] }] },
+                  { type: 'listItem', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Second ADF item' }] }] },
+                ] },
+                { type: 'codeBlock', attrs: { language: 'bash' }, content: [{ type: 'text', text: 'curl /health' }] },
+              ],
+            },
+            status: { name: 'In Progress' },
+            assignee: { displayName: 'Alice Example' },
+            customfield_10001: 'High',
+            comment: {
+              total: 1,
+              comments: [{
+                id: '9001',
+                author: { displayName: 'Bob Example' },
+                created: '2026-08-09T12:00:00.000Z',
+                body: { type: 'doc', version: 1, content: [{
+                  type: 'paragraph', content: [
+                    { type: 'text', text: 'Verified against ' },
+                    { type: 'text', text: 'runbook', marks: [{ type: 'link', attrs: { href: 'https://example.com/runbook' } }] },
+                    { type: 'text', text: '.' },
+                  ],
+                }] },
+              }],
+            },
+            issuelinks: [{
+              type: { outward: 'blocks' },
+              outwardIssue: { key: 'OPS-8', fields: { summary: 'Production rollout' } },
+            }],
+          },
+        }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+      };
+    },
+    html: `<!doctype html><html><head><title>Stale Jira shell</title></head><body>
+      <main id="issue-content">
+        <h1 data-testid="issue.views.issue-base.foundation.summary.heading">STALE DOM SUMMARY</h1>
+        <div data-testid="issue.views.issue-base.foundation.description"><p>STALE DOM DESCRIPTION</p></div>
+        <button data-testid="issue.views.issue-base.foundation.actions.more-actions">More</button>
+      </main>
+    </body></html>`,
+  });
+  try {
+    await assertRouteIdentity(jiraApiPage, 'Jira', 'Jira REST fixture');
+    const anchored = await jiraApiPage.evaluate(() => {
+      const target = document.querySelector('[data-testid="issue.views.issue-base.foundation.actions.more-actions"]');
+      return !document.querySelector('.cam-floating-wrapper')
+        && target?.previousElementSibling?.id === 'cam-copy-btn';
+    });
+    assertCheck(anchored, 'Jira copy control did not join native issue actions');
+    const markdown = await clickAndCapture(jiraApiPage);
+    const fetches = await jiraApiPage.evaluate(() => window.__atlassianFetches);
+    assertCheck(
+      fetches.length === 1
+        && fetches[0].url === 'https://acme.atlassian.net/rest/api/3/issue/API-77?expand=names%2CrenderedFields&fields=*all'
+        && fetches[0].options.credentials === 'same-origin',
+      `Jira fetched wrong REST resource: ${JSON.stringify(fetches)}`,
+    );
+    for (const expected of [
+      '# API-77: REST-backed issue copy',
+      '## API checklist',
+      '**complete context**',
+      '- First ADF item',
+      '```bash\ncurl /health\n```',
+      '**Customer Impact:** High',
+      '[OPS-8: blocks: Production rollout](https://acme.atlassian.net/browse/OPS-8)',
+      '### Bob Example',
+      '[runbook](https://example.com/runbook)',
+    ]) {
+      assertCheck(markdown.includes(expected), `Jira REST output missing ${JSON.stringify(expected)}: ${markdown}`);
+    }
+    assertCheck(!markdown.includes('STALE DOM'), 'Jira REST success mixed stale issue DOM into output');
+    assertCompactMetadata(markdown, 'Jira REST output');
+  } finally {
+    await jiraApiPage.close();
+  }
+
+  const confluenceApiPage = await createFixturePage(browser, scriptContent, {
+    url: 'https://acme.atlassian.net/wiki/spaces/ENG/pages/456/REST+Runbook',
+    beforeLoad: () => {
+      window.__atlassianFetches = [];
+      window.fetch = async (url, options) => {
+        window.__atlassianFetches.push({ url: String(url), options });
+        return new Response(JSON.stringify({
+          id: '456',
+          status: 'current',
+          title: 'REST Runbook',
+          spaceId: '987',
+          createdAt: '2026-07-01T10:00:00.000Z',
+          version: { number: 7, createdAt: '2026-08-09T11:00:00.000Z' },
+          labels: { results: [{ name: 'operations' }, { name: 'production' }] },
+          body: { view: { representation: 'view', value: `
+            <h2>Recovery steps</h2>
+            <p>Use <strong>REST page content</strong>, including content outside viewport.</p>
+            <table><tbody><tr><th>Service</th><th>Owner</th></tr><tr><td>API</td><td>Platform</td></tr></tbody></table>
+            <pre><code>kubectl get pods</code></pre>
+          ` } },
+        }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+      };
+    },
+    html: `<!doctype html><html><head><title>Stale Confluence shell</title></head><body>
+      <main>
+        <h1 data-testid="page-title">STALE DOM TITLE</h1>
+        <div data-testid="renderer-container"><div class="ak-renderer-document"><p>STALE DOM BODY</p></div></div>
+        <div data-testid="object-header-actions-container">
+          <button data-testid="copy-link-button">Copy link</button>
+          <button id="more-actions-trigger">More</button>
+        </div>
+        <section id="comments-section"><div class="comment">
+          <span class="author">Carol Example</span><time datetime="2026-08-09T12:30:00.000Z"></time>
+          <div class="comment-body"><p>Visible page comment.</p></div>
+        </div></section>
+      </main>
+    </body></html>`,
+  });
+  try {
+    await assertRouteIdentity(confluenceApiPage, 'Confluence', 'Confluence REST fixture');
+    const anchored = await confluenceApiPage.evaluate(() => {
+      const target = document.querySelector('[data-testid="object-header-actions-container"]');
+      return !document.querySelector('.cam-floating-wrapper')
+        && target?.lastElementChild?.id === 'cam-copy-btn';
+    });
+    assertCheck(anchored, 'Confluence copy control did not join native page actions');
+    const markdown = await clickAndCapture(confluenceApiPage);
+    const fetches = await confluenceApiPage.evaluate(() => window.__atlassianFetches);
+    assertCheck(
+      fetches.length === 1
+        && fetches[0].url === 'https://acme.atlassian.net/wiki/api/v2/pages/456?body-format=view&include-labels=true'
+        && fetches[0].options.credentials === 'same-origin',
+      `Confluence fetched wrong REST resource: ${JSON.stringify(fetches)}`,
+    );
+    for (const expected of [
+      '# REST Runbook',
+      '**Labels:** operations, production',
+      '## Recovery steps',
+      '**REST page content**',
+      '| Service | Owner |',
+      'kubectl get pods',
+      '### Carol Example',
+      'Visible page comment.',
+    ]) {
+      assertCheck(markdown.includes(expected), `Confluence REST output missing ${JSON.stringify(expected)}: ${markdown}`);
+    }
+    assertCheck(!markdown.includes('STALE DOM BODY'), 'Confluence REST success mixed stale page DOM into output');
+    assertCompactMetadata(markdown, 'Confluence REST output');
+  } finally {
+    await confluenceApiPage.close();
+  }
+
+  log('✅', 'Jira and Confluence prefer authenticated REST content and use native action bars');
+
   const fixtures = [
     {
       name: 'Notion',
+      extractor: 'Notion',
       url: 'https://workspace.notion.site/project-plan',
       html: `<main role="main"><h1 data-testid="page-title">Project Plan</h1>
         <div data-block-id="block-1"><p>Notion fixture body.</p></div></main>`,
@@ -1718,6 +2039,7 @@ async function runExpandedPlatformChecks(browser, scriptContent) {
     },
     {
       name: 'Microsoft 365',
+      extractor: 'Microsoft 365',
       url: 'https://www.office.com/launch/word?auth=2',
       html: `<input aria-label="Document title" value="Quarterly Plan">
         <div role="document"><h1>Quarterly Plan</h1><p>Office fixture body.</p></div>`,
@@ -1725,6 +2047,7 @@ async function runExpandedPlatformChecks(browser, scriptContent) {
     },
     {
       name: 'Slack',
+      extractor: 'Slack',
       url: 'https://app.slack.com/client/T123/C456',
       html: `<main role="main" data-qa="message_pane">
         <div data-qa="message_container" data-ts="123">
@@ -1736,6 +2059,7 @@ async function runExpandedPlatformChecks(browser, scriptContent) {
     },
     {
       name: 'Discord',
+      extractor: 'Discord',
       url: 'https://discord.com/channels/1/2',
       html: `<main role="main"><ol data-list-id="chat-messages">
         <li id="chat-messages-1"><h3><span class="username">Bob</span></h3>
@@ -1746,7 +2070,9 @@ async function runExpandedPlatformChecks(browser, scriptContent) {
     },
     {
       name: 'Jira',
+      extractor: 'Jira',
       url: 'https://acme.atlassian.net/browse/PROJ-42',
+      beforeLoad: () => { window.fetch = async () => new Response('Unavailable', { status: 503 }); },
       html: `<main id="issue-content"><h1 data-testid="issue.views.issue-base.foundation.summary.heading">Fix production export</h1>
         <div data-testid="issue.views.field.rich-text.description"><p>Jira fixture description.</p></div>
         <dl><dt>Status</dt><dd>In Progress</dd></dl></main>`,
@@ -1754,25 +2080,30 @@ async function runExpandedPlatformChecks(browser, scriptContent) {
     },
     {
       name: 'Confluence',
+      extractor: 'Confluence',
       url: 'https://acme.atlassian.net/wiki/spaces/ENG/pages/123/Runbook',
+      beforeLoad: () => { window.fetch = async () => new Response('Unavailable', { status: 503 }); },
       html: `<main><h1 data-testid="page-title">Operations Runbook</h1>
         <div data-testid="renderer-container"><div class="ak-renderer-document"><p>Confluence fixture body.</p></div></div></main>`,
       expected: ['Operations Runbook', 'Confluence fixture body.'],
     },
     {
       name: 'GitLab',
+      extractor: 'GitLab',
       url: 'https://gitlab.com/acme/project/-/blob/main/src/app.ts',
       html: `<main><div data-testid="blob-content"><pre>export const gitlabFixture = true;</pre></div></main>`,
       expected: ['export const gitlabFixture = true;'],
     },
     {
       name: 'Bitbucket',
+      extractor: 'Bitbucket',
       url: 'https://bitbucket.org/acme/project/src/main/src/app.ts',
       html: `<main><div data-testid="source-code"><pre>export const bitbucketFixture = true;</pre></div></main>`,
       expected: ['export const bitbucketFixture = true;'],
     },
     {
       name: 'Perplexity',
+      extractor: 'Perplexity',
       url: 'https://www.perplexity.ai/search/fixture',
       html: `<main><div data-testid="conversation-turn"><div data-testid="user-query">Perplexity question?</div></div>
         <div data-testid="conversation-turn"><div data-testid="answer"><p>Perplexity fixture answer.</p></div>
@@ -1781,6 +2112,7 @@ async function runExpandedPlatformChecks(browser, scriptContent) {
     },
     {
       name: 'Grok',
+      extractor: 'Grok',
       url: 'https://grok.com/c/fixture',
       html: `<main><div data-testid="conversation-turn"><div data-testid="user-message">Grok question?</div></div>
         <div data-testid="conversation-turn"><div data-testid="assistant-message"><p>Grok fixture answer.</p></div></div></main>`,
@@ -1788,6 +2120,7 @@ async function runExpandedPlatformChecks(browser, scriptContent) {
     },
     {
       name: 'Facebook',
+      extractor: 'Facebook',
       url: 'https://www.facebook.com/acme/posts/12345/',
       html: `<main role="main"><article role="article"><strong><a href="/acme">Alice</a></strong>
         <div data-testid="post_message">Facebook fixture body.</div><div role="toolbar"></div></article></main>`,
@@ -1795,6 +2128,7 @@ async function runExpandedPlatformChecks(browser, scriptContent) {
     },
     {
       name: 'Instagram',
+      extractor: 'Instagram',
       url: 'https://www.instagram.com/p/ABC123/',
       html: `<main><article><header><a href="/alice/">alice</a></header>
         <div data-testid="post-caption">Instagram fixture caption.</div><section></section></article></main>`,
@@ -1802,23 +2136,289 @@ async function runExpandedPlatformChecks(browser, scriptContent) {
     },
     {
       name: 'TikTok',
+      extractor: 'TikTok',
       url: 'https://www.tiktok.com/@alice/video/1234567890',
       html: `<main><article data-e2e="browse-video"><span data-e2e="video-author-uniqueid">alice</span>
         <div data-e2e="browse-video-desc">TikTok fixture caption.</div>
         <div data-e2e="browse-share-group"></div></article></main>`,
       expected: ['TikTok fixture caption.'],
     },
+    {
+      name: 'Gmail',
+      extractor: 'Gmail',
+      url: 'https://mail.google.com/mail/u/0/#inbox/fixture-thread',
+      html: `<main><h2 class="hP">Gmail fixture thread</h2>
+        <div class="adn ads"><span class="gD" name="Alice Example" email="alice@example.com">Alice</span>
+          <span class="g2">to me</span><span class="g3" title="August 8, 2026, 9:00 AM">9:00 AM</span>
+          <div class="a3s aiL"><p>Gmail fixture message.</p></div></div></main>`,
+      expected: ['Gmail fixture message.'],
+    },
+    {
+      name: 'Meta AI',
+      extractor: 'Meta AI',
+      url: 'https://www.meta.ai/chat/fixture',
+      html: `<main><div data-testid="message">
+        <div data-testid="user-message">Meta AI fixture question?</div>
+        <div data-testid="assistant-message"><p>Meta AI fixture answer.</p>
+          <div data-testid="citation"><a href="https://example.com/meta-source">Meta source</a></div>
+        </div></div></main>`,
+      expected: ['Meta AI fixture question?', 'Meta AI fixture answer.', 'Meta source'],
+    },
+    {
+      name: 'ChatGPT',
+      extractor: 'ChatGPT',
+      url: 'https://chatgpt.com/c/fixture-platform',
+      html: `<main><div id="conversation-header-actions"></div>
+        <section data-testid="conversation-turn-1" data-turn="user"><div class="whitespace-pre-wrap">ChatGPT fixture question?</div></section>
+        <section data-testid="conversation-turn-2" data-turn="assistant"><div class="markdown"><p>ChatGPT fixture answer.</p></div></section></main>`,
+      expected: ['ChatGPT fixture question?', 'ChatGPT fixture answer.'],
+    },
+    {
+      name: 'Claude',
+      extractor: 'Claude',
+      url: 'https://claude.ai/chat/fixture-platform',
+      html: `<main><div data-testid="wiggle-controls-actions"></div>
+        <article role="article"><div data-testid="user-message">Claude fixture question?</div></article>
+        <article role="article"><div class="standard-markdown"><p>Claude fixture answer.</p></div></article></main>`,
+      expected: ['Claude fixture question?', 'Claude fixture answer.'],
+    },
+    {
+      name: 'Gemini',
+      extractor: 'Gemini',
+      url: 'https://gemini.google.com/app/fixture-platform',
+      html: `<main><div class="conversation-container">
+        <user-query><p class="query-text-line">Gemini fixture question?</p></user-query>
+        <model-response><div class="markdown markdown-main-panel"><p>Gemini fixture answer.</p></div></model-response>
+        <user-query><p class="query-text-line">Gemini follow-up question?</p></user-query>
+        <model-response><div class="markdown markdown-main-panel"><p>Gemini follow-up answer.</p></div></model-response>
+      </div></main>`,
+      expected: [
+        'Gemini fixture question?', 'Gemini fixture answer.',
+        'Gemini follow-up question?', 'Gemini follow-up answer.',
+      ],
+    },
+    {
+      name: 'X',
+      extractor: 'X (Twitter)',
+      url: 'https://x.com/alice/status/1234567890',
+      html: `<main><article data-testid="tweet"><div data-testid="User-Name"><span><span>Alice Example</span></span><a href="/alice">@alice</a></div>
+        <time datetime="2026-08-08T12:00:00Z">Aug 8</time><div data-testid="tweetText">X fixture post.</div>
+        <div role="group"><button aria-label="12 Likes"></button></div></article></main>`,
+      expected: ['X fixture post.', 'Alice Example'],
+    },
+    {
+      name: 'LeetLLM',
+      extractor: 'LeetLLM',
+      url: 'https://www.leetllm.com/learn/markdown-basics',
+      html: `<main><article data-reader-article><h1>Markdown Basics</h1>
+        <div data-section="Foundations"></div><div data-difficulty="Beginner"></div>
+        <div itemprop="articleBody"><p>LeetLLM lesson fixture body.</p><pre><code>print("hello")</code></pre>
+          <a data-print-reference data-reference-title="Markdown guide" href="https://example.com/markdown-guide">Reference</a></div>
+      </article></main>`,
+      expected: ['LeetLLM lesson fixture body.', 'print("hello")', 'Markdown guide'],
+    },
+    {
+      name: 'WhatsApp',
+      extractor: 'WhatsApp',
+      url: 'https://web.whatsapp.com/',
+      html: `<div id="main"><header><span title="Fixture Chat">Fixture Chat</span><div data-testid="chat-header-actions"></div></header>
+        <div data-testid="msg-container"><span data-testid="msg-author"><span>Alice</span></span><span data-testid="msg-time">09:00</span>
+          <div data-testid="msg-text"><span>WhatsApp fixture message.</span></div></div></div>`,
+      expected: ['Fixture Chat', 'WhatsApp fixture message.'],
+    },
+    {
+      name: 'Google Search',
+      extractor: 'Google Search',
+      url: 'https://www.google.com/search?q=%5Bmarkdown%5D%20%23%20test',
+      afterLoad: () => history.replaceState({}, '', '/search?q=%5Bmarkdown%5D%20%23%20test'),
+      html: `<div id="hdtb-tls"></div><main><div class="MjjYud"><a href="javascript:alert(1)">Unsafe</a><h3><a href="/url?q=https%3A%2F%2Fexample.com%2Fgoogle-result">Google fixture result</a></h3><div class="VwiC3b">Google fixture snippet.</div></div></main>`,
+      expected: ['**Query:** \\[markdown\\] # test', 'Google fixture result', 'Google fixture snippet.', 'https://example.com/google-result'],
+      excluded: ['javascript:', 'google.com/url?'],
+    },
+    {
+      name: 'DuckDuckGo Search',
+      extractor: 'DuckDuckGo Search',
+      url: 'https://duckduckgo.com/?q=markdown',
+      html: `<header id="duckbar"></header><main><article class="result"><h2><a class="result__a" href="https://example.com/ddg-result">DuckDuckGo fixture result</a></h2><p class="result__snippet">DuckDuckGo fixture snippet.</p></article></main>`,
+      expected: ['DuckDuckGo fixture result', 'DuckDuckGo fixture snippet.'],
+    },
+    {
+      name: 'Wikipedia',
+      extractor: 'Wikipedia',
+      url: 'https://en.wikipedia.org/wiki/Markdown',
+      html: `<h1 id="firstHeading">Markdown fixture</h1><div id="p-views"><ul></ul></div><main id="mw-content-text"><p>Wikipedia fixture article body.</p></main>`,
+      expected: ['Wikipedia fixture article body.'],
+    },
+    {
+      name: 'YouTube',
+      extractor: 'YouTube',
+      url: 'https://www.youtube.com/watch?v=fixture123',
+      html: `<div id="top-level-buttons-computed"></div><main><h1 class="title">YouTube fixture video</h1><div id="description"><yt-attributed-string>YouTube fixture description.</yt-attributed-string></div></main>`,
+      expected: ['YouTube fixture'],
+    },
+    {
+      name: 'Reddit',
+      extractor: 'Reddit',
+      url: 'https://www.reddit.com/r/markdown/comments/abc123/fixture/',
+      html: `<main><shreddit-post data-post-id="t3_abc123"><div slot="post-actions"></div><h1>Reddit fixture title</h1><div slot="text-body">Reddit fixture body.</div></shreddit-post></main>`,
+      expected: ['Reddit fixture body.'],
+    },
+    {
+      name: 'Bing Search',
+      extractor: 'Bing Search',
+      url: 'https://www.bing.com/search?q=markdown',
+      html: `<header id="b_header"><div class="b_scopebar"></div></header><main><li class="b_algo"><a href="javascript:alert(1)">Unsafe</a><h2><a href="/ck/a?u=a1aHR0cHM6Ly9leGFtcGxlLmNvbS9iaW5nLXJlc3VsdA==">Bing fixture result</a></h2><div class="b_caption"><p>Bing fixture snippet.</p></div></li></main>`,
+      expected: ['Bing fixture result', 'Bing fixture snippet.', 'https://example.com/bing-result'],
+      excluded: ['javascript:', 'bing.com/ck/a?'],
+    },
+    {
+      name: 'Yahoo Search',
+      extractor: 'Yahoo Search',
+      url: 'https://search.yahoo.com/search?p=markdown',
+      html: `<header id="header"></header><main id="web"><li class="algo"><h3><a href="https://example.com/yahoo-result">Yahoo fixture result</a></h3><p class="compText aAbs">Yahoo fixture snippet.</p></li></main>`,
+      expected: ['Yahoo fixture result', 'Yahoo fixture snippet.'],
+    },
+    {
+      name: 'Yandex Search',
+      extractor: 'Yandex Search',
+      url: 'https://yandex.com/search?text=markdown',
+      html: `<header class="SearchHeader"></header><main id="search-result"><article class="serp-item"><h2><a href="https://example.com/yandex-result">Yandex fixture result</a></h2><p class="OrganicTextContentSpan">Yandex fixture snippet.</p></article></main>`,
+      expected: ['Yandex fixture result', 'Yandex fixture snippet.'],
+    },
+    {
+      name: 'Netflix',
+      extractor: 'Netflix',
+      url: 'https://www.netflix.com/title/80000000',
+      html: `<main><h1 data-uia="video-title">Netflix fixture title</h1><div data-uia="video-description">Netflix fixture synopsis.</div><div data-uia="video-year">2026</div></main>`,
+      expected: ['Netflix fixture title', 'Netflix fixture synopsis.'],
+    },
+    {
+      name: 'Baidu Search',
+      extractor: 'Baidu Search',
+      url: 'https://www.baidu.com/s?wd=markdown',
+      html: `<header id="form"></header><main id="content_left"><div class="result"><h3><a href="https://example.com/baidu-result">Baidu fixture result</a></h3><p class="c-abstract">Baidu fixture snippet.</p></div></main>`,
+      expected: ['Baidu fixture result', 'Baidu fixture snippet.'],
+    },
+    {
+      name: 'Pinterest',
+      extractor: 'Pinterest',
+      url: 'https://www.pinterest.com/pin/123456789/',
+      html: `<script type="application/ld+json">{"id":"123456789","image":"javascript:alert(1)"}</script><main><div data-test-id="pin"><div data-test-id="pin-action-buttons"></div><h1 data-test-id="pin-title">Pinterest fixture pin</h1><div data-test-id="pin-description">Pinterest fixture description.</div><a href="https://example.com/pin-image"><img alt="Fixture image" src="https://example.com/pin-image.png"></a><div data-test-id="comment"><span data-test-id="comment-author">Alice</span><p data-test-id="comment-text">Pinterest fixture comment.</p></div></div></main>`,
+      expected: ['Pinterest fixture pin', 'Pinterest fixture description.', 'Pinterest fixture comment.'],
+      excluded: ['javascript:'],
+    },
+    {
+      name: 'Temu',
+      extractor: 'Temu',
+      url: 'https://www.temu.com/goods.html?goods_id=123456',
+      html: `<main><h1 data-testid="goods-title">Temu fixture product</h1><div data-testid="price">$12.99</div><div data-testid="description">Temu fixture description.</div><div data-testid="seller-name">Fixture Store</div></main>`,
+      expected: ['Temu fixture product', 'Temu fixture description.', '$12.99'],
+    },
+    {
+      name: 'Weather.com',
+      extractor: 'Weather.com',
+      url: 'https://www.weather.com/weather/today/l/New+York+NY',
+      html: `<main><h1 data-testid="LocationTitle">New York, NY</h1><div data-testid="CurrentConditions"><span data-testid="TemperatureValue">72°</span><span data-testid="wxPhrase">Sunny</span></div><div data-testid="FeelsLike">Feels Like 72°</div></main>`,
+      expected: ['New York, NY Weather', '72°', 'Sunny'],
+    },
+    {
+      name: 'Twitch',
+      extractor: 'Twitch',
+      url: 'https://www.twitch.tv/videos/123456789',
+      html: `<main><h1 data-a-target="video-title">Twitch fixture video</h1><a data-a-target="video-info-channel-name" href="https://www.twitch.tv/alice">Alice</a><div data-a-target="video-description">Twitch fixture description.</div></main>`,
+      expected: ['Twitch fixture video', 'Twitch fixture description.'],
+    },
+    {
+      name: 'VK',
+      extractor: 'VK',
+      url: 'https://vk.com/wall-1_2',
+      html: `<main><article class="wall_post" data-post-id="-1_2"><div class="post_actions"></div><a class="post_author_link" href="/id1">Alice</a><div class="wall_post_text">VK fixture post.</div><time datetime="2026-08-08">Aug 8</time></article></main>`,
+      expected: ['VK fixture post.', 'Alice'],
+    },
+    {
+      name: 'Globo',
+      extractor: 'Globo',
+      url: 'https://www.globo.com/news/fixture-story',
+      html: `<main><article><header><h1>Globo fixture article</h1></header><div class="mc-article-body"><p>Globo fixture article body.</p></div></article></main>`,
+      expected: ['Globo fixture article', 'Globo fixture article body.'],
+    },
+    {
+      name: 'FOX',
+      extractor: 'FOX',
+      url: 'https://www.fox.com/shows/fixture-show',
+      html: `<main><h1>FOX fixture show</h1><div data-testid="description">FOX fixture description.</div></main>`,
+      expected: ['FOX fixture show', 'FOX fixture description.'],
+    },
+    {
+      name: 'Fox News',
+      extractor: 'News (Generic)',
+      url: 'https://www.foxnews.com/politics/fixture-story',
+      html: `<main><article><header><h1>Fox News fixture story</h1></header><p>Fox News fixture body.</p></article></main>`,
+      expected: ['Fox News fixture story', 'Fox News fixture body.'],
+    },
+    {
+      name: 'BBC',
+      extractor: 'News (Generic)',
+      url: 'https://www.bbc.com/news/articles/fixture-story',
+      html: `<main><article><header><h1>BBC fixture story</h1></header><p>BBC fixture body.</p></article></main>`,
+      expected: ['BBC fixture story', 'BBC fixture body.'],
+    },
+    {
+      name: 'GitHub',
+      extractor: 'GitHub',
+      url: 'https://github.com/bvolpato/copy-as-markdown',
+      html: `<main><h1>copy-as-markdown</h1><div id="readme"><article class="markdown-body"><p>GitHub fixture README.</p></article></div></main>`,
+      expected: ['GitHub fixture README.'],
+    },
+    {
+      name: 'Brave Search',
+      extractor: 'Brave Search',
+      url: 'https://search.brave.com/search?q=markdown',
+      html: `<header id="searchbox"></header><main><article data-testid="search-result"><h3><a href="https://example.com/brave-result">Brave fixture result</a></h3><p data-testid="result-description">Brave fixture snippet.</p></article></main>`,
+      expected: ['Brave fixture result', 'Brave fixture snippet.'],
+    },
+    {
+      name: 'Booking.com',
+      extractor: 'Booking.com',
+      url: 'https://www.booking.com/hotel/us/fixture-hotel.html',
+      html: `<main><div data-testid="property-header"><h1>Booking fixture hotel</h1><div data-testid="address">New York</div></div><div data-testid="property-description">Booking fixture description.</div><div data-testid="review-score">9.1</div></main>`,
+      expected: ['Booking fixture hotel', 'Booking fixture description.', '9.1'],
+    },
   ];
+
+  for (const [name, extractor] of REQUESTED_FIRST_CLASS_SITES) {
+    const fixture = fixtures.find((candidate) => candidate.name === name);
+    assertCheck(fixture, `Missing requested first-class fixture for ${name}`);
+    assertCheck(
+      fixture.extractor === extractor,
+      `${name} fixture expects ${JSON.stringify(fixture.extractor)} instead of ${JSON.stringify(extractor)}`,
+    );
+  }
+
+  const expectedAnchored = new Set([
+    'Google Search', 'DuckDuckGo Search', 'Bing Search', 'Yahoo Search', 'Yandex Search',
+    'Netflix', 'Baidu Search', 'Temu', 'Weather.com', 'Twitch', 'Brave Search', 'Booking.com',
+  ]);
 
   for (const fixture of fixtures) {
     const page = await createFixturePage(browser, scriptContent, {
       url: fixture.url,
       html: `<!doctype html><html><head><title>${fixture.name} fixture</title></head><body>${fixture.html}</body></html>`,
+      beforeLoad: fixture.beforeLoad,
+      afterLoad: fixture.afterLoad,
     });
     try {
+      await assertRouteIdentity(page, fixture.extractor, fixture.name);
+      if (expectedAnchored.has(fixture.name)) {
+        const floating = await page.$('.cam-floating-wrapper');
+        assertCheck(!floating, `${fixture.name} copy control did not use its native anchor`);
+      }
       const markdown = await clickAndCapture(page);
       for (const value of fixture.expected) {
         assertCheck(markdown.includes(value), `${fixture.name} output missing ${JSON.stringify(value)}: ${markdown}`);
+      }
+      for (const value of fixture.excluded || []) {
+        assertCheck(!markdown.includes(value), `${fixture.name} output unexpectedly included ${JSON.stringify(value)}: ${markdown}`);
       }
       assertCompactMetadata(markdown, `${fixture.name} output`);
       if (fixture.name === 'Grok') {
@@ -1833,7 +2433,26 @@ async function runExpandedPlatformChecks(browser, scriptContent) {
     }
   }
 
-  log('✅', 'Fifteen new platform extractors route and capture representative content');
+  const nonContentRoutes = [
+    ['Meta AI settings', 'https://www.meta.ai/settings'],
+    ['X settings', 'https://x.com/settings'],
+    ['Facebook settings', 'https://www.facebook.com/settings'],
+    ['VK messages', 'https://vk.com/im'],
+  ];
+  for (const [name, url] of nonContentRoutes) {
+    const page = await createFixturePage(browser, scriptContent, {
+      url,
+      html: `<!doctype html><html><head><title>${name}</title></head><body><main>Settings fixture</main></body></html>`,
+    });
+    try {
+      await assertRouteIdentity(page, 'Fallback', name);
+    } finally {
+      await page.close();
+    }
+  }
+
+  log('✅', `${REQUESTED_FIRST_CLASS_SITES.size} requested sites route through representative content fixtures`);
+  log('✅', 'Non-content settings and messaging routes stay on generic fallback');
   console.log('');
 }
 
@@ -1875,7 +2494,7 @@ async function runProductionUiChecks(browser, scriptContent) {
       cardLogosLoaded: [...document.querySelectorAll('.install-card .install-logo')]
         .every((logo) => logo.naturalWidth > 0),
       siteCards: document.querySelectorAll('.site-card').length,
-      purposeBuiltCount: document.body.textContent.includes('44 purpose-built'),
+      purposeBuiltCount: document.body.textContent.includes('61 purpose-built'),
     }));
     assertCheck(controls.injected === 0, 'page opt-out still injected a Copy as Markdown button');
     assertCheck(controls.demo === 1, 'page opt-out removed the site-owned demo control');
@@ -1891,7 +2510,7 @@ async function runProductionUiChecks(browser, scriptContent) {
       `install choices are not equal first-class actions: ${JSON.stringify(controls.installChoices)}`,
     );
     assertCheck(controls.cardLogosLoaded, 'install card logos did not load');
-    assertCheck(controls.siteCards === 45, `landing page rendered ${controls.siteCards} site cards instead of 45`);
+    assertCheck(controls.siteCards === 62, `landing page rendered ${controls.siteCards} site cards instead of 62`);
     assertCheck(controls.purposeBuiltCount, 'landing page purpose-built extractor count is stale');
     await landingPage.emulateMediaType('print');
     const printDemoDisplay = await landingPage.$eval('.live-demo-wrapper', (element) => getComputedStyle(element).display);

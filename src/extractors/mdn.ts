@@ -13,6 +13,7 @@ register({
     '*://developer.mozilla.org/*/docs/*',
   ],
 
+  buttonPlacement: 'anchor',
   anchor: {
     selector: '.document-toc-container, .article-actions-container, .on-github',
     position: 'before',
