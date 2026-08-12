@@ -13,6 +13,7 @@ export function register(config: ExtractorConfig): void {
     matches: config.matches || [],
     regex: config.regex || null,
     pathnameRegex: config.pathnameRegex || null,
+    detect: config.detect || null,
     options: config.options || [],
     extract: config.extract,
     buttonPlacement: config.buttonPlacement || 'floating',
@@ -34,6 +35,13 @@ export function findExtensionPageButtonCandidate(url?: string): Extractor | null
   return extractors.find((ext) =>
     ext.extensionPageButton && matchesExtractorUrl(ext, href),
   ) || null;
+}
+
+export function findDetectedExtractor(): Extractor | null {
+  for (const ext of extractors) {
+    if (ext.detect?.()) return ext;
+  }
+  return null;
 }
 
 export function getAll(): Extractor[] {

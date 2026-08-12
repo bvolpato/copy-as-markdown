@@ -34,6 +34,40 @@ type JiraApiExtraction = {
   contentSource: string;
 };
 
+const JIRA_CORE_FIELD_NAMES: Record<string, string> = {
+  issuetype: 'Issue Type',
+  status: 'Status',
+  priority: 'Priority',
+  assignee: 'Assignee',
+  reporter: 'Reporter',
+  resolution: 'Resolution',
+  created: 'Created',
+  updated: 'Updated',
+  resolutiondate: 'Resolved',
+  duedate: 'Due Date',
+  labels: 'Labels',
+  components: 'Components',
+  fixVersions: 'Fix Versions',
+  versions: 'Affects Versions',
+  affectsVersions: 'Affects Versions',
+  environment: 'Environment',
+  parent: 'Parent',
+  security: 'Security Level',
+};
+
+const JIRA_NOISE_FIELD_NAMES = new Set([
+  'attachment count',
+  'development',
+  'enable automatic patch review',
+  'global rank',
+  'last public comment date',
+  'last viewed',
+  'rank',
+  'rank (obsolete)',
+  'work ratio',
+]);
+const JIRA_OPAQUE_FIELD_VALUE = /(?:\b(?:cachedValue|devSummaryJson|summaryBean)=|\b[A-Za-z_$][\w.$]*Bean@[\da-f]+\b)/i;
+
 register({
   name: 'Jira',
   matches: [
@@ -226,9 +260,10 @@ function extractApiFields(
   Object.entries(fields).forEach(([fieldId, rawValue]) => {
     if (excluded.has(fieldId) || rawValue === null || rawValue === undefined) return;
     const rawName = stringValue(names[fieldId]) || jiraFieldName(fieldId);
-    if (!rawName) return;
+    if (!shouldIncludeJiraField(fieldId, rawName, rawValue)) return;
     const renderedValue = renderedFields[fieldId];
     const value = formatJiraField(renderedValue) || formatJiraField(rawValue);
+    if (JIRA_OPAQUE_FIELD_VALUE.test(value)) return;
     addField(values, rawName, value);
   });
 
@@ -236,24 +271,23 @@ function extractApiFields(
 }
 
 function jiraFieldName(fieldId: string): string {
-  const known: Record<string, string> = {
-    issuetype: 'Issue Type',
-    status: 'Status',
-    priority: 'Priority',
-    assignee: 'Assignee',
-    reporter: 'Reporter',
-    resolution: 'Resolution',
-    created: 'Created',
-    updated: 'Updated',
-    resolutiondate: 'Resolved',
-    labels: 'Labels',
-    components: 'Components',
-    fixVersions: 'Fix Versions',
-    affectsVersions: 'Affects Versions',
-    environment: 'Environment',
-    parent: 'Parent',
-  };
-  return known[fieldId] || '';
+  return isJiraCoreField(fieldId) ? JIRA_CORE_FIELD_NAMES[fieldId] : '';
+}
+
+function shouldIncludeJiraField(fieldId: string, name: string, value: unknown): boolean {
+  if (isJiraCoreField(fieldId)) return true;
+  if (
+    !fieldId.startsWith('customfield_')
+    || !name
+    || JIRA_NOISE_FIELD_NAMES.has(name.trim().toLowerCase())
+  ) {
+    return false;
+  }
+  return !JIRA_OPAQUE_FIELD_VALUE.test(typeof value === 'string' ? value : '');
+}
+
+function isJiraCoreField(fieldId: string): boolean {
+  return Object.prototype.hasOwnProperty.call(JIRA_CORE_FIELD_NAMES, fieldId);
 }
 
 function formatJiraField(value: unknown): string {

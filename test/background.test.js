@@ -6,13 +6,14 @@ import { fileURLToPath } from 'node:url';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const backgroundCode = fs.readFileSync(path.join(ROOT, 'dist', 'firefox', 'background.js'), 'utf8');
-const DATADOG_AUTOMATIC_MATCHES = [
+const AUTOMATIC_PAGE_BUTTON_MATCHES = [
   '*://*.datadoghq.com/dashboard/*',
   '*://*.datadoghq.eu/dashboard/*',
   '*://*.ddog-gov.com/dashboard/*',
   '*://*.datadoghq.com/notebook/*',
   '*://*.datadoghq.eu/notebook/*',
   '*://*.ddog-gov.com/notebook/*',
+  '*://wandb.ai/*/*/runs/*',
 ];
 
 function createAction() {
@@ -189,7 +190,7 @@ async function testRestrictedPageFeedback() {
   ));
 }
 
-function testDatadogAutomaticContentScripts() {
+function testAutomaticContentScripts() {
   for (const target of ['chrome', 'firefox']) {
     const manifest = JSON.parse(
       fs.readFileSync(path.join(ROOT, 'dist', target, 'manifest.json'), 'utf8'),
@@ -197,11 +198,11 @@ function testDatadogAutomaticContentScripts() {
     assert.deepEqual(
       manifest.content_scripts,
       [{
-        matches: DATADOG_AUTOMATIC_MATCHES,
+        matches: AUTOMATIC_PAGE_BUTTON_MATCHES,
         js: ['content.js'],
         run_at: 'document_idle',
       }],
-      `${target} manifest must auto-inject only on Datadog dashboards and notebooks`,
+      `${target} manifest automatic page-button routes changed unexpectedly`,
     );
   }
 }
@@ -209,5 +210,5 @@ function testDatadogAutomaticContentScripts() {
 await testFirefoxCallbackFlow();
 await testChromePromiseInjectionFlow();
 await testRestrictedPageFeedback();
-testDatadogAutomaticContentScripts();
+testAutomaticContentScripts();
 console.log('✅ Background click, injection, and toolbar feedback checks passed');

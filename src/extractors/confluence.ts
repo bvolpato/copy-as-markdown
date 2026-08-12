@@ -34,7 +34,7 @@ register({
   name: 'Confluence',
   matches: ['*://*.atlassian.net/wiki/*'],
   regex: CUSTOM_CONFLUENCE_URL,
-  pathnameRegex: /^(?:\/wiki\/(?:spaces\/[^/]+\/pages\/\d+|pages\/viewpage\.action|x\/[^/]+)|\/(?:display\/[^/]+\/|pages\/viewpage\.action)|\/confluence\/(?:display\/[^/]+\/|pages\/viewpage\.action))/i,
+  pathnameRegex: /^(?:\/wiki\/(?:spaces\/[^/]+\/(?:pages\/\d+|overview)|pages\/viewpage\.action|x\/[^/]+)|\/(?:display\/[^/]+\/|pages\/viewpage\.action)|\/confluence\/(?:display\/[^/]+\/|pages\/viewpage\.action))/i,
   buttonPlacement: 'anchor',
   anchor: {
     selector: [
@@ -340,6 +340,7 @@ function extractLabels(): string[] {
 function getPageId(): string {
   const url = new URL(window.location.href);
   return url.searchParams.get('pageId')
+    || url.searchParams.get('homepageId')
     || window.location.pathname.match(/\/pages\/(\d+)/)?.[1]
     || '';
 }

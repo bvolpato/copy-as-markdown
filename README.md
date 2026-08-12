@@ -31,7 +31,7 @@ You're chatting with ChatGPT, Claude, or Gemini. You want to share a web page fo
 
 **Copy as Markdown** allows you to extract content with a single click. Depending on your installation method, you interact with it in two ways:
 
-- **Browser Extension:** Click the "Copy as Markdown" icon in your browser toolbar. Datadog dashboards and notebooks also get an inline button through narrowly scoped site access; extraction and clipboard writes still run only after a click.
+- **Browser Extension:** Click the "Copy as Markdown" icon in your browser toolbar. Datadog dashboards, Datadog notebooks, and W&B runs also get a page button through narrowly scoped site access; extraction and clipboard writes still run only after a click.
 - **Userscript:** A context-aware button is added to supported websites (e.g., a draggable floating button, or inline buttons on Wikipedia, Google Docs, Atlassian, and Datadog pages). Floating positions persist per site.
 
 One click, and the page's content lands in your clipboard as clean, structured Markdown — headers, tables, links, code blocks, metadata — all preserved. Paste it into your LLM conversation. Done.
@@ -97,7 +97,7 @@ Adding or removing marker updates injected UI dynamically. Extension toolbar act
 ## Supported Sites
 
 **Interaction Model:**
-- **Browser Extension:** Click the toolbar icon on any supported site, or the inline button on Datadog dashboards and notebooks.
+- **Browser Extension:** Click the toolbar icon on any supported site, or the page button on Datadog dashboards, Datadog notebooks, and W&B runs.
 - **Userscript:** Clicks are handled via injected buttons (inline where a site integration provides a reviewed anchor, floating otherwise). Drag floating buttons out of the way without disabling them; their positions persist per site.
 
 | Site | What's Extracted |
@@ -108,6 +108,7 @@ Adding or removing marker updates injected UI dynamically. Extension toolbar act
 | **Google Slides** | Choose current slide or full deck; preserves order, titles, text, links, and speaker notes when available |
 | **Gmail** | Full authenticated thread from Print all view — subject, participants, message headers, bodies, links, images, and attachments |
 | **Notion** | Pages and databases with properties, rich blocks, tables, code, and rendered rows |
+| **Sphinx / Read the Docs** | Content-detected documentation on hosted or custom domains, with navigation stripped and code languages preserved |
 | **Microsoft 365** | Word, Excel, and PowerPoint web content through structured live-page views |
 | **Slack** | Loaded channel or thread messages with authors, timestamps, reactions, replies, and attachments |
 | **Discord** | Loaded channel messages and threads with authors, timestamps, replies, reactions, and attachments |
@@ -129,6 +130,8 @@ Adding or removing marker updates injected UI dynamically. Extension toolbar act
 | **Datadog dashboards** | Dashboard title, timeframe, template variables, grouped widget values, top lists, and visible chart annotations |
 | **Datadog notebooks** | Notebook metadata, narrative headings and rich text, ordered visualization cells, types, no-data states, and visible chart annotations |
 | **Datadog Documentation** | Authored `.md` source when available; cleaned rendered documentation DOM otherwise |
+| **Weights & Biases** | Run metadata, configuration, numeric metric summaries, sparklines, and sampled history tables through W&B GraphQL |
+| **MLflow** | Self-hosted run metadata plus chart-mode comparisons for visible runs and loaded metrics, with paginated metric-history tables through same-origin APIs |
 | **GitHub** | Issues and PRs, repository/directory listings with READMEs, full code-file contents, and canonical patches with commit/file metadata |
 | **GitLab** | Repositories, trees, code files, issues, merge requests, comments, and visible diffs |
 | **Bitbucket** | Repositories, source files, pull requests, issues, comments, and visible diffs |
@@ -159,6 +162,8 @@ Adding or removing marker updates injected UI dynamically. Extension toolbar act
 | **News sites** | Fox News, CNN, BBC, NYT, Reuters, and 20+ others — article body, author, date; paywall detection |
 
 Every extractor is purpose-built to separate **signal from noise**: no ads, no navigation menus, no cookie banners, no related-articles sidebars. Just the content that matters.
+
+W&B returns up to 500 sampled history rows per run through its browser GraphQL API. MLflow run history fetches are paginated up to 10,000 points per metric. MLflow chart comparisons include up to 10 visible runs and 50 loaded run-metric series, fetching up to 2,500 points per series. Both integrations include full-series statistics, then evenly sample Markdown history rows when needed to keep clipboard output bounded. W&B Server and arbitrary self-hosted MLflow deployments work through userscript content detection or extension toolbar; their active browser session must permit same-origin API access.
 
 If an extractor is not explicitly opted into inline placement (for userscript builds), the button stays in the bottom-right corner. If an inline anchor is enabled but the selector is missing (for example after a site redesign), the button also falls back to the bottom-right floating button.
 

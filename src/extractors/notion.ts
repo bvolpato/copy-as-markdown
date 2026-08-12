@@ -28,13 +28,14 @@ register({
     '*://*.notion.so/*',
   ],
   pathnameRegex: NOTION_PAGE_PATH,
+  detect: detectRenderedNotionPage,
   extract: extractNotion,
 });
 
 register({
   name: 'Notion',
   matches: ['*://*.notion.site/*'],
-  pathnameRegex: /^\/(?!$).+/,
+  pathnameRegex: /^\/(?!$|(?:login|settings|signup|search|api|_next)(?:\/|$)).+/i,
   extract: extractNotion,
 });
 
@@ -86,7 +87,8 @@ async function extractNotion(): Promise<string> {
     const propertyMarkdown = propertiesToMarkdown(properties);
     if (propertyMarkdown) parts.push(propertyMarkdown);
 
-    const pageBody = stripDuplicateTitle(Markdown.elementToMarkdown(clone), title);
+    const pageBody = stripDuplicateTitle(Markdown.elementToMarkdown(clone), title)
+      .replace(/\[([ x])\]\s+/g, '[$1] ');
     if (pageBody) parts.push(pageBody);
     if (database.markdown) parts.push(database.markdown);
 
@@ -120,6 +122,13 @@ async function extractNotion(): Promise<string> {
       return Markdown.buildPageMarkdown(metadata, limitMarkdown(parts.join('\n\n')).markdown);
     }
     return Markdown.buildPageMarkdown(metadata, bounded.markdown);
+}
+
+function detectRenderedNotionPage(): boolean {
+  if (document.querySelector('.notion-page-content [data-block-id]')) return true;
+  const siteName = document.querySelector<HTMLMetaElement>('meta[property="og:site_name"]')?.content || '';
+  return /^Notion$/i.test(siteName)
+    && Boolean(document.querySelector('[data-testid="page-content"] [data-block-id]'));
 }
 
 function getTitle(): string {
@@ -348,7 +357,11 @@ function removeNotionNoise(root: Element): void {
   ].join(', ')).forEach((element) => element.remove());
   root.querySelectorAll<HTMLElement>('button').forEach((button) => {
     const label = normalize(`${button.textContent || ''} ${button.getAttribute('aria-label') || ''}`);
-    if (!button.textContent?.trim() || /(?:menu|comment|share|more actions|close|delete|duplicate)/i.test(label)) {
+    if (
+      !button.textContent?.trim()
+      || /(?:menu|comment|share|more actions|close|delete|duplicate)/i.test(label)
+      || /^(?:load|show) more$/i.test(label)
+    ) {
       button.remove();
     }
   });
@@ -381,7 +394,7 @@ function normalize(value: string): string {
 }
 
 function metadataValue(value: string): string {
-  return JSON.stringify(normalize(value));
+  return normalize(value);
 }
 
 function escapeInline(value: string): string {

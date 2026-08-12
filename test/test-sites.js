@@ -132,6 +132,8 @@ const SITES = [
 ];
 
 const REQUESTED_FIRST_CLASS_SITES = new Map([
+  ['Notion', 'Notion'],
+  ['Sphinx / Read the Docs', 'Sphinx / Read the Docs'],
   ['Gmail', 'Gmail'],
   ['Grok', 'Grok'],
   ['Meta AI', 'Meta AI'],
@@ -167,6 +169,8 @@ const REQUESTED_FIRST_CLASS_SITES = new Map([
   ['GitHub', 'GitHub'],
   ['Brave Search', 'Brave Search'],
   ['Booking.com', 'Booking.com'],
+  ['Weights & Biases', 'Weights & Biases'],
+  ['MLflow', 'MLflow'],
 ]);
 
 // ----------------------------------------------------------------
@@ -182,6 +186,7 @@ const COLORS = {
   dim: '\x1b[2m',
   bold: '\x1b[1m',
 };
+const FIXTURE_TIMEOUT = 8000;
 
 function log(icon, msg) {
   console.log(`  ${icon}  ${msg}`);
@@ -215,6 +220,15 @@ function assertCompactMetadata(markdown, context) {
   assertCheck(noisy.length === 0, `${context} leaked noisy metadata: ${noisy.join(', ')}`);
 }
 
+function assertBoundedMarkdown(markdown, context) {
+  assertCheck(markdown.length <= 120_000, `${context} exceeded 120000 chars: ${markdown.length}`);
+  assertCheck(markdown.includes('*[Content truncated for agent context.]*'), `${context} did not emit truncation marker`);
+  assertCheck((markdown.match(/^---$/gm) || []).length === 2, `${context} corrupted frontmatter fences`);
+  const keys = frontmatterKeys(markdown);
+  assertCheck(keys.includes('title') && keys.includes('url'), `${context} lost title/url frontmatter: ${keys.join(', ')}`);
+  assertCheck(markdown.startsWith('---\n') && markdown.includes('\n---\n'), `${context} lost frontmatter boundaries`);
+}
+
 function boxesOverlap(a, b) {
   return a.left < b.right && a.right > b.left && a.top < b.bottom && a.bottom > b.top;
 }
@@ -226,6 +240,7 @@ async function createFixturePage(browser, scriptContent, {
   beforeLoad,
   afterLoad,
   waitForButton = true,
+  context = url,
 }) {
   const page = await browser.newPage();
   await page.setViewport({ width: 1280, height: 800 });
@@ -250,7 +265,14 @@ async function createFixturePage(browser, scriptContent, {
   await page.goto(url, { waitUntil: 'domcontentloaded' });
   if (afterLoad) await page.evaluate(afterLoad);
   if (!csp) await page.addScriptTag({ content: scriptContent });
-  if (waitForButton) await page.waitForSelector('#cam-copy-btn', { timeout: 4000 });
+  if (waitForButton) {
+    try {
+      await page.waitForSelector('#cam-copy-btn', { timeout: FIXTURE_TIMEOUT });
+    } catch (error) {
+      await page.close();
+      throw new Error(`${context} did not render Copy as Markdown button`, { cause: error });
+    }
+  }
   return page;
 }
 
@@ -276,26 +298,30 @@ async function prepareClipboardCapture(page) {
   });
 }
 
-async function clickAndCapture(page) {
+async function clickAndCapture(page, context = 'fixture') {
   await prepareClipboardCapture(page);
   await page.evaluate(() => document.querySelector('#cam-copy-btn').click());
-  await page.waitForFunction(() => window.__camCapturedMarkdown.length > 0, { timeout: 4000 });
+  try {
+    await page.waitForFunction(() => window.__camCapturedMarkdown.length > 0, { timeout: FIXTURE_TIMEOUT });
+  } catch (error) {
+    throw new Error(`${context} did not copy Markdown`, { cause: error });
+  }
   return page.evaluate(() => window.__camCapturedMarkdown);
 }
 
 async function clickAndCaptureWithPointer(page) {
   await prepareClipboardCapture(page);
   await page.click('#cam-copy-btn');
-  await page.waitForFunction(() => window.__camCapturedMarkdown.length > 0, { timeout: 4000 });
+  await page.waitForFunction(() => window.__camCapturedMarkdown.length > 0, { timeout: FIXTURE_TIMEOUT });
   return page.evaluate(() => window.__camCapturedMarkdown);
 }
 
 async function chooseAndCapture(page, optionId) {
   await prepareClipboardCapture(page);
   await page.click('#cam-copy-btn');
-  await page.waitForSelector(`#cam-option-dialog [data-option-id="${optionId}"]`, { timeout: 4000 });
+  await page.waitForSelector(`#cam-option-dialog [data-option-id="${optionId}"]`, { timeout: FIXTURE_TIMEOUT });
   await page.click(`#cam-option-dialog [data-option-id="${optionId}"]`);
-  await page.waitForFunction(() => window.__camCapturedMarkdown.length > 0, { timeout: 4000 });
+  await page.waitForFunction(() => window.__camCapturedMarkdown.length > 0, { timeout: FIXTURE_TIMEOUT });
   return page.evaluate(() => window.__camCapturedMarkdown);
 }
 
@@ -1481,6 +1507,7 @@ DD_SITE=datadoghq.com
     html: `<!doctype html><html><head>
       <title>DOM Fallback | Datadog Documentation</title>
       <link rel="canonical" href="https://docs.datadoghq.com/example/no-markdown/">
+      <script src="/_static/documentation_options.js"></script>
     </head><body><div class="mainContent-wrapper"><div id="mainContent">
       <div id="breadcrumbs">NOISE_BREADCRUMBS</div>
       <h1 id="pagetitle">DOM Fallback</h1>
@@ -1501,6 +1528,47 @@ DD_SITE=datadoghq.com
     log('✅', 'Datadog Documentation falls back to cleaned rendered DOM');
   } finally {
     await datadogDocsFallbackPage.close();
+  }
+
+  const linkedinProfilePage = await createFixturePage(browser, scriptContent, {
+    url: 'https://www.linkedin.com/in/bvolpato/',
+    html: `<!doctype html><html><head><title>Bruno Volpato | LinkedIn</title>
+      <meta property="og:description" content="Distributed systems engineer. View Bruno Volpato's profile on LinkedIn, a professional community.">
+    </head><body><main role="main">
+      <section data-view-name="profile-card"><h1>Bruno Volpato</h1>
+        <div data-generated-suggestion-target="headline">Staff Software Engineer</div>
+        <div class="pv-text-details__left-panel"><span class="text-body-small inline">New York, United States</span></div>
+        <button>Edit profile</button></section>
+      <section><div id="about"></div><h2>About</h2><div>Building high-throughput distributed systems.</div><button>see more</button></section>
+      <section><h2>Experience</h2><ul><li><strong>Staff Software Engineer</strong><div>Datadog</div><div>2024 – Present</div></li></ul>
+        <a href="/in/bvolpato/details/experience/">Show all experience</a></section>
+      <section><h2>Education</h2><ul><li><strong>North Carolina State University</strong><div>Computer Science</div></li></ul></section>
+    </main></body></html>`,
+    context: 'LinkedIn profile',
+  });
+  try {
+    await assertRouteIdentity(linkedinProfilePage, 'LinkedIn', 'LinkedIn profile fixture');
+    const markdown = await clickAndCapture(linkedinProfilePage, 'LinkedIn profile');
+    for (const expected of [
+      '# Bruno Volpato',
+      '**Staff Software Engineer**',
+      'New York, United States',
+      '## About',
+      'Building high-throughput distributed systems.',
+      '## Experience',
+      'Datadog',
+      '## Education',
+      'North Carolina State University',
+    ]) {
+      assertCheck(markdown.includes(expected), `LinkedIn profile output missing ${JSON.stringify(expected)}: ${markdown}`);
+    }
+    for (const excluded of ['Edit profile', 'Show all experience', '# Bruno Volpato | LinkedIn']) {
+      assertCheck(!markdown.includes(excluded), `LinkedIn profile output leaked ${JSON.stringify(excluded)}: ${markdown}`);
+    }
+    assertCompactMetadata(markdown, 'LinkedIn profile output');
+    log('✅', 'LinkedIn profiles survive class-name changes through semantic sections and metadata fallbacks');
+  } finally {
+    await linkedinProfilePage.close();
   }
 
   const overlayFixtures = [
@@ -1762,6 +1830,9 @@ DD_SITE=datadoghq.com
 async function runExpandedPlatformChecks(browser, scriptContent) {
   console.log(`${COLORS.cyan}● Expanded platform extractor guards${COLORS.reset}`);
 
+  await runSearchAndLinkedInChecks(browser, scriptContent);
+  await runMetricPlatformChecks(browser, scriptContent);
+
   const sheetsPage = await createFixturePage(browser, scriptContent, {
     url: 'https://docs.google.com/spreadsheets/d/sheet-fixture/edit?gid=42#gid=42',
     beforeLoad: () => {
@@ -1866,6 +1937,10 @@ async function runExpandedPlatformChecks(browser, scriptContent) {
             status: 'Status',
             assignee: 'Assignee',
             customfield_10001: 'Customer impact',
+            creator: 'Creator',
+            customfield_10002: 'Development',
+            customfield_10003: 'Global Rank',
+            customfield_10004: 'Attachment Count',
           },
           renderedFields: {},
           fields: {
@@ -1888,6 +1963,10 @@ async function runExpandedPlatformChecks(browser, scriptContent) {
             status: { name: 'In Progress' },
             assignee: { displayName: 'Alice Example' },
             customfield_10001: 'High',
+            creator: { displayName: 'Duplicate Creator' },
+            customfield_10002: '{summaryBean=com.atlassian.jira.plugin.devstatus.rest.SummaryBean@3f8dc7bf, devSummaryJson={"cachedValue":{}}}',
+            customfield_10003: '9223372036854775807',
+            customfield_10004: '0.0',
             comment: {
               total: 1,
               comments: [{
@@ -1949,6 +2028,11 @@ async function runExpandedPlatformChecks(browser, scriptContent) {
       assertCheck(markdown.includes(expected), `Jira REST output missing ${JSON.stringify(expected)}: ${markdown}`);
     }
     assertCheck(!markdown.includes('STALE DOM'), 'Jira REST success mixed stale issue DOM into output');
+    for (const excluded of [
+      '**Creator:**', '**Development:**', 'summaryBean=', '**Global Rank:**', '**Attachment Count:**',
+    ]) {
+      assertCheck(!markdown.includes(excluded), `Jira REST output leaked internal field ${JSON.stringify(excluded)}: ${markdown}`);
+    }
     assertCompactMetadata(markdown, 'Jira REST output');
   } finally {
     await jiraApiPage.close();
@@ -2026,7 +2110,52 @@ async function runExpandedPlatformChecks(browser, scriptContent) {
     await confluenceApiPage.close();
   }
 
-  log('✅', 'Jira and Confluence prefer authenticated REST content and use native action bars');
+  const confluenceSpaceOverviewPage = await createFixturePage(browser, scriptContent, {
+    url: 'https://acme.atlassian.net/wiki/spaces/CCSD/overview?homepageId=1991704878',
+    beforeLoad: () => {
+      window.__atlassianFetches = [];
+      window.fetch = async (url, options) => {
+        window.__atlassianFetches.push({ url: String(url), options });
+        return new Response(JSON.stringify({
+          id: '1991704878',
+          status: 'current',
+          title: 'CCSD Home',
+          spaceId: '2468',
+          version: { number: 4, createdAt: '2026-08-10T12:00:00.000Z' },
+          labels: { results: [] },
+          body: { view: { representation: 'view', value: `
+            <h2>Welcome to CCSD</h2>
+            <p>Space homepage content from Confluence REST.</p>
+          ` } },
+        }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+      };
+    },
+    html: `<!doctype html><html><head><title>CCSD overview</title></head><body>
+      <main><h1>CCSD</h1><p>STALE SPACE OVERVIEW SHELL</p>
+        <div data-testid="object-header-actions-container"></div>
+      </main>
+    </body></html>`,
+  });
+  try {
+    await assertRouteIdentity(confluenceSpaceOverviewPage, 'Confluence', 'Confluence space overview fixture');
+    const markdown = await clickAndCapture(confluenceSpaceOverviewPage);
+    const fetches = await confluenceSpaceOverviewPage.evaluate(() => window.__atlassianFetches);
+    assertCheck(
+      fetches.length === 1
+        && fetches[0].url === 'https://acme.atlassian.net/wiki/api/v2/pages/1991704878?body-format=view&include-labels=true'
+        && fetches[0].options.credentials === 'same-origin',
+      `Confluence space overview fetched wrong homepage resource: ${JSON.stringify(fetches)}`,
+    );
+    for (const expected of ['# CCSD Home', '## Welcome to CCSD', 'Space homepage content from Confluence REST.']) {
+      assertCheck(markdown.includes(expected), `Confluence space overview output missing ${JSON.stringify(expected)}: ${markdown}`);
+    }
+    assertCheck(!markdown.includes('STALE SPACE OVERVIEW SHELL'),
+      'Confluence space overview mixed stale shell into REST output');
+  } finally {
+    await confluenceSpaceOverviewPage.close();
+  }
+
+  log('✅', 'Jira and Confluence prefer authenticated REST content, including space homepages, and use native action bars');
 
   const fixtures = [
     {
@@ -2034,8 +2163,56 @@ async function runExpandedPlatformChecks(browser, scriptContent) {
       extractor: 'Notion',
       url: 'https://workspace.notion.site/project-plan',
       html: `<main role="main"><h1 data-testid="page-title">Project Plan</h1>
-        <div data-block-id="block-1"><p>Notion fixture body.</p></div></main>`,
-      expected: ['Notion fixture body.'],
+        <div data-testid="property-row"><span data-testid="property-name">Status</span><span>In Progress</span></div>
+        <div data-block-id="block-1"><p>Notion fixture body.</p><label><input type="checkbox" checked> Ship fix</label>
+          <pre><code class="language-typescript">const ready = true;</code></pre></div>
+        <div role="grid"><div role="row"><div role="columnheader">Task</div><div role="columnheader">Owner</div></div>
+          <div role="row"><div role="gridcell">Release</div><div role="gridcell">Bruno</div></div></div>
+        <button>Load more</button></main>`,
+      expected: [
+        'title: Project Plan', 'url: "https://workspace.notion.site/project-plan"',
+        '## Properties', '**Status:** In Progress', 'Notion fixture body.', '[x] Ship fix',
+        '```typescript\nconst ready = true;\n```', '| Task | Owner |', '| Release | Bruno |',
+        'Database export includes rendered rows only',
+      ],
+      excluded: ['\\"Project Plan\\"', 'Load more'],
+    },
+    {
+      name: 'Notion custom domain',
+      extractor: 'Notion',
+      url: 'https://notes.example.org/project-plan',
+      html: `<main class="notion-page-content"><h1 data-testid="page-title">Custom Notion Page</h1>
+        <div data-block-id="custom-block"><p>Content-detected Notion body.</p></div></main>`,
+      expected: ['# Custom Notion Page', 'Content-detected Notion body.'],
+    },
+    {
+      name: 'Sphinx / Read the Docs',
+      extractor: 'Sphinx / Read the Docs',
+      url: 'https://docs.example.org/guide/install.html',
+      html: `<script src="/_static/documentation_options.js"></script><nav>SPHINX NAVIGATION NOISE</nav>
+        <div class="document"><aside class="sphinxsidebar">SPHINX SIDEBAR NOISE</aside>
+          <div class="body" role="main"><h1>Install Guide<a class="headerlink" href="#install">¶</a></h1>
+            <p>Sphinx fixture documentation.</p><p><a href="/guide/configure.html">Configure next</a></p>
+            <div class="highlight-python"><div class="highlight"><pre><span>print</span>("ready")</pre></div></div>
+          </div></div>`,
+      expected: [
+        '# Install Guide', 'Sphinx fixture documentation.',
+        '[Configure next](https://docs.example.org/guide/configure.html)',
+        '```python\nprint("ready")\n```',
+      ],
+      excluded: ['SPHINX NAVIGATION NOISE', 'SPHINX SIDEBAR NOISE', '¶'],
+    },
+    {
+      name: 'Read the Docs classic',
+      extractor: 'Sphinx / Read the Docs',
+      url: 'https://project.readthedocs.io/en/latest/quickstart.html',
+      html: `<div class="wy-nav-side">READTHEDOCS SIDEBAR NOISE</div><div class="wy-nav-content">
+        <div class="rst-content"><div class="wy-breadcrumbs">READTHEDOCS BREADCRUMB NOISE</div>
+          <div role="main" class="document"><div itemprop="articleBody"><h1>Quickstart<a class="headerlink" href="#quickstart"></a></h1>
+            <p>Read the Docs fixture body.</p><div class="admonition note"><p class="admonition-title">Note</p><p>Keep useful admonitions.</p></div>
+          </div></div></div></div>`,
+      expected: ['# Quickstart', 'Read the Docs fixture body.', 'Keep useful admonitions.'],
+      excluded: ['READTHEDOCS SIDEBAR NOISE', 'READTHEDOCS BREADCRUMB NOISE', ''],
     },
     {
       name: 'Microsoft 365',
@@ -2239,7 +2416,12 @@ async function runExpandedPlatformChecks(browser, scriptContent) {
       name: 'DuckDuckGo Search',
       extractor: 'DuckDuckGo Search',
       url: 'https://duckduckgo.com/?q=markdown',
-      html: `<header id="duckbar"></header><main><article class="result"><h2><a class="result__a" href="https://example.com/ddg-result">DuckDuckGo fixture result</a></h2><p class="result__snippet">DuckDuckGo fixture snippet.</p></article></main>`,
+      html: `<div id="react-duckbar" data-testid="duckbar"><section><nav><ul>
+        <li><a href="/?q=markdown&ia=web">All</a></li><li><a href="/?q=markdown&ia=images">Images</a></li>
+        <li><a href="/?q=markdown&ia=videos">Videos</a></li><li><a href="/?q=markdown&ia=news">News</a></li>
+      </ul><ul><li><a href="/?q=markdown&ia=chat">Duck.ai</a></li></ul></nav></section></div>
+      <main><article class="result"><h2><a class="result__a" href="https://example.com/ddg-result">DuckDuckGo fixture result</a></h2><p class="result__snippet">DuckDuckGo fixture snippet.</p></article></main>`,
+      anchorParentSelector: '#react-duckbar nav > ul:first-of-type',
       expected: ['DuckDuckGo fixture result', 'DuckDuckGo fixture snippet.'],
     },
     {
@@ -2386,7 +2568,9 @@ async function runExpandedPlatformChecks(browser, scriptContent) {
     },
   ];
 
+  const dedicatedMetricFixtures = new Set(['Weights & Biases', 'MLflow']);
   for (const [name, extractor] of REQUESTED_FIRST_CLASS_SITES) {
+    if (dedicatedMetricFixtures.has(name)) continue;
     const fixture = fixtures.find((candidate) => candidate.name === name);
     assertCheck(fixture, `Missing requested first-class fixture for ${name}`);
     assertCheck(
@@ -2406,6 +2590,7 @@ async function runExpandedPlatformChecks(browser, scriptContent) {
       html: `<!doctype html><html><head><title>${fixture.name} fixture</title></head><body>${fixture.html}</body></html>`,
       beforeLoad: fixture.beforeLoad,
       afterLoad: fixture.afterLoad,
+      context: fixture.name,
     });
     try {
       await assertRouteIdentity(page, fixture.extractor, fixture.name);
@@ -2413,7 +2598,14 @@ async function runExpandedPlatformChecks(browser, scriptContent) {
         const floating = await page.$('.cam-floating-wrapper');
         assertCheck(!floating, `${fixture.name} copy control did not use its native anchor`);
       }
-      const markdown = await clickAndCapture(page);
+      if (fixture.anchorParentSelector) {
+        const anchoredInsideTarget = await page.evaluate((selector) =>
+          document.querySelector(selector)?.contains(document.getElementById('cam-copy-btn')) || false,
+        fixture.anchorParentSelector);
+        assertCheck(anchoredInsideTarget,
+          `${fixture.name} copy control did not join ${fixture.anchorParentSelector}`);
+      }
+      const markdown = await clickAndCapture(page, fixture.name);
       for (const value of fixture.expected) {
         assertCheck(markdown.includes(value), `${fixture.name} output missing ${JSON.stringify(value)}: ${markdown}`);
       }
@@ -2433,11 +2625,39 @@ async function runExpandedPlatformChecks(browser, scriptContent) {
     }
   }
 
+  const hydratedDocumentationPage = await createFixturePage(browser, scriptContent, {
+    url: 'https://manual.example.org/guide/',
+    html: `<!doctype html><html><head><title>Ordinary page</title></head><body>
+      <main><div class="document">Generic article content.</div></main>
+    </body></html>`,
+  });
+  try {
+    await assertRouteIdentity(hydratedDocumentationPage, 'Fallback', 'ordinary document-class page');
+    await hydratedDocumentationPage.evaluate(() => {
+      document.documentElement.setAttribute('data-content_root', './');
+      const content = document.createElement('div');
+      content.className = 'document';
+      content.innerHTML = '<div class="body" role="main"><h1>Hydrated Manual</h1><p>Late Sphinx content.</p></div>';
+      document.body.appendChild(content);
+    });
+    await hydratedDocumentationPage.waitForFunction(
+      () => document.querySelector('#cam-copy-btn')?.dataset.camExtractor === 'Sphinx / Read the Docs',
+      { timeout: 5000 },
+    );
+    const markdown = await clickAndCapture(hydratedDocumentationPage);
+    assertCheck(markdown.includes('# Hydrated Manual') && markdown.includes('Late Sphinx content.'),
+      `hydrated Sphinx output is incomplete: ${markdown}`);
+  } finally {
+    await hydratedDocumentationPage.close();
+  }
+
   const nonContentRoutes = [
     ['Meta AI settings', 'https://www.meta.ai/settings'],
     ['X settings', 'https://x.com/settings'],
     ['Facebook settings', 'https://www.facebook.com/settings'],
     ['VK messages', 'https://vk.com/im'],
+    ['Notion public settings', 'https://workspace.notion.site/settings'],
+    ['Notion private settings', 'https://www.notion.so/settings'],
   ];
   for (const [name, url] of nonContentRoutes) {
     const page = await createFixturePage(browser, scriptContent, {
@@ -2452,8 +2672,860 @@ async function runExpandedPlatformChecks(browser, scriptContent) {
   }
 
   log('✅', `${REQUESTED_FIRST_CLASS_SITES.size} requested sites route through representative content fixtures`);
+  log('✅', 'Content detection upgrades hydrated Sphinx pages without claiming ordinary document markup');
   log('✅', 'Non-content settings and messaging routes stay on generic fallback');
   console.log('');
+}
+
+async function runSearchAndLinkedInChecks(browser, scriptContent) {
+  const ddgExtraResults = Array.from({ length: 26 }, (_, index) => {
+    const resultNumber = index + 1;
+    return `<article class="result"><h2><a class="result__a" href="https://example.com/ddg-result-${resultNumber}">DuckDuckGo result ${resultNumber}</a></h2><p class="result__snippet">Result ${resultNumber} snippet.</p></article>`;
+  }).join('');
+  const duckduckgoPage = await createFixturePage(browser, scriptContent, {
+    url: 'https://duckduckgo.com/html/?q=markdown+fixture',
+    html: `<!doctype html><html><head><title>DuckDuckGo HTML fixture</title></head><body>
+      <div id="duckbar"><nav><ul><li>Web</li></ul></nav></div>
+      <div id="zero_click_wrapper">
+        <div class="zci__body">Markdown is a lightweight markup language.</div>
+        <section class="zci"><h2>Markdown</h2><div class="module__content">Markup syntax knowledge panel.</div></section>
+      </div>
+      <main>
+        <article class="result">
+          <a href="javascript:alert('unsafe')">Unsafe link</a>
+          <h2><a class="result__a" href="https://duckduckgo.com/l/?uddg=https%3A%2F%2Fexample.com%2Fddg-safe-result">Safe redirected result</a></h2>
+          <p class="result__snippet">Safe result snippet.</p>
+        </article>
+        <article class="result">
+          <h2><a class="result__a" href="https://duckduckgo.com/l/?uddg=https%3A%2F%2Fexample.com%2Fddg-safe-result">Safe redirected result</a></h2>
+          <p class="result__snippet">Duplicate result snippet.</p>
+        </article>
+        <article class="result"><h2><a class="result__a" href="data:text/html,unsafe">Unsafe-only result</a></h2></article>
+        ${ddgExtraResults}
+      </main>
+      <div class="related-searches"><a href="/?q=markdown+guide">markdown guide</a><a href="/?q=markdown+syntax">markdown syntax</a></div>
+    </body></html>`,
+    context: 'DuckDuckGo HTML search',
+  });
+  try {
+    await assertRouteIdentity(duckduckgoPage, 'DuckDuckGo Search', 'DuckDuckGo HTML search');
+    const markdown = await clickAndCapture(duckduckgoPage, 'DuckDuckGo HTML search');
+    for (const expected of [
+      '**Query:** markdown fixture',
+      '## Instant Answer',
+      'Markdown is a lightweight markup language.',
+      '## Knowledge Panel: Markdown',
+      'Markup syntax knowledge panel.',
+      '**URL:** https://example.com/ddg-safe-result',
+      '## Related Searches',
+      '- markdown guide',
+      '- markdown syntax',
+      '### 25.',
+    ]) {
+      assertCheck(markdown.includes(expected), `DuckDuckGo HTML output missing ${JSON.stringify(expected)}: ${markdown}`);
+    }
+    assertCheck(!markdown.includes('javascript:'), 'DuckDuckGo emitted unsafe javascript URL');
+    assertCheck(!markdown.includes('data:text/html'), 'DuckDuckGo emitted unsafe non-HTTP URL');
+    assertCheck(!markdown.includes('### 26.'), 'DuckDuckGo exceeded 25-result cap');
+    assertCheck(
+      (markdown.match(/### \d+\. Safe redirected result/g) || []).length === 1,
+      'DuckDuckGo did not deduplicate repeated result links',
+    );
+    assertCompactMetadata(markdown, 'DuckDuckGo HTML output');
+    log('✅', 'DuckDuckGo HTML route includes answer panels, safe redirects, related searches, and bounded deduplicated results');
+  } finally {
+    await duckduckgoPage.close();
+  }
+
+  const linkedinPostPage = await createFixturePage(browser, scriptContent, {
+    url: 'https://www.linkedin.com/posts/acme_fixture-activity-1234567890',
+    html: `<!doctype html><html><head><title>LinkedIn post fixture</title></head><body><main>
+      <article class="feed-shared-update-v2">
+        <div class="update-components-actor__title"><span class="visually-hidden">Alice Example</span></div>
+        <div class="update-components-text"><span>LinkedIn post body from fixture.</span></div>
+        <span class="social-details-social-counts__reactions-count">42</span>
+        <div class="comments-comment-item">
+          <span class="comments-post-meta__name-text">Bob Example</span>
+          <div class="comments-comment-item__main-content">Useful comment from Bob.</div>
+        </div>
+        <button>Like</button>
+      </article>
+    </main></body></html>`,
+    context: 'LinkedIn post',
+  });
+  try {
+    await assertRouteIdentity(linkedinPostPage, 'LinkedIn', 'LinkedIn post');
+    const markdown = await clickAndCapture(linkedinPostPage, 'LinkedIn post');
+    for (const expected of [
+      '# Post by Alice Example',
+      'LinkedIn post body from fixture.',
+      '**Reactions:** 42',
+      '## Comments (1)',
+      '**Bob Example:**',
+      '> Useful comment from Bob.',
+    ]) {
+      assertCheck(markdown.includes(expected), `LinkedIn post output missing ${JSON.stringify(expected)}: ${markdown}`);
+    }
+    assertCompactMetadata(markdown, 'LinkedIn post output');
+    log('✅', 'LinkedIn post extraction preserves author, body, reactions, and comments');
+  } finally {
+    await linkedinPostPage.close();
+  }
+
+  const linkedinArticlePage = await createFixturePage(browser, scriptContent, {
+    url: 'https://www.linkedin.com/pulse/reliable-systems-acme-article-1234567890',
+    html: `<!doctype html><html><head><title>Reliable Systems | LinkedIn</title></head><body><main>
+      <h1>Reliable Systems</h1><div class="author-info__name">Ada Example</div>
+      <article class="article-content"><p>LinkedIn article introduction.</p><h2>Findings</h2><ul><li>Bounded output matters.</li></ul></article>
+    </main></body></html>`,
+    context: 'LinkedIn article',
+  });
+  try {
+    await assertRouteIdentity(linkedinArticlePage, 'LinkedIn', 'LinkedIn article');
+    const markdown = await clickAndCapture(linkedinArticlePage, 'LinkedIn article');
+    for (const expected of ['# Reliable Systems', 'LinkedIn article introduction.', '## Findings', 'Bounded output matters.']) {
+      assertCheck(markdown.includes(expected), `LinkedIn article output missing ${JSON.stringify(expected)}: ${markdown}`);
+    }
+    assertCompactMetadata(markdown, 'LinkedIn article output');
+    log('✅', 'LinkedIn article extraction preserves title and article body');
+  } finally {
+    await linkedinArticlePage.close();
+  }
+
+  const linkedinJsonLdPage = await createFixturePage(browser, scriptContent, {
+    url: 'https://www.linkedin.com/in/jsonld-profile-fixture/',
+    html: `<!doctype html><html><head><title>Profile | LinkedIn</title>
+      <script type="application/ld+json">{"@context":"https://schema.org","@type":"Person","name":"Ada Lovelace","jobTitle":"Research Engineer","address":{"@type":"PostalAddress","addressLocality":"London","addressCountry":"UK"},"description":"Computing pioneer profile summary."}</script>
+    </head><body><main role="main"><p>Computing pioneer profile summary.</p></main></body></html>`,
+    context: 'LinkedIn JSON-LD profile',
+  });
+  try {
+    await assertRouteIdentity(linkedinJsonLdPage, 'LinkedIn', 'LinkedIn JSON-LD profile');
+    const markdown = await clickAndCapture(linkedinJsonLdPage, 'LinkedIn JSON-LD profile');
+    for (const expected of [
+      '# Ada Lovelace',
+      '**Research Engineer**',
+      '📍 London, UK',
+      '## Profile',
+      'Computing pioneer profile summary.',
+    ]) {
+      assertCheck(markdown.includes(expected), `LinkedIn JSON-LD profile output missing ${JSON.stringify(expected)}: ${markdown}`);
+    }
+    assertCompactMetadata(markdown, 'LinkedIn JSON-LD profile output');
+    log('✅', 'LinkedIn profile JSON-LD fallback supplies top-card identity and summary');
+  } finally {
+    await linkedinJsonLdPage.close();
+  }
+}
+
+async function runMetricPlatformChecks(browser, scriptContent) {
+  const wandbPage = await createFixturePage(browser, scriptContent, {
+    url: 'https://wandb.ai/acme/forecasting/runs/run-abc',
+    beforeLoad: () => {
+      window.__metricFixtureFetches = [];
+      window.fetch = async (input, init = {}) => {
+        const url = String(input);
+        const request = JSON.parse(String(init.body));
+        window.__metricFixtureFetches.push({
+          url,
+          credentials: init.credentials,
+          authorization: init.headers?.Authorization || init.headers?.authorization || '',
+          query: request.query,
+          variables: request.variables,
+        });
+        if (request.query.includes('CopyAsMarkdownRun')) {
+          return new Response(JSON.stringify({ data: { project: { run: {
+            name: 'run-abc',
+            displayName: 'Forecast Baseline',
+            state: 'finished',
+            group: 'daily',
+            jobType: 'train',
+            commit: 'abc123',
+            createdAt: '2026-08-10T10:00:00Z',
+            heartbeatAt: '2026-08-10T10:30:00Z',
+            description: 'Baseline demand forecast.',
+            config: JSON.stringify({
+              learning_rate: { value: 0.01 },
+              model: { value: 'transformer|small' },
+              _wandb: { value: 'NOISE_CONFIG' },
+            }),
+            summaryMetrics: JSON.stringify({ loss: 0.25, accuracy: 0.9 }),
+            historyLineCount: 1200,
+            historyKeys: {
+              keys: {
+                loss: { typeCounts: [{ type: 'number' }] },
+                accuracy: { typeCounts: [{ type: 'number' }] },
+                images: { typeCounts: [{ type: 'images' }] },
+                'system/gpu': { typeCounts: [{ type: 'number' }] },
+              },
+            },
+            user: { name: 'Ada Example', username: 'ada' },
+          } } } }), {
+            status: 200,
+            headers: { 'Content-Type': 'application/json' },
+          });
+        }
+        if (request.query.includes('RunSampledHistory')) {
+          return new Response(JSON.stringify({ data: { project: { run: { sampledHistory: [[
+            { _step: 2, _timestamp: 1786356120, loss: 0.5, accuracy: 0.8 },
+            { _step: 0, _timestamp: 1786356000, loss: 1 },
+            { _step: 1, _timestamp: 1786356060, accuracy: 0.7, loss: 0.75 },
+          ]] } } } }), {
+            status: 200,
+            headers: { 'Content-Type': 'application/json' },
+          });
+        }
+        return new Response('{}', { status: 404 });
+      };
+    },
+    html: `<!doctype html><html><head><title>Forecast Baseline | Weights & Biases</title></head><body>
+      <main><h1>STALE W&B SHELL</h1><p>NOISE_WANDB_DOM</p></main>
+    </body></html>`,
+    context: 'Weights & Biases metrics',
+  });
+  try {
+    await assertRouteIdentity(wandbPage, 'Weights & Biases', 'Weights & Biases run fixture');
+    const markdown = await clickAndCapture(wandbPage, 'Weights & Biases metrics');
+    for (const expected of [
+      '# Forecast Baseline',
+      'Baseline demand forecast.',
+      '| learning_rate | 0.01 |',
+      '| model | transformer\\|small |',
+      '## Metrics Summary',
+      '### accuracy',
+      '### loss',
+      '| 0 | 2026-08-10T10:00:00.000Z | 1 |',
+      'sampled history: up to 500 rows from 1200 logged history rows',
+    ]) {
+      assertCheck(markdown.includes(expected), `Weights & Biases output missing ${JSON.stringify(expected)}: ${markdown}`);
+    }
+    for (const excluded of ['NOISE_WANDB_DOM', 'NOISE_CONFIG', 'system/gpu', '### images']) {
+      assertCheck(!markdown.includes(excluded), `Weights & Biases output leaked ${JSON.stringify(excluded)}: ${markdown}`);
+    }
+    const fetches = await wandbPage.evaluate(() => window.__metricFixtureFetches);
+    assertCheck(fetches.length === 2, `Weights & Biases made ${fetches.length} API requests`);
+    assertCheck(fetches.every(({ url }) => url === 'https://api.wandb.ai/graphql'), 'Weights & Biases used wrong GraphQL host');
+    assertCheck(fetches.every(({ credentials }) => credentials === 'include'), 'Weights & Biases omitted browser session credentials');
+    assertCheck(fetches.every(({ authorization }) => !authorization), 'Weights & Biases sent an Authorization credential');
+    assertCheck(
+      fetches[1].variables.specs[0].includes('"samples":500')
+        && fetches[1].variables.specs[0].includes('"accuracy"')
+        && fetches[1].variables.specs[0].includes('"loss"'),
+      `Weights & Biases sampled-history variables are wrong: ${JSON.stringify(fetches[1].variables)}`,
+    );
+    assertCompactMetadata(markdown, 'Weights & Biases output');
+  } finally {
+    await wandbPage.close();
+  }
+
+  const wandbFallbackPage = await createFixturePage(browser, scriptContent, {
+    url: 'https://wandb.example.test/acme/forecasting/runs/private-run',
+    beforeLoad: () => {
+      window.fetch = async () => new Response('{}', { status: 403 });
+    },
+    html: `<!doctype html><html><head><title>Private Run | Weights & Biases</title></head><body>
+      <main><h1>Private Run</h1><section><h2>Visible metrics</h2><table>
+        <tr><th>Metric</th><th>Latest</th></tr><tr><td>loss</td><td>0.42</td></tr>
+      </table></section></main>
+    </body></html>`,
+    context: 'self-hosted Weights & Biases fallback',
+  });
+  try {
+    await assertRouteIdentity(wandbFallbackPage, 'Weights & Biases', 'self-hosted Weights & Biases fixture');
+    const markdown = await clickAndCapture(wandbFallbackPage, 'self-hosted Weights & Biases fallback');
+    assertCheck(markdown.includes('## Visible Run Content'), `W&B fallback omitted visible content: ${markdown}`);
+    assertCheck(markdown.includes('| loss | 0.42 |'), `W&B fallback omitted visible metric table: ${markdown}`);
+  } finally {
+    await wandbFallbackPage.close();
+  }
+
+  const wandbSummaryFallbackPage = await createFixturePage(browser, scriptContent, {
+    url: 'https://wandb.ai/acme/forecasting/runs/summary-only',
+    beforeLoad: () => {
+      window.__metricFixtureFetches = [];
+      window.fetch = async (input, init = {}) => {
+        const request = JSON.parse(String(init.body));
+        window.__metricFixtureFetches.push(request.query);
+        if (request.query.includes('CopyAsMarkdownRun')) {
+          return new Response(JSON.stringify({ data: { project: { run: {
+            name: 'summary-only',
+            displayName: 'Summary Fallback Run',
+            state: 'finished',
+            config: '{malformed-json',
+            summaryMetrics: JSON.stringify({ loss: 0.31, accuracy: 0.88, _private: 99 }),
+            historyLineCount: 2,
+            historyKeys: JSON.stringify({ keys: {
+              loss: { typeCounts: [{ type: 'number' }] },
+              accuracy: { typeCounts: [{ type: 'number' }] },
+            } }),
+          } } } }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+        }
+        if (request.query.includes('RunSampledHistory')) {
+          return new Response(JSON.stringify({ data: { project: { run: { sampledHistory: [] } } } }), {
+            status: 200,
+            headers: { 'Content-Type': 'application/json' },
+          });
+        }
+        return new Response('{}', { status: 404 });
+      };
+    },
+    html: '<!doctype html><html><head><title>Summary Fallback | Weights & Biases</title></head><body><main><h1>STALE SUMMARY SHELL</h1></main></body></html>',
+    context: 'Weights & Biases summary fallback',
+  });
+  try {
+    await assertRouteIdentity(wandbSummaryFallbackPage, 'Weights & Biases', 'W&B summary fallback fixture');
+    const markdown = await clickAndCapture(wandbSummaryFallbackPage, 'W&B summary fallback');
+    for (const expected of [
+      '# Summary Fallback Run',
+      '## Metrics Summary',
+      '### accuracy',
+      '### loss',
+      '| 0 | 0.88 |',
+      '| 0 | 0.31 |',
+    ]) {
+      assertCheck(markdown.includes(expected), `W&B summary fallback output missing ${JSON.stringify(expected)}: ${markdown}`);
+    }
+    assertCheck(!markdown.includes('STALE SUMMARY SHELL'), 'W&B used DOM despite successful run metadata');
+    const fetches = await wandbSummaryFallbackPage.evaluate(() => window.__metricFixtureFetches);
+    assertCheck(fetches.length === 2, `W&B summary fallback made ${fetches.length} GraphQL requests`);
+    assertCompactMetadata(markdown, 'W&B summary fallback output');
+    log('✅', 'W&B empty sampled history falls back to numeric summary metrics and tolerates malformed config JSON');
+  } finally {
+    await wandbSummaryFallbackPage.close();
+  }
+
+  const wandbHistoryFailurePage = await createFixturePage(browser, scriptContent, {
+    url: 'https://wandb.ai/acme/forecasting/runs/history-failure',
+    beforeLoad: () => {
+      window.fetch = async (input, init = {}) => {
+        const request = JSON.parse(String(init.body));
+        if (request.query.includes('CopyAsMarkdownRun')) {
+          return new Response(JSON.stringify({ data: { project: { run: {
+            name: 'history-failure',
+            displayName: 'History Failure Run',
+            historyKeys: JSON.stringify({ keys: { loss: { typeCounts: [{ type: 'number' }] } } }),
+            summaryMetrics: JSON.stringify({ loss: 0.5 }),
+          } } } }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+        }
+        return new Response(JSON.stringify({ errors: [{ message: 'sampled history unavailable' }] }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        });
+      };
+    },
+    html: `<!doctype html><html><head><title>History Failure | Weights & Biases</title></head><body><main>
+      <h1>History Failure Run</h1><p>Rendered fallback after GraphQL history failure.</p>
+    </main></body></html>`,
+    context: 'Weights & Biases history failure',
+  });
+  try {
+    await assertRouteIdentity(wandbHistoryFailurePage, 'Weights & Biases', 'W&B history failure fixture');
+    const markdown = await clickAndCapture(wandbHistoryFailurePage, 'W&B history failure');
+    assertCheck(markdown.includes('# History Failure Run'), 'W&B history failure fallback lost title');
+    assertCheck(markdown.includes('## Visible Run Content'), 'W&B GraphQL history failure did not use DOM fallback');
+    assertCheck(markdown.includes('Rendered fallback after GraphQL history failure.'), 'W&B history failure fallback lost visible content');
+    assertCompactMetadata(markdown, 'W&B history failure output');
+    log('✅', 'W&B GraphQL history failure falls back to rendered run content');
+  } finally {
+    await wandbHistoryFailurePage.close();
+  }
+
+  const wandbCapPage = await createFixturePage(browser, scriptContent, {
+    url: 'https://wandb.ai/acme/forecasting/runs/metric-cap',
+    beforeLoad: () => {
+      window.fetch = async (input, init = {}) => {
+        const request = JSON.parse(String(init.body));
+        if (request.query.includes('CopyAsMarkdownRun')) {
+          return new Response(JSON.stringify({ data: { project: { run: {
+            name: 'metric-cap',
+            displayName: 'Metric Cap Run',
+            config: '{broken-config',
+            historyKeys: JSON.stringify({ keys: window.__wandbHistoryKeys }),
+            historyLineCount: 1,
+          } } } }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+        }
+        if (request.query.includes('RunSampledHistory')) {
+          return new Response(JSON.stringify({ data: { project: { run: { sampledHistory: [window.__wandbHistoryRow] } } } }), {
+            status: 200,
+            headers: { 'Content-Type': 'application/json' },
+          });
+        }
+        return new Response('{}', { status: 404 });
+      };
+      window.__wandbHistoryKeys = {};
+      window.__wandbHistoryRow = { _step: 0 };
+      for (let index = 0; index < 55; index += 1) {
+        const name = `metric-${String(index).padStart(2, '0')}`;
+        window.__wandbHistoryKeys[name] = { typeCounts: [{ type: 'number' }] };
+        window.__wandbHistoryRow[name] = index + 0.5;
+      }
+    },
+    html: '<!doctype html><html><head><title>Metric Cap | Weights & Biases</title></head><body><main><h1>Metric Cap Run</h1></main></body></html>',
+    context: 'Weights & Biases metric cap',
+  });
+  try {
+    await assertRouteIdentity(wandbCapPage, 'Weights & Biases', 'W&B metric cap fixture');
+    const markdown = await clickAndCapture(wandbCapPage, 'W&B metric cap');
+    assertCheck(markdown.includes('*Showing first 50 of 55 numeric metric keys.*'), 'W&B metric cap note missing');
+    assertCheck(markdown.includes('### metric-00') && markdown.includes('### metric-49'), 'W&B metric cap omitted first metrics');
+    assertCheck(!markdown.includes('### metric-50'), 'W&B emitted metric beyond 50-key cap');
+    assertCheck((markdown.match(/^### metric-\d+$/gm) || []).length === 50, 'W&B metric cap emitted wrong series count');
+    assertCheck(markdown.length < 20_000, `W&B metric output was not bounded: ${markdown.length} chars`);
+    assertCompactMetadata(markdown, 'W&B metric cap output');
+    log('✅', 'W&B caps numeric metric series at 50 and keeps malformed config output bounded');
+  } finally {
+    await wandbCapPage.close();
+  }
+
+  const wandbOversizedPage = await createFixturePage(browser, scriptContent, {
+    url: 'https://wandb.ai/acme/forecasting/runs/oversized-output',
+    beforeLoad: () => {
+      window.__wandbHugeConfig = {};
+      for (let index = 0; index < 100; index += 1) {
+        window.__wandbHugeConfig[`config-${String(index).padStart(3, '0')}`] = {
+          value: `large-${index}-${'x'.repeat(1990)}`,
+        };
+      }
+      window.fetch = async (input, init = {}) => {
+        const request = JSON.parse(String(init.body));
+        if (request.query.includes('CopyAsMarkdownRun')) {
+          return new Response(JSON.stringify({ data: { project: { run: {
+            name: 'oversized-output',
+            displayName: 'Oversized W&B Run',
+            config: JSON.stringify(window.__wandbHugeConfig),
+            historyKeys: '{}',
+          } } } }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+        }
+        return new Response('{}', { status: 404 });
+      };
+    },
+    html: '<!doctype html><html><head><title>Oversized W&amp;B Run | Weights &amp; Biases</title></head><body><main><h1>Oversized W&amp;B Run</h1></main></body></html>',
+    context: 'Weights & Biases oversized output',
+  });
+  try {
+    await assertRouteIdentity(wandbOversizedPage, 'Weights & Biases', 'W&B oversized output fixture');
+    const markdown = await clickAndCapture(wandbOversizedPage, 'W&B oversized output');
+    assertBoundedMarkdown(markdown, 'W&B oversized output');
+    log('✅', 'W&B oversized configuration output preserves frontmatter while truncating at context bound');
+  } finally {
+    await wandbOversizedPage.close();
+  }
+
+  const extensionContent = fs.readFileSync(path.join(ROOT, 'dist', 'chrome', 'content.js'), 'utf8');
+  const wandbExtensionPage = await createFixturePage(browser, extensionContent, {
+    url: 'https://wandb.ai/acme/forecasting/runs/extension-ui',
+    html: '<!doctype html><html><head><title>Extension UI | Weights & Biases</title></head><body><main><h1>Extension UI Run</h1></main></body></html>',
+    context: 'Weights & Biases extension page UI',
+  });
+  try {
+    await assertRouteIdentity(wandbExtensionPage, 'Weights & Biases', 'W&B extension page UI');
+    const ui = await wandbExtensionPage.evaluate(() => ({
+      buttons: document.querySelectorAll('#cam-copy-btn').length,
+      floating: document.querySelectorAll('.cam-floating-wrapper').length,
+      extractor: document.querySelector('#cam-copy-btn')?.dataset.camExtractor || '',
+    }));
+    assertCheck(ui.buttons === 1 && ui.floating === 1 && ui.extractor === 'Weights & Biases', `W&B extension page UI selection failed: ${JSON.stringify(ui)}`);
+    log('✅', 'W&B extension content script selects page button for run routes');
+  } finally {
+    await wandbExtensionPage.close();
+  }
+
+  const mlflowPage = await createFixturePage(browser, scriptContent, {
+    url: 'https://metrics.example.test/mlflow/#/experiments/7/runs/run-123',
+    beforeLoad: () => {
+      window.__metricFixtureFetches = [];
+      window.fetch = async (input, init = {}) => {
+        const url = new URL(String(input), window.location.origin);
+        window.__metricFixtureFetches.push({ url: url.toString(), credentials: init.credentials });
+        if (url.pathname === '/mlflow/ajax-api/2.0/mlflow/runs/get') {
+          return new Response(JSON.stringify({ run: {
+            info: {
+              run_id: 'run-123',
+              run_name: 'Demand Forecast',
+              experiment_id: '7',
+              status: 'FINISHED',
+              start_time: 1786356000000,
+              end_time: 1786356180000,
+              artifact_uri: 's3://example-artifacts/run-123',
+              lifecycle_stage: 'active',
+              user_id: 'ada',
+            },
+            data: {
+              metrics: [
+                { key: 'loss', value: 0.25, step: 2, timestamp: 1786356120000 },
+                { key: 'accuracy', value: 0.9, step: 1, timestamp: 1786356060000 },
+              ],
+              params: [{ key: 'learning_rate', value: '0.01' }],
+              tags: [{ key: 'release', value: 'v2|canary' }],
+            },
+            inputs: { dataset_inputs: [{ dataset: { name: 'demand-v4' } }] },
+          } }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+        }
+        if (url.pathname === '/mlflow/ajax-api/2.0/mlflow/metrics/get-history') {
+          const key = url.searchParams.get('metric_key');
+          const token = url.searchParams.get('page_token');
+          if (key === 'loss' && !token) {
+            return new Response(JSON.stringify({
+              metrics: [
+                { key: 'loss', value: 0.75, step: 1, timestamp: 1786356060000 },
+                { key: 'loss', value: 1, step: 0, timestamp: 1786356000000 },
+              ],
+              next_page_token: 'loss-page-2',
+            }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+          }
+          if (key === 'loss' && token === 'loss-page-2') {
+            return new Response(JSON.stringify({
+              metrics: [{ key: 'loss', value: 0.25, step: 2, timestamp: 1786356120000 }],
+            }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+          }
+          if (key === 'accuracy') {
+            return new Response(JSON.stringify({
+              metrics: [
+                { key: 'accuracy', value: 0.8, step: 0, timestamp: 1786356000000 },
+                { key: 'accuracy', value: 0.9, step: 1, timestamp: 1786356060000 },
+              ],
+            }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+          }
+        }
+        return new Response('<!doctype html><title>MLflow shell</title>', {
+          status: 200,
+          headers: { 'Content-Type': 'text/html' },
+        });
+      };
+    },
+    html: `<!doctype html><html><head><title>Demand Forecast | MLflow</title></head><body>
+      <main><h1>STALE MLFLOW SHELL</h1><p>NOISE_MLFLOW_DOM</p></main>
+    </body></html>`,
+    context: 'MLflow metrics',
+  });
+  try {
+    await assertRouteIdentity(mlflowPage, 'MLflow', 'MLflow run fixture');
+    const markdown = await clickAndCapture(mlflowPage, 'MLflow metrics');
+    for (const expected of [
+      '# Demand Forecast',
+      '| learning_rate | 0.01 |',
+      '| release | v2\\|canary |',
+      '## Metrics Summary',
+      '### accuracy',
+      '### loss',
+      '| 0 | 2026-08-10T10:00:00.000Z | 1 |',
+      '"name": "demand-v4"',
+    ]) {
+      assertCheck(markdown.includes(expected), `MLflow output missing ${JSON.stringify(expected)}: ${markdown}`);
+    }
+    assertCheck(!markdown.includes('NOISE_MLFLOW_DOM'), `MLflow mixed stale DOM into API output: ${markdown}`);
+    assertCheck(markdown.indexOf('| 0 | 2026-08-10T10:00:00.000Z | 1 |') < markdown.indexOf('| 2 | 2026-08-10T10:02:00.000Z | 0.25 |'), 'MLflow history was not sorted by step');
+    const fetches = await mlflowPage.evaluate(() => window.__metricFixtureFetches);
+    assertCheck(fetches.every(({ url }) => url.includes('/mlflow/ajax-api/2.0/mlflow/')), `MLflow lost static prefix: ${JSON.stringify(fetches)}`);
+    assertCheck(fetches.every(({ credentials }) => credentials === 'include'), 'MLflow omitted browser session credentials');
+    assertCheck(fetches.some(({ url }) => url.includes('page_token=loss-page-2')), 'MLflow did not paginate metric history');
+    assertCheck(fetches.filter(({ url }) => url.includes('/runs/get')).length === 1, 'MLflow retried run API unnecessarily');
+    assertCompactMetadata(markdown, 'MLflow output');
+  } finally {
+    await mlflowPage.close();
+  }
+
+  const mlflowHistoryFallbackPage = await createFixturePage(browser, scriptContent, {
+    url: 'https://metrics.example.test/mlflow/#/experiments/7/runs/history-fallback',
+    beforeLoad: () => {
+      window.__metricFixtureFetches = [];
+      window.fetch = async (input, init = {}) => {
+        const url = new URL(String(input), window.location.origin);
+        window.__metricFixtureFetches.push(url.toString());
+        if (url.pathname === '/mlflow/ajax-api/2.0/mlflow/runs/get') {
+          return new Response(JSON.stringify({ run: {
+            info: {
+              run_id: 'history-fallback',
+              run_name: 'History Fallback',
+              experiment_id: '7',
+              status: 'FINISHED',
+              start_time: 1786356000000,
+            },
+            data: { metrics: [{ key: 'loss', value: 0.42, step: 7, timestamp: 1786356420000 }] },
+          } }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+        }
+        if (url.pathname === '/mlflow/ajax-api/2.0/mlflow/metrics/get-history') {
+          return new Response('{}', { status: 503 });
+        }
+        return new Response('{}', { status: 404 });
+      };
+    },
+    html: '<!doctype html><html><head><title>History Fallback | MLflow</title></head><body><main><h1>STALE HISTORY SHELL</h1></main></body></html>',
+    context: 'MLflow history fallback',
+  });
+  try {
+    await assertRouteIdentity(mlflowHistoryFallbackPage, 'MLflow', 'MLflow history fallback fixture');
+    const markdown = await clickAndCapture(mlflowHistoryFallbackPage, 'MLflow history fallback');
+    assertCheck(markdown.includes('# History Fallback'), 'MLflow history fallback lost run title');
+    assertCheck(markdown.includes('### loss'), 'MLflow history fallback omitted metric series');
+    assertCheck(markdown.includes('| 7 | 2026-08-10T10:07:00.000Z | 0.42 |'), 'MLflow history fallback omitted latest metric point');
+    assertCheck(!markdown.includes('STALE HISTORY SHELL'), 'MLflow history fallback used stale DOM despite run API success');
+    const fetches = await mlflowHistoryFallbackPage.evaluate(() => window.__metricFixtureFetches);
+    assertCheck(fetches.some((url) => url.includes('/metrics/get-history')), 'MLflow history fallback did not attempt history API');
+    assertCompactMetadata(markdown, 'MLflow history fallback output');
+    log('✅', 'MLflow history API failure preserves latest run metric value');
+  } finally {
+    await mlflowHistoryFallbackPage.close();
+  }
+
+  const mlflowOversizedPage = await createFixturePage(browser, scriptContent, {
+    url: 'https://metrics.example.test/mlflow/#/experiments/7/runs/oversized-output',
+    beforeLoad: () => {
+      window.__mlflowHugeParams = [];
+      for (let index = 0; index < 200; index += 1) {
+        window.__mlflowHugeParams.push({
+          key: `param-${String(index).padStart(3, '0')}`,
+          value: `large-${index}-${'y'.repeat(1990)}`,
+        });
+      }
+      window.fetch = async (input) => {
+        const url = new URL(String(input), window.location.origin);
+        if (url.pathname === '/mlflow/ajax-api/2.0/mlflow/runs/get') {
+          return new Response(JSON.stringify({ run: {
+            info: {
+              run_id: 'oversized-output',
+              run_name: 'Oversized MLflow Run',
+              experiment_id: '7',
+              status: 'FINISHED',
+              start_time: 1786356000000,
+            },
+            data: { metrics: [], params: window.__mlflowHugeParams },
+          } }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+        }
+        return new Response('{}', { status: 404 });
+      };
+    },
+    html: '<!doctype html><html><head><title>Oversized MLflow Run | MLflow</title></head><body><main><h1>Oversized MLflow Run</h1></main></body></html>',
+    context: 'MLflow oversized run output',
+  });
+  try {
+    await assertRouteIdentity(mlflowOversizedPage, 'MLflow', 'MLflow oversized run fixture');
+    const markdown = await clickAndCapture(mlflowOversizedPage, 'MLflow oversized run');
+    assertBoundedMarkdown(markdown, 'MLflow oversized run output');
+    log('✅', 'MLflow oversized run parameters preserve frontmatter while truncating at context bound');
+  } finally {
+    await mlflowOversizedPage.close();
+  }
+
+  const mlflowComparisonPage = await createFixturePage(browser, scriptContent, {
+    url: "https://metrics.example.test/mlflow/#/experiments/48/runs?searchFilter=attributes.run_id%20in%20('run-visible-a','run-visible-b','run-hidden')&compareRunsMode=CHART",
+    beforeLoad: () => {
+      window.__metricFixtureFetches = [];
+      window.fetch = async (input, init = {}) => {
+        const url = new URL(String(input), window.location.origin);
+        window.__metricFixtureFetches.push({ url: url.toString(), credentials: init.credentials });
+        if (url.pathname === '/mlflow/ajax-api/2.0/mlflow/runs/get') {
+          const runId = url.searchParams.get('run_id');
+          const runs = {
+            'run-visible-a': {
+              info: {
+                run_id: 'run-visible-a',
+                run_name: 'Visible A',
+                experiment_id: '48',
+                status: 'FINISHED',
+                start_time: 1786356000000,
+              },
+              data: { metrics: [{ key: 'policy/policy_entropy', value: 0.25, step: 2 }] },
+            },
+            'run-visible-b': {
+              info: {
+                run_id: 'run-visible-b',
+                run_name: 'Visible B',
+                experiment_id: '48',
+                status: 'RUNNING',
+                start_time: 1786356060000,
+              },
+              data: { metrics: [{ key: 'policy/policy_entropy', value: 0.4, step: 2 }] },
+            },
+          };
+          if (runs[runId]) {
+            return new Response(JSON.stringify({ run: runs[runId] }), {
+              status: 200,
+              headers: { 'Content-Type': 'application/json' },
+            });
+          }
+        }
+        if (url.pathname === '/mlflow/ajax-api/2.0/mlflow/metrics/get-history') {
+          const runId = url.searchParams.get('run_id');
+          const values = runId === 'run-visible-a' ? [0.5, 0.35, 0.25] : [0.6, 0.5, 0.4];
+          return new Response(JSON.stringify({ metrics: values.map((value, step) => ({
+            key: 'policy/policy_entropy',
+            value,
+            step,
+            timestamp: 1786356000000 + step * 60000,
+          })) }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+        }
+        return new Response('{}', { status: 404 });
+      };
+    },
+    html: `<!doctype html><html><head><title>Runs - Experiment 48 - MLflow</title></head><body><main>
+      <a data-testid="experiment-link" href="#/experiments/48">phase4</a>
+      <h2>Training runs</h2>
+      <div class="ag-row" row-id="run-visible-a"><input class="is-visibility-toggle-checkbox" type="checkbox" checked><a href="#/experiments/48/runs/run-visible-a">Rendered A</a></div>
+      <div class="ag-row" row-id="run-visible-b"><input class="is-visibility-toggle-checkbox" type="checkbox" checked><a href="#/experiments/48/runs/run-visible-b">Rendered B</a></div>
+      <div class="ag-row" row-id="run-hidden"><input class="is-visibility-toggle-checkbox" type="checkbox"><a href="#/experiments/48/runs/run-hidden">Hidden Run</a></div>
+      <div data-testid="experiment-view-compare-runs-chart-area">
+        <input role="searchbox" value="entropy">
+        <div data-testid="experiment-view-compare-runs-card"><h4 title="policy/policy_entropy">policy/policy_entropy</h4></div>
+      </div>
+    </main></body></html>`,
+    context: 'MLflow comparison metrics',
+  });
+  try {
+    await assertRouteIdentity(mlflowComparisonPage, 'MLflow', 'MLflow comparison fixture');
+    const markdown = await clickAndCapture(mlflowComparisonPage, 'MLflow comparison metrics');
+    for (const expected of [
+      '# phase4 Run Comparison',
+      '- **Visible runs:** 2',
+      '| Visible A | run-visible-a | FINISHED | 2026-08-10T10:00:00.000Z |',
+      '| Visible B | run-visible-b | RUNNING | 2026-08-10T10:01:00.000Z |',
+      '### policy/policy_entropy (Visible A)',
+      '### policy/policy_entropy (Visible B)',
+      '| 2 | 2026-08-10T10:02:00.000Z | 0.25 |',
+    ]) {
+      assertCheck(markdown.includes(expected), `MLflow comparison output missing ${JSON.stringify(expected)}: ${markdown}`);
+    }
+    assertCheck(!markdown.includes('Hidden Run'), `MLflow comparison included hidden run: ${markdown}`);
+    const fetches = await mlflowComparisonPage.evaluate(() => window.__metricFixtureFetches);
+    assertCheck(fetches.every(({ url }) => url.includes('/mlflow/ajax-api/2.0/mlflow/')), `MLflow comparison lost static prefix: ${JSON.stringify(fetches)}`);
+    assertCheck(fetches.every(({ credentials }) => credentials === 'include'), 'MLflow comparison omitted browser session credentials');
+    assertCheck(fetches.filter(({ url }) => url.includes('/runs/get')).length === 2, `MLflow comparison fetched wrong run count: ${JSON.stringify(fetches)}`);
+    assertCheck(fetches.filter(({ url }) => url.includes('/metrics/get-history')).length === 2, `MLflow comparison fetched wrong history count: ${JSON.stringify(fetches)}`);
+    assertCompactMetadata(markdown, 'MLflow comparison output');
+  } finally {
+    await mlflowComparisonPage.close();
+  }
+
+  const mlflowOversizedComparisonPage = await createFixturePage(browser, scriptContent, {
+    url: "https://metrics.example.test/mlflow/#/experiments/50/runs?searchFilter=attributes.run_id%20in%20('oversized-comparison')&compareRunsMode=CHART",
+    beforeLoad: () => {
+      window.fetch = async (input) => {
+        const url = new URL(String(input), window.location.origin);
+        if (url.pathname === '/mlflow/ajax-api/2.0/mlflow/runs/get') {
+          return new Response(JSON.stringify({ run: {
+            info: {
+              run_id: 'oversized-comparison',
+              run_name: `Oversized Comparison ${'z'.repeat(130_000)}`,
+              experiment_id: '50',
+              status: 'FINISHED',
+            },
+            data: { metrics: [{ key: 'loss', value: 0.5, step: 1 }] },
+          } }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+        }
+        if (url.pathname === '/mlflow/ajax-api/2.0/mlflow/metrics/get-history') {
+          return new Response(JSON.stringify({ metrics: [{
+            key: 'loss', value: 0.5, step: 1, timestamp: 1786356000000,
+          }] }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+        }
+        return new Response('{}', { status: 404 });
+      };
+    },
+    html: `<!doctype html><html><head><title>Runs | MLflow</title></head><body><main>
+      <a data-testid="experiment-link" href="#/experiments/50">Oversized comparison</a>
+      <div class="ag-row" row-id="oversized-comparison"><input class="is-visibility-toggle-checkbox" type="checkbox" checked><a href="#/experiments/50/runs/oversized-comparison">Rendered run</a></div>
+      <div data-testid="experiment-view-compare-runs-chart-area"><div data-testid="experiment-view-compare-runs-card"><h4 title="loss">loss</h4></div></div>
+    </main></body></html>`,
+    context: 'MLflow oversized comparison output',
+  });
+  try {
+    await assertRouteIdentity(mlflowOversizedComparisonPage, 'MLflow', 'MLflow oversized comparison fixture');
+    const markdown = await clickAndCapture(mlflowOversizedComparisonPage, 'MLflow oversized comparison');
+    assertBoundedMarkdown(markdown, 'MLflow oversized comparison output');
+    log('✅', 'MLflow oversized comparison output preserves frontmatter while truncating at context bound');
+  } finally {
+    await mlflowOversizedComparisonPage.close();
+  }
+
+  const mlflowSearchFilterPage = await createFixturePage(browser, scriptContent, {
+    url: "https://metrics.example.test/mlflow/#/experiments/49/runs?searchFilter=attributes.run_id%20in%20('run-01','run-02','run-03','run-04','run-05','run-06','run-07','run-08','run-09','run-10','run-11','run-12')&compareRunsMode=CHART",
+    beforeLoad: () => {
+      window.__metricFixtureFetches = [];
+      window.fetch = async (input, init = {}) => {
+        const url = new URL(String(input), window.location.origin);
+        window.__metricFixtureFetches.push(url.toString());
+        if (url.pathname === '/mlflow/ajax-api/2.0/mlflow/runs/get') {
+          const runId = url.searchParams.get('run_id') || '';
+          const match = runId.match(/^run-(\d\d)$/);
+          if (!match || Number(match[1]) > 10) return new Response('{}', { status: 404 });
+          const index = Number(match[1]);
+          return new Response(JSON.stringify({ run: {
+            info: {
+              run_id: runId,
+              run_name: `Fallback Run ${match[1]}`,
+              experiment_id: '49',
+              status: index % 2 ? 'FINISHED' : 'RUNNING',
+              start_time: 1786356000000 + index * 60000,
+            },
+            data: { metrics: [{ key: 'loss', value: index / 100, step: index }] },
+          } }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+        }
+        if (url.pathname === '/mlflow/ajax-api/2.0/mlflow/metrics/get-history') {
+          const runId = url.searchParams.get('run_id') || '';
+          const index = Number(runId.slice(-2));
+          return new Response(JSON.stringify({ metrics: [{
+            key: 'loss', value: index / 100, step: index, timestamp: 1786356000000 + index * 60000,
+          }] }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+        }
+        return new Response('{}', { status: 404 });
+      };
+    },
+    html: `<!doctype html><html><head><title>Runs | MLflow</title></head><body><main>
+      <a data-testid="experiment-link" href="#/experiments/49">Fallback experiment</a>
+      <div data-testid="experiment-view-compare-runs-chart-area"><input role="searchbox" value="loss"></div>
+    </main></body></html>`,
+    context: 'MLflow searchFilter comparison fallback',
+  });
+  try {
+    await assertRouteIdentity(mlflowSearchFilterPage, 'MLflow', 'MLflow searchFilter comparison fixture');
+    const markdown = await clickAndCapture(mlflowSearchFilterPage, 'MLflow searchFilter comparison');
+    for (const expected of [
+      '# Fallback experiment Run Comparison',
+      '- **Visible runs:** 12',
+      '*Showing first 10 of 12 visible runs.*',
+      '### loss (Fallback Run 01)',
+      '### loss (Fallback Run 10)',
+    ]) {
+      assertCheck(markdown.includes(expected), `MLflow searchFilter comparison output missing ${JSON.stringify(expected)}: ${markdown}`);
+    }
+    assertCheck(
+      !markdown.includes('### loss (Fallback Run 11)') && !markdown.includes('| Fallback Run 11 |'),
+      'MLflow searchFilter comparison exceeded 10-run cap',
+    );
+    const fetches = await mlflowSearchFilterPage.evaluate(() => window.__metricFixtureFetches);
+    assertCheck(fetches.filter((url) => url.includes('/runs/get')).length === 10, 'MLflow searchFilter fallback fetched wrong run count');
+    assertCheck(fetches.filter((url) => url.includes('/metrics/get-history')).length === 10, 'MLflow searchFilter fallback fetched wrong history count');
+    assertCompactMetadata(markdown, 'MLflow searchFilter comparison output');
+    log('✅', 'MLflow comparison falls back to searchFilter IDs when rows are absent and caps visible runs');
+  } finally {
+    await mlflowSearchFilterPage.close();
+  }
+
+  const mlflowListPage = await createFixturePage(browser, scriptContent, {
+    url: 'https://metrics.example.test/mlflow/#/experiments/7/runs',
+    html: '<!doctype html><html><head><title>MLflow runs</title></head><body><main><h1>Runs</h1></main></body></html>',
+  });
+  try {
+    await assertRouteIdentity(mlflowListPage, 'Fallback', 'MLflow run list');
+  } finally {
+    await mlflowListPage.close();
+  }
+
+  const mlflowLookalikePage = await createFixturePage(browser, scriptContent, {
+    url: 'https://analytics.example.test/#/experiments/7/runs/lookalike',
+    html: '<!doctype html><html><head><title>Analytics Dashboard</title></head><body><main><h1>Analytics Dashboard</h1><p>Not an MLflow application.</p></main></body></html>',
+    context: 'non-MLflow hash lookalike',
+  });
+  try {
+    await assertRouteIdentity(mlflowLookalikePage, 'Fallback', 'non-MLflow hash lookalike');
+    const markdown = await clickAndCapture(mlflowLookalikePage, 'non-MLflow hash lookalike');
+    assertCheck(markdown.includes('Not an MLflow application.'), 'non-MLflow hash lookalike did not use fallback extraction');
+    assertCheck(!markdown.includes('source: MLflow'), 'non-MLflow hash lookalike claimed MLflow identity');
+    log('✅', 'MLflow hash-shaped routes require MLflow page identity before claiming extractor');
+  } finally {
+    await mlflowLookalikePage.close();
+  }
+
+  log('✅', 'W&B sampled metrics plus MLflow run and comparison histories produce bounded Markdown time series');
 }
 
 async function runProductionUiChecks(browser, scriptContent) {
@@ -2462,6 +3534,26 @@ async function runProductionUiChecks(browser, scriptContent) {
   const userscriptUrl = 'https://github.com/bvolpato/copy-as-markdown/releases/latest/download/copy-as-markdown.user.js';
 
   const landingPage = await browser.newPage();
+  const faviconRequests = [];
+  await landingPage.setRequestInterception(true);
+  landingPage.on('request', (request) => {
+    const requestUrl = new URL(request.url());
+    if (requestUrl.origin === 'https://t1.gstatic.com' && requestUrl.pathname === '/faviconV2') {
+      const targetUrl = requestUrl.searchParams.get('url');
+      faviconRequests.push({ url: request.url(), targetUrl });
+      if (targetUrl === 'https://claude.ai') {
+        request.abort();
+        return;
+      }
+      request.respond({
+        status: 200,
+        contentType: 'image/svg+xml',
+        body: '<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32"><rect width="32" height="32" fill="#34d399"/></svg>',
+      });
+      return;
+    }
+    request.continue();
+  });
   try {
     await landingPage.goto(pathToFileURL(path.join(ROOT, 'docs', 'index.html')).href, {
       waitUntil: 'domcontentloaded',
@@ -2471,6 +3563,21 @@ async function runProductionUiChecks(browser, scriptContent) {
         .every((logo) => logo.complete && logo.naturalWidth > 0),
       { timeout: 4000 },
     );
+    for (const siteName of ['Datadog dashboards', 'ChatGPT', 'Claude']) {
+      await landingPage.evaluate((name) => {
+        const card = [...document.querySelectorAll('.site-card')].find((candidate) => (
+          candidate.querySelector('h3')?.textContent?.trim() === name
+        ));
+        card?.scrollIntoView({ block: 'center' });
+      }, siteName);
+      await landingPage.waitForFunction((name) => {
+        const card = [...document.querySelectorAll('.site-card')].find((candidate) => (
+          candidate.querySelector('h3')?.textContent?.trim() === name
+        ));
+        return card?.querySelector('.site-icon')?.dataset.faviconRequested === 'true';
+      }, { timeout: 4000 }, siteName);
+    }
+    await new Promise((resolve) => setTimeout(resolve, 100));
     await landingPage.addScriptTag({ content: scriptContent });
     await new Promise(r => setTimeout(r, 800));
     const controls = await landingPage.evaluate(() => ({
@@ -2494,7 +3601,27 @@ async function runProductionUiChecks(browser, scriptContent) {
       cardLogosLoaded: [...document.querySelectorAll('.install-card .install-logo')]
         .every((logo) => logo.naturalWidth > 0),
       siteCards: document.querySelectorAll('.site-card').length,
-      purposeBuiltCount: document.body.textContent.includes('61 purpose-built'),
+      purposeBuiltCount: document.body.textContent.includes('64 purpose-built'),
+      favicons: {
+        configured: document.querySelectorAll('.site-icon[data-favicon-url]').length,
+        invalidTargets: [...document.querySelectorAll('.site-icon[data-favicon-url]')]
+          .filter((icon) => new URL(icon.dataset.faviconUrl).protocol !== 'https:').length,
+        datadog: [...document.querySelectorAll('.site-card')]
+          .find((card) => card.querySelector('h3')?.textContent?.trim() === 'Datadog dashboards')
+          ?.querySelector('.site-icon img')?.src,
+        chatgpt: [...document.querySelectorAll('.site-card')]
+          .find((card) => card.querySelector('h3')?.textContent?.trim() === 'ChatGPT')
+          ?.querySelector('.site-icon img')?.src,
+        claudeFallback: [...document.querySelectorAll('.site-card')]
+          .find((card) => card.querySelector('h3')?.textContent?.trim() === 'Claude')
+          ?.querySelector('.site-icon')?.textContent?.trim(),
+        genericFallbacks: ['News (20+ sites)', 'Any website'].every((name) => {
+          const icon = [...document.querySelectorAll('.site-card')]
+            .find((card) => card.querySelector('h3')?.textContent?.trim() === name)
+            ?.querySelector('.site-icon');
+          return icon && !icon.dataset.faviconUrl && !icon.querySelector('img');
+        }),
+      },
     }));
     assertCheck(controls.injected === 0, 'page opt-out still injected a Copy as Markdown button');
     assertCheck(controls.demo === 1, 'page opt-out removed the site-owned demo control');
@@ -2510,8 +3637,32 @@ async function runProductionUiChecks(browser, scriptContent) {
       `install choices are not equal first-class actions: ${JSON.stringify(controls.installChoices)}`,
     );
     assertCheck(controls.cardLogosLoaded, 'install card logos did not load');
-    assertCheck(controls.siteCards === 62, `landing page rendered ${controls.siteCards} site cards instead of 62`);
+    assertCheck(controls.siteCards === 65, `landing page rendered ${controls.siteCards} site cards instead of 65`);
     assertCheck(controls.purposeBuiltCount, 'landing page purpose-built extractor count is stale');
+    assertCheck(controls.favicons.configured === 63, `landing page configured ${controls.favicons.configured} service favicons instead of 63`);
+    assertCheck(controls.favicons.invalidTargets === 0, 'landing page configured non-HTTPS favicon targets');
+    assertCheck(controls.favicons.genericFallbacks, 'generic landing-page cards should retain local emoji fallbacks');
+    assertCheck(controls.favicons.claudeFallback === '🧠', 'failed favicon request removed Claude emoji fallback');
+    for (const [name, src, targetUrl] of [
+      ['Datadog', controls.favicons.datadog, 'https://datadoghq.com'],
+      ['ChatGPT', controls.favicons.chatgpt, 'https://chatgpt.com'],
+    ]) {
+      const faviconUrl = new URL(src);
+      assertCheck(faviconUrl.origin === 'https://t1.gstatic.com' && faviconUrl.pathname === '/faviconV2', `${name} icon does not use Google FaviconV2`);
+      assertCheck(
+        faviconUrl.searchParams.get('client') === 'SOCIAL'
+          && faviconUrl.searchParams.get('type') === 'FAVICON'
+          && faviconUrl.searchParams.get('fallback_opts') === 'TYPE,SIZE,URL'
+          && faviconUrl.searchParams.get('url') === targetUrl
+          && faviconUrl.searchParams.get('size') === '32'
+          && faviconUrl.searchParams.get('drop_404_icon') === 'true',
+        `${name} favicon URL is incomplete: ${src}`,
+      );
+    }
+    assertCheck(
+      faviconRequests.some(({ targetUrl }) => targetUrl === 'https://claude.ai'),
+      'landing page did not request Claude favicon fallback',
+    );
     await landingPage.emulateMediaType('print');
     const printDemoDisplay = await landingPage.$eval('.live-demo-wrapper', (element) => getComputedStyle(element).display);
     assertCheck(printDemoDisplay === 'none', 'landing page demo button remains visible when printing');

@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Copy as Markdown — One click. Clean Markdown. Perfect LLM context.</title>
-  <meta name="description" content="Context-aware Copy as Markdown button for sharing web pages with LLMs like ChatGPT, Claude, and Gemini. Supports 61 purpose-built extractors.">
+  <meta name="description" content="Context-aware Copy as Markdown button for sharing web pages with LLMs like ChatGPT, Claude, and Gemini. Supports 64 purpose-built extractors.">
   <meta property="og:title" content="Copy as Markdown">
   <meta property="og:description" content="One click. Clean Markdown. Perfect LLM context.">
   <meta property="og:type" content="website">
@@ -367,6 +367,12 @@
       font-size: 20px;
       flex-shrink: 0;
     }
+    .site-card .site-icon img {
+      display: block;
+      width: 32px;
+      height: 32px;
+      object-fit: contain;
+    }
     .site-card h3 { font-size: 15px; font-weight: 700; margin-bottom: 4px; }
     .site-card p { font-size: 13px; color: var(--text-muted); line-height: 1.5; }
 
@@ -651,10 +657,10 @@
   <!-- Hero -->
   <section class="hero">
     <div class="container">
-      <div class="badge">✨ Works on every website — 61 with first-class extraction</div>
+      <div class="badge">✨ Works on every website — 64 with first-class extraction</div>
       <h1>One click.<br><span class="gradient">Clean Markdown.</span><br>Perfect LLM context.</h1>
       <p class="subtitle">
-        Context-aware “Copy as Markdown” button that works on every website. 61 sites get purpose-built extractors — the rest use smart fallback detection. One click to share with ChatGPT, Claude, or Gemini.
+        Context-aware “Copy as Markdown” button that works on every website. 64 integrations get purpose-built extraction — the rest use smart fallback detection. One click to share with ChatGPT, Claude, or Gemini.
       </p>
       <div class="ctas">
         <a href="https://github.com/bvolpato/copy-as-markdown/releases/latest/download/copy-as-markdown.user.js" class="btn-install" data-hero-install="userscript">
@@ -743,100 +749,112 @@ encoded with a different Caesar cipher...
   <section class="sites-section reveal" id="sites">
     <div class="container">
       <div class="section-label">First-Class Extractors</div>
-      <h2 class="section-title">61 purpose-built. Every site supported.</h2>
-      <p class="section-desc">These sites get tuned extractors that capture the signal and strip the noise. Every other website uses smart fallback detection via article/main element discovery.</p>
+      <h2 class="section-title">64 purpose-built. Every site supported.</h2>
+      <p class="section-desc">These sites and frameworks get tuned extractors that capture the signal and strip the noise. Content detection recognizes custom-domain Notion, Sphinx, and Read the Docs pages before generic article/main fallback.</p>
 
       <div class="sites-grid">
         <div class="site-card">
-          <div class="site-icon">📚</div>
+          <div class="site-icon" data-favicon-url="https://wikipedia.org">📚</div>
           <div><h3>Wikipedia</h3><p>Article body, tables, infoboxes — edit buttons and references stripped</p></div>
         </div>
         <div class="site-card">
-          <div class="site-icon">📝</div>
+          <div class="site-icon" data-favicon-url="https://docs.google.com">📝</div>
           <div><h3>Google Docs</h3><p>Full document export — headings, lists, tables, links, images</p></div>
         </div>
         <div class="site-card">
-          <div class="site-icon">📋</div>
+          <div class="site-icon" data-favicon-url="https://sheets.google.com">📋</div>
           <div><h3>Google Sheets</h3><p>Active sheet or selected range as a clean, bounded table</p></div>
         </div>
         <div class="site-card">
-          <div class="site-icon">🖥️</div>
+          <div class="site-icon" data-favicon-url="https://slides.google.com">🖥️</div>
           <div><h3>Google Slides</h3><p>Choose current slide or full deck, with ordered titles, text, links, and speaker notes when available</p></div>
         </div>
         <div class="site-card">
-          <div class="site-icon">✉️</div>
+          <div class="site-icon" data-favicon-url="https://mail.google.com">✉️</div>
           <div><h3>Gmail</h3><p>Full authenticated threads — participants, message bodies, links, and attachments</p></div>
         </div>
         <div class="site-card">
-          <div class="site-icon">⬛</div>
+          <div class="site-icon" data-favicon-url="https://notion.so">⬛</div>
           <div><h3>Notion</h3><p>Pages and databases with properties, rich blocks, code, and tables</p></div>
         </div>
         <div class="site-card">
-          <div class="site-icon">▦</div>
+          <div class="site-icon" data-favicon-url="https://readthedocs.org">📖</div>
+          <div><h3>Sphinx / Read the Docs</h3><p>Content-detected documentation with navigation stripped and code languages preserved</p></div>
+        </div>
+        <div class="site-card">
+          <div class="site-icon" data-favicon-url="https://www.microsoft365.com">▦</div>
           <div><h3>Microsoft 365</h3><p>Structured Word, Excel, and PowerPoint web content</p></div>
         </div>
         <div class="site-card">
-          <div class="site-icon">🟣</div>
+          <div class="site-icon" data-favicon-url="https://slack.com">🟣</div>
           <div><h3>Slack</h3><p>Loaded channels and threads with authors, timestamps, reactions, and attachments</p></div>
         </div>
         <div class="site-card">
-          <div class="site-icon">🎮</div>
+          <div class="site-icon" data-favicon-url="https://discord.com">🎮</div>
           <div><h3>Discord</h3><p>Loaded messages and threads with authors, replies, reactions, and attachments</p></div>
         </div>
         <div class="site-card">
-          <div class="site-icon">🎫</div>
+          <div class="site-icon" data-favicon-url="https://www.atlassian.com/software/jira">🎫</div>
           <div><h3>Jira</h3><p>Authenticated REST fields, ADF descriptions/comments, links, and rendered DOM fallback</p></div>
         </div>
         <div class="site-card">
-          <div class="site-icon">📘</div>
+          <div class="site-icon" data-favicon-url="https://www.atlassian.com/software/confluence">📘</div>
           <div><h3>Confluence</h3><p>Authenticated REST page body, labels, tables, code, visible comments, and DOM fallback</p></div>
         </div>
         <div class="site-card">
-          <div class="site-icon">📈</div>
+          <div class="site-icon" data-favicon-url="https://datadoghq.com">📈</div>
           <div><h3>Datadog dashboards</h3><p>Filters, groups, widget values, top lists, visible chart annotations</p></div>
         </div>
         <div class="site-card">
-          <div class="site-icon">📓</div>
+          <div class="site-icon" data-favicon-url="https://datadoghq.com">📓</div>
           <div><h3>Datadog notebooks</h3><p>Metadata, narrative, ordered visualization cells, visible chart snapshots</p></div>
         </div>
         <div class="site-card">
-          <div class="site-icon">📚</div>
+          <div class="site-icon" data-favicon-url="https://datadoghq.com">📚</div>
           <div><h3>Datadog Documentation</h3><p>Authored Markdown source when available, cleaned rendered DOM otherwise</p></div>
         </div>
         <div class="site-card">
-          <div class="site-icon">🔍</div>
+          <div class="site-icon" data-favicon-url="https://wandb.ai">📉</div>
+          <div><h3>Weights & Biases</h3><p>Run configuration, metric summaries, sparklines, and sampled history tables</p></div>
+        </div>
+        <div class="site-card">
+          <div class="site-icon" data-favicon-url="https://mlflow.org">🧪</div>
+          <div><h3>MLflow</h3><p>Self-hosted run metadata and chart comparisons for visible runs and loaded metrics</p></div>
+        </div>
+        <div class="site-card">
+          <div class="site-icon" data-favicon-url="https://google.com">🔍</div>
           <div><h3>Google Search</h3><p>Query, featured snippets, knowledge panel, ranked results</p></div>
         </div>
         <div class="site-card">
-          <div class="site-icon">💻</div>
+          <div class="site-icon" data-favicon-url="https://github.com">💻</div>
           <div><h3>GitHub</h3><p>Issues, PRs, repos, README files, code — with metadata</p></div>
         </div>
         <div class="site-card">
-          <div class="site-icon">🦊</div>
+          <div class="site-icon" data-favicon-url="https://gitlab.com">🦊</div>
           <div><h3>GitLab</h3><p>Repositories, source files, issues, merge requests, comments, and diffs</p></div>
         </div>
         <div class="site-card">
-          <div class="site-icon">🪣</div>
+          <div class="site-icon" data-favicon-url="https://bitbucket.org">🪣</div>
           <div><h3>Bitbucket</h3><p>Repositories, source files, pull requests, issues, comments, and diffs</p></div>
         </div>
         <div class="site-card">
-          <div class="site-icon">🔮</div>
+          <div class="site-icon" data-favicon-url="https://perplexity.ai">🔮</div>
           <div><h3>Perplexity</h3><p>Conversations with role labels, citations, and source links</p></div>
         </div>
         <div class="site-card">
-          <div class="site-icon">✦</div>
+          <div class="site-icon" data-favicon-url="https://grok.com">✦</div>
           <div><h3>Grok</h3><p>Conversations with role labels, citations, code, and images</p></div>
         </div>
         <div class="site-card">
-          <div class="site-icon">📺</div>
+          <div class="site-icon" data-favicon-url="https://youtube.com">📺</div>
           <div><h3>YouTube</h3><p>Title, channel, views, description, chapters, comments, transcript</p></div>
         </div>
         <div class="site-card">
-          <div class="site-icon">🗣️</div>
+          <div class="site-icon" data-favicon-url="https://reddit.com">🗣️</div>
           <div><h3>Reddit</h3><p>Post, subreddit, author, score, threaded comments with depth</p></div>
         </div>
         <div class="site-card">
-          <div class="site-icon">𝕏</div>
+          <div class="site-icon" data-favicon-url="https://x.com">𝕏</div>
           <div><h3>X (Twitter)</h3><p>Posts with replies, timelines with engagement stats</p></div>
         </div>
         <div class="site-card">
@@ -844,151 +862,151 @@ encoded with a different Caesar cipher...
           <div><h3>News (20+ sites)</h3><p>CNN, BBC, NYT, Reuters — article body, author, date, paywall detection</p></div>
         </div>
         <div class="site-card">
-          <div class="site-icon">❓</div>
+          <div class="site-icon" data-favicon-url="https://stackoverflow.com">❓</div>
           <div><h3>Stack Overflow</h3><p>Question, all answers (✅ accepted), vote counts, comments</p></div>
         </div>
         <div class="site-card">
-          <div class="site-icon">🟧</div>
+          <div class="site-icon" data-favicon-url="https://news.ycombinator.com">🟧</div>
           <div><h3>Hacker News</h3><p>Title, link, score, nested comment threads</p></div>
         </div>
         <div class="site-card">
-          <div class="site-icon">💼</div>
+          <div class="site-icon" data-favicon-url="https://linkedin.com">💼</div>
           <div><h3>LinkedIn</h3><p>Profiles, posts, articles — with reactions and comments</p></div>
         </div>
         <div class="site-card">
-          <div class="site-icon">f</div>
+          <div class="site-icon" data-favicon-url="https://facebook.com">f</div>
           <div><h3>Facebook</h3><p>Posts and reels with captions, engagement, media, and visible comments</p></div>
         </div>
         <div class="site-card">
-          <div class="site-icon">◎</div>
+          <div class="site-icon" data-favicon-url="https://instagram.com">◎</div>
           <div><h3>Instagram</h3><p>Posts and reels with captions, media descriptions, engagement, and comments</p></div>
         </div>
         <div class="site-card">
-          <div class="site-icon">♪</div>
+          <div class="site-icon" data-favicon-url="https://tiktok.com">♪</div>
           <div><h3>TikTok</h3><p>Videos with creator metadata, captions or transcripts, engagement, and comments</p></div>
         </div>
         <div class="site-card">
-          <div class="site-icon">🛒</div>
+          <div class="site-icon" data-favicon-url="https://amazon.com">🛒</div>
           <div><h3>Amazon</h3><p>Product title, price, rating, features, reviews (8 TLDs)</p></div>
         </div>
         <div class="site-card">
-          <div class="site-icon">📄</div>
+          <div class="site-icon" data-favicon-url="https://arxiv.org">📄</div>
           <div><h3>arXiv</h3><p>Paper title, authors, abstract, full body from HTML pages</p></div>
         </div>
         <div class="site-card">
-          <div class="site-icon">📊</div>
+          <div class="site-icon" data-favicon-url="https://polymarket.com">📊</div>
           <div><h3>Polymarket</h3><p>Market odds, resolution rules, volume, comments</p></div>
         </div>
         <div class="site-card">
-          <div class="site-icon">🔎</div>
+          <div class="site-icon" data-favicon-url="https://bing.com">🔎</div>
           <div><h3>Bing Search</h3><p>Results, knowledge sidebar, related searches</p></div>
         </div>
         <div class="site-card">
-          <div class="site-icon">💬</div>
+          <div class="site-icon" data-favicon-url="https://web.whatsapp.com">💬</div>
           <div><h3>WhatsApp Web</h3><p>Chat messages with sender, timestamp, media indicators</p></div>
         </div>
         <div class="site-card">
-          <div class="site-icon">✍️</div>
+          <div class="site-icon" data-favicon-url="https://medium.com">✍️</div>
           <div><h3>Medium</h3><p>Articles with author, publication, claps, reading time, full body</p></div>
         </div>
         <div class="site-card">
-          <div class="site-icon">📨</div>
+          <div class="site-icon" data-favicon-url="https://substack.com">📨</div>
           <div><h3>Substack</h3><p>Newsletter posts with author, likes, paywall detection</p></div>
         </div>
         <div class="site-card">
-          <div class="site-icon">👩‍💻</div>
+          <div class="site-icon" data-favicon-url="https://dev.to">👩‍💻</div>
           <div><h3>Dev.to</h3><p>Developer articles with tags, reactions, comments</p></div>
         </div>
         <div class="site-card">
-          <div class="site-icon">📖</div>
+          <div class="site-icon" data-favicon-url="https://developer.mozilla.org">📖</div>
           <div><h3>MDN Web Docs</h3><p>Developer docs with code examples, browser compat tables</p></div>
         </div>
         <div class="site-card">
-          <div class="site-icon">🤖</div>
+          <div class="site-icon" data-favicon-url="https://chatgpt.com">🤖</div>
           <div><h3>ChatGPT</h3><p>Shared conversations with user/assistant role labels</p></div>
         </div>
         <div class="site-card">
-          <div class="site-icon">🧠</div>
+          <div class="site-icon" data-favicon-url="https://claude.ai">🧠</div>
           <div><h3>Claude</h3><p>Conversations with user/assistant role labels</p></div>
         </div>
         <div class="site-card">
-          <div class="site-icon">✨</div>
+          <div class="site-icon" data-favicon-url="https://gemini.google.com">✨</div>
           <div><h3>Gemini</h3><p>Conversations with user/model role labels</p></div>
         </div>
         <div class="site-card">
-          <div class="site-icon">📜</div>
+          <div class="site-icon" data-favicon-url="https://grokipedia.com">📜</div>
           <div><h3>Grokipedia</h3><p>Full article content with title and URL</p></div>
         </div>
         <div class="site-card">
-          <div class="site-icon">📦</div>
+          <div class="site-icon" data-favicon-url="https://npmjs.com">📦</div>
           <div><h3>NPM</h3><p>Package info, version, downloads, README, dependencies</p></div>
         </div>
         <div class="site-card">
-          <div class="site-icon">🐍</div>
+          <div class="site-icon" data-favicon-url="https://pypi.org">🐍</div>
           <div><h3>PyPI</h3><p>Python packages with version, description, full README</p></div>
         </div>
         <div class="site-card">
-          <div class="site-icon">∞</div>
+          <div class="site-icon" data-favicon-url="https://meta.ai">∞</div>
           <div><h3>Meta AI</h3><p>Conversations with ordered user/assistant turns, citations, code, and images</p></div>
         </div>
         <div class="site-card">
-          <div class="site-icon">🧑‍🏫</div>
+          <div class="site-icon" data-favicon-url="https://leetllm.com">🧑‍🏫</div>
           <div><h3>LeetLLM</h3><p>Lessons, glossary pages, practice content, code, links, and learning context</p></div>
         </div>
         <div class="site-card">
-          <div class="site-icon">🦆</div>
+          <div class="site-icon" data-favicon-url="https://duckduckgo.com">🦆</div>
           <div><h3>DuckDuckGo Search</h3><p>Query, ranked results, snippets, and related searches</p></div>
         </div>
         <div class="site-card">
-          <div class="site-icon">Y!</div>
+          <div class="site-icon" data-favicon-url="https://yahoo.com">Y!</div>
           <div><h3>Yahoo Search</h3><p>Query, ranked results, snippets, and destination links</p></div>
         </div>
         <div class="site-card">
-          <div class="site-icon">Я</div>
+          <div class="site-icon" data-favicon-url="https://yandex.com">Я</div>
           <div><h3>Yandex Search</h3><p>Query, answer cards, ranked results, and related searches</p></div>
         </div>
         <div class="site-card">
-          <div class="site-icon">百</div>
+          <div class="site-icon" data-favicon-url="https://baidu.com">百</div>
           <div><h3>Baidu Search</h3><p>Query, ranked results, abstracts, and destination links</p></div>
         </div>
         <div class="site-card">
-          <div class="site-icon">🦁</div>
+          <div class="site-icon" data-favicon-url="https://search.brave.com">🦁</div>
           <div><h3>Brave Search</h3><p>Query, answer cards, ranked results, discussions, and related searches</p></div>
         </div>
         <div class="site-card">
-          <div class="site-icon">N</div>
+          <div class="site-icon" data-favicon-url="https://netflix.com">N</div>
           <div><h3>Netflix</h3><p>Title metadata, synopsis, cast, genres, ratings, seasons, and episodes when visible</p></div>
         </div>
         <div class="site-card">
-          <div class="site-icon">P</div>
+          <div class="site-icon" data-favicon-url="https://pinterest.com">P</div>
           <div><h3>Pinterest</h3><p>Pins with creator, description, destination, media, engagement, and comments</p></div>
         </div>
         <div class="site-card">
-          <div class="site-icon">🛍️</div>
+          <div class="site-icon" data-favicon-url="https://temu.com">🛍️</div>
           <div><h3>Temu</h3><p>Product title, price, availability, ratings, variants, specifications, and description</p></div>
         </div>
         <div class="site-card">
-          <div class="site-icon">🌦️</div>
+          <div class="site-icon" data-favicon-url="https://weather.com">🌦️</div>
           <div><h3>Weather.com</h3><p>Current conditions, alerts, hourly outlook, and daily forecast</p></div>
         </div>
         <div class="site-card">
-          <div class="site-icon">◉</div>
+          <div class="site-icon" data-favicon-url="https://twitch.tv">◉</div>
           <div><h3>Twitch</h3><p>Channels, live streams, videos, and clips with game, viewers, tags, and description</p></div>
         </div>
         <div class="site-card">
-          <div class="site-icon">VK</div>
+          <div class="site-icon" data-favicon-url="https://vk.com">VK</div>
           <div><h3>VK</h3><p>Posts with author, timestamp, text, media, engagement, and visible comments</p></div>
         </div>
         <div class="site-card">
-          <div class="site-icon">G</div>
+          <div class="site-icon" data-favicon-url="https://globo.com">G</div>
           <div><h3>Globo</h3><p>Articles and videos with headline, author, date, structured metadata, and clean body</p></div>
         </div>
         <div class="site-card">
-          <div class="site-icon">FOX</div>
+          <div class="site-icon" data-favicon-url="https://fox.com">FOX</div>
           <div><h3>FOX</h3><p>Shows, episodes, movies, and videos with synopsis and structured details</p></div>
         </div>
         <div class="site-card">
-          <div class="site-icon">🏨</div>
+          <div class="site-icon" data-favicon-url="https://booking.com">🏨</div>
           <div><h3>Booking.com</h3><p>Hotels and search results with prices, scores, facilities, policies, and availability</p></div>
         </div>
         <div class="site-card">
@@ -1211,6 +1229,42 @@ encoded with a different Caesar cipher...
         setTimeout(function() { btn.classList.remove('success'); }, 2000);
       });
     });
+  })();
+
+  // Favicon fetches use fixed service URLs. Keep each emoji as a fallback when a logo is unavailable.
+  (function() {
+    var faviconEndpoint = 'https://t1.gstatic.com/faviconV2?client=SOCIAL&type=FAVICON&fallback_opts=TYPE,SIZE,URL&url=';
+    var icons = document.querySelectorAll('.site-icon[data-favicon-url]');
+
+    function loadFavicon(icon) {
+      var siteUrl = icon.getAttribute('data-favicon-url');
+      if (!siteUrl || icon.dataset.faviconRequested) return;
+      icon.dataset.faviconRequested = 'true';
+
+      var image = new Image(32, 32);
+      image.alt = '';
+      image.decoding = 'async';
+      image.referrerPolicy = 'no-referrer';
+      image.addEventListener('load', function() {
+        if (image.naturalWidth && image.naturalHeight) icon.replaceChildren(image);
+      });
+      image.src = faviconEndpoint + encodeURIComponent(siteUrl) + '&size=32&drop_404_icon=true';
+    }
+
+    if (!('IntersectionObserver' in window)) {
+      icons.forEach(loadFavicon);
+      return;
+    }
+
+    var observer = new IntersectionObserver(function(entries) {
+      entries.forEach(function(entry) {
+        if (entry.isIntersecting) {
+          loadFavicon(entry.target);
+          observer.unobserve(entry.target);
+        }
+      });
+    }, { rootMargin: '160px 0px' });
+    icons.forEach(function(icon) { observer.observe(icon); });
   })();
 
   // Scroll-reveal observer

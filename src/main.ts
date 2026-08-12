@@ -5,7 +5,7 @@
  * the matching one for the current page and shows the button.
  */
 
-import { findExtractor, findExtensionPageButtonCandidate } from './core/registry';
+import { findDetectedExtractor, findExtractor, findExtensionPageButtonCandidate } from './core/registry';
 import { showButton, hideButton, copyToClipboard, showToast, isHostDismissed, chooseExtractionOption } from './core/ui';
 import type { Extractor } from './core/types';
 import { buildPageMarkdown, elementToMarkdown } from './core/markdown';
@@ -64,6 +64,7 @@ import './extractors/medium';
 import './extractors/devto';
 import './extractors/mdn';
 import './extractors/datadog-docs';
+import './extractors/documentation';
 import './extractors/substack';
 import './extractors/chatgpt';
 import './extractors/claude';
@@ -73,6 +74,8 @@ import './extractors/npm';
 import './extractors/pypi';
 import './extractors/datadog-dashboard';
 import './extractors/datadog-notebook';
+import './extractors/wandb';
+import './extractors/mlflow';
 
 declare const __IS_USERSCRIPT__: boolean;
 
@@ -85,7 +88,7 @@ const PAGE_BUTTON_OPTOUT_ID = 'copy_as_markdown_btn';
   let toolbarListenerAttached = false;
 
   function getExtractor() {
-    let extractor = findExtractor(window.location.href);
+    let extractor = findExtractor(window.location.href) || findDetectedExtractor();
 
     if (!extractor) {
       // Fallback best-effort extractor for unlisted pages
@@ -196,7 +199,7 @@ const PAGE_BUTTON_OPTOUT_ID = 'copy_as_markdown_btn';
         return;
       }
 
-      const registeredExtractor = findExtractor(window.location.href);
+      const registeredExtractor = findExtractor(window.location.href) || findDetectedExtractor();
       if (!isUserscript && !registeredExtractor?.extensionPageButton) {
         hideButton();
         return;
@@ -221,12 +224,19 @@ const PAGE_BUTTON_OPTOUT_ID = 'copy_as_markdown_btn';
     // Re-detect on SPA navigation and page-owned opt-out changes.
     let lastUrl = window.location.href;
     let lastPageButtonOptOut = hasPageButtonOptOut();
+    let lastExtractorName = (findExtractor(lastUrl) || findDetectedExtractor())?.name || '';
     const observer = new MutationObserver(() => {
       const currentUrl = window.location.href;
       const pageButtonOptOut = hasPageButtonOptOut();
-      if (currentUrl !== lastUrl || pageButtonOptOut !== lastPageButtonOptOut) {
+      const extractorName = (findExtractor(currentUrl) || findDetectedExtractor())?.name || '';
+      if (
+        currentUrl !== lastUrl
+        || pageButtonOptOut !== lastPageButtonOptOut
+        || extractorName !== lastExtractorName
+      ) {
         lastUrl = currentUrl;
         lastPageButtonOptOut = pageButtonOptOut;
+        lastExtractorName = extractorName;
         if (pageButtonOptOut) {
           hideButton();
           return;

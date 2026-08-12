@@ -20,15 +20,31 @@ register({
   buttonPlacement: 'anchor',
   anchor: {
     selector: [
+      '[data-testid="duckbar"] nav > ul:first-of-type',
+      '#react-duckbar nav > ul:first-of-type',
+      '#duckbar nav > ul:first-of-type',
       '#duckbar',
       '.header--aside',
       '.header--search',
       '.searchbox',
       '#search_form_input_homepage',
     ].join(', '),
-    position: 'after',
-    style: 'pill',
-    css: { marginLeft: '8px' },
+    position: 'append',
+    style: 'link',
+    wrapperTag: 'li',
+    wrapperCss: {
+      display: 'flex',
+      alignItems: 'center',
+      marginLeft: '4px',
+    },
+    css: {
+      padding: '8px 0',
+      fontSize: '13px',
+      fontWeight: '600',
+      whiteSpace: 'nowrap',
+      opacity: '1',
+    },
+    label: 'Copy as Markdown',
   },
 
   async extract() {

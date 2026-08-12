@@ -118,6 +118,11 @@ Required to write generated Markdown to the user's clipboard. Clipboard output i
 Required only on dashboard and notebook routes under datadoghq.com, datadoghq.eu, and ddog-gov.com. Access places an inline control and, after a user click, reads dashboard or notebook definitions and metric series from Datadog's same-origin HTTPS APIs using the user's existing session. Responses are processed in the browser and are not sent to the developer or unrelated third parties.
 ```
 
+**Weights & Biases site access justification:**
+```
+Required only on run routes under wandb.ai. Access places a page control and, after a user click, reads run metadata and sampled metric history from W&B's HTTPS GraphQL API using the user's existing session. Responses are processed in the browser and are not sent to the developer or unrelated third parties.
+```
+
 **Are you using remote code?**
 ```
 No, I am not using Remote code
@@ -229,7 +234,7 @@ Context-aware Markdown extraction for articles, documentation, dashboards, conve
 ```
 Copy as Markdown converts web content into clean, structured Markdown with one click. It preserves headings, tables, links, code blocks, lists, title, and URL for AI workflows, research, notes, and documentation.
 
-61 FIRST-CLASS EXTRACTORS
+64 FIRST-CLASS EXTRACTORS
 
 • Wikipedia: article body, infoboxes, and tables
 • GitHub: issues, pull requests, directory listings, full code files, and patches
@@ -253,6 +258,7 @@ Copy as Markdown converts web content into clean, structured Markdown with one c
 • Google Slides: choose current slide or full deck, with ordered text, links, and speaker notes when available
 • Gmail: authenticated threads with subjects, participants, message bodies, and attachments
 • Notion: pages and databases with properties, rich blocks, code, and tables
+• Sphinx / Read the Docs: content-detected documentation with navigation stripped and code languages preserved
 • Microsoft 365: structured Word, Excel, and PowerPoint web content
 • Slack: loaded channel and thread messages with authors, timestamps, reactions, and attachments
 • Discord: loaded messages and threads with authors, replies, reactions, and attachments
@@ -262,6 +268,8 @@ Copy as Markdown converts web content into clean, structured Markdown with one c
 • Datadog dashboards: filters, groups, widget values, top lists, named series, sparklines, and summary statistics
 • Datadog notebooks: metadata, narrative, visualization cells, named series, sparklines, and summary statistics
 • Datadog Documentation: authored Markdown source when available, with cleaned rendered-page fallback
+• Weights & Biases: run metadata, configuration, numeric metric summaries, sparklines, and sampled history tables
+• MLflow: self-hosted run metadata plus chart comparisons for visible runs and loaded metrics, with paginated metric-history tables
 • Amazon: product title, price, rating, features, specifications, and reviews
 • LinkedIn: profiles, posts, articles, reactions, and comments
 • X: posts, replies, timelines, and engagement statistics
