@@ -3612,6 +3612,12 @@ async function runProductionUiChecks(browser, scriptContent) {
         chatgpt: [...document.querySelectorAll('.site-card')]
           .find((card) => card.querySelector('h3')?.textContent?.trim() === 'ChatGPT')
           ?.querySelector('.site-icon img')?.src,
+        chatgptBackground: (() => {
+          const icon = [...document.querySelectorAll('.site-card')]
+            .find((card) => card.querySelector('h3')?.textContent?.trim() === 'ChatGPT')
+            ?.querySelector('.site-icon');
+          return icon ? getComputedStyle(icon).backgroundColor : '';
+        })(),
         claudeFallback: [...document.querySelectorAll('.site-card')]
           .find((card) => card.querySelector('h3')?.textContent?.trim() === 'Claude')
           ?.querySelector('.site-icon')?.textContent?.trim(),
@@ -3643,6 +3649,10 @@ async function runProductionUiChecks(browser, scriptContent) {
     assertCheck(controls.favicons.invalidTargets === 0, 'landing page configured non-HTTPS favicon targets');
     assertCheck(controls.favicons.genericFallbacks, 'generic landing-page cards should retain local emoji fallbacks');
     assertCheck(controls.favicons.claudeFallback === '🧠', 'failed favicon request removed Claude emoji fallback');
+    assertCheck(
+      controls.favicons.chatgptBackground === 'rgb(248, 250, 252)',
+      `ChatGPT favicon needs a light contrast badge: ${controls.favicons.chatgptBackground}`,
+    );
     for (const [name, src, targetUrl] of [
       ['Datadog', controls.favicons.datadog, 'https://datadoghq.com'],
       ['ChatGPT', controls.favicons.chatgpt, 'https://chatgpt.com'],
