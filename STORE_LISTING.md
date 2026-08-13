@@ -2,6 +2,8 @@
 
 > Chrome uses concise metadata for policy compliance. Firefox retains detailed compatibility information.
 
+Store submission steps and ready-to-paste version notes: [RELEASE_NOTES.md](RELEASE_NOTES.md).
+
 ---
 
 ## Chrome Web Store
