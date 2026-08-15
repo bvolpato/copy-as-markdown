@@ -1,38 +1,29 @@
 import { PageMetadata } from './types';
 
-export const DEFAULT_ITEM_LIMIT = 200;
-export const DEFAULT_MARKDOWN_LIMIT = 120_000;
-
 export type LimitedCollection<T> = {
   items: T[];
   total: number;
   truncated: boolean;
 };
 
+// Keep legacy result shapes while preserving complete extracted content.
 export function limitCollection<T>(
   values: Iterable<T>,
-  maxItems = DEFAULT_ITEM_LIMIT,
+  _maxItems?: number,
 ): LimitedCollection<T> {
   const all = Array.from(values);
   return {
-    items: all.slice(0, Math.max(0, maxItems)),
+    items: all,
     total: all.length,
-    truncated: all.length > maxItems,
+    truncated: false,
   };
 }
 
 export function limitMarkdown(
   markdown: string,
-  maxChars = DEFAULT_MARKDOWN_LIMIT,
+  _maxChars?: number,
 ): { markdown: string; truncated: boolean } {
-  if (markdown.length <= maxChars) return { markdown, truncated: false };
-
-  const marker = '\n\n*[Content truncated for agent context.]*';
-  const boundary = Math.max(0, maxChars - marker.length);
-  const candidate = markdown.slice(0, boundary);
-  const lastBreak = candidate.lastIndexOf('\n');
-  const body = candidate.slice(0, lastBreak > boundary * 0.8 ? lastBreak : boundary).trimEnd();
-  return { markdown: `${body}${marker}`, truncated: true };
+  return { markdown, truncated: false };
 }
 
 export function addExtractionMetadata(

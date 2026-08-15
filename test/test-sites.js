@@ -169,6 +169,9 @@ const REQUESTED_FIRST_CLASS_SITES = new Map([
   ['GitHub', 'GitHub'],
   ['Brave Search', 'Brave Search'],
   ['Booking.com', 'Booking.com'],
+  ['OpenRouter', 'OpenRouter'],
+  ['Artificial Analysis', 'Artificial Analysis'],
+  ['DeepSWE', 'DeepSWE'],
   ['Weights & Biases', 'Weights & Biases'],
   ['MLflow', 'MLflow'],
 ]);
@@ -220,9 +223,9 @@ function assertCompactMetadata(markdown, context) {
   assertCheck(noisy.length === 0, `${context} leaked noisy metadata: ${noisy.join(', ')}`);
 }
 
-function assertBoundedMarkdown(markdown, context) {
-  assertCheck(markdown.length <= 120_000, `${context} exceeded 120000 chars: ${markdown.length}`);
-  assertCheck(markdown.includes('*[Content truncated for agent context.]*'), `${context} did not emit truncation marker`);
+function assertUnboundedMarkdown(markdown, context) {
+  assertCheck(markdown.length > 120_000, `${context} did not preserve oversized content: ${markdown.length}`);
+  assertCheck(!markdown.includes('*[Content truncated for agent context.]*'), `${context} emitted truncation marker`);
   assertCheck((markdown.match(/^---$/gm) || []).length === 2, `${context} corrupted frontmatter fences`);
   const keys = frontmatterKeys(markdown);
   assertCheck(keys.includes('title') && keys.includes('url'), `${context} lost title/url frontmatter: ${keys.join(', ')}`);
@@ -1681,13 +1684,64 @@ DD_SITE=datadoghq.com
     await chatgptPage.close();
   }
 
+  const chatgptCanvasPage = await createFixturePage(browser, scriptContent, {
+    url: 'https://chatgpt.com/c/canvas-regression',
+    html: `<!doctype html><html><head><title>Canvas regression</title></head><body>
+      <div id="conversation-header-actions"></div>
+      ${Array.from({ length: 205 }, (_, index) => `
+        <section data-testid="conversation-turn-${index + 10}" data-turn="user">
+          <div data-message-author-role="user">Canvas prefix turn ${index + 1}</div>
+        </section>
+      `).join('')}
+      <section data-testid="conversation-turn-1" data-turn="assistant">
+        <div data-message-author-role="assistant" data-message-model-slug="gpt-test">
+          <div class="markdown">
+            <div data-writing-block="true" data-testid="writing-block-container">
+              <div data-testid="writing-block-header-surface">
+                <button type="button" aria-label="Edit">Edit</button>
+                <button type="button" aria-label="Copy">Copy</button>
+              </div>
+              <div class="writing-block-editor">
+                <div class="ProseMirror markdown prose" data-writing-block-fullscreen-editor-region="true" contenteditable="true">
+                  <h1>Canvas design document</h1>
+                  <p>Canvas body must be copied as Markdown.</p>
+                  <ul><li>Canvas list item</li></ul>
+                  <pre><code>leash/balanced/interactive</code></pre>
+                  <p>${'canvas-payload '.repeat(10_000)}CANVAS_END_SENTINEL</p>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+      <div contenteditable="true">ChatGPT composer must not leak</div>
+    </body></html>`,
+  });
+  try {
+    await assertRouteIdentity(chatgptCanvasPage, 'ChatGPT', 'ChatGPT canvas');
+    const markdown = await clickAndCapture(chatgptCanvasPage);
+    assertCheck(markdown.includes('# Canvas design document'), 'ChatGPT canvas heading missing');
+    assertCheck(markdown.includes('Canvas body must be copied as Markdown.'), 'ChatGPT canvas body missing');
+    assertCheck(markdown.includes('- Canvas list item'), 'ChatGPT canvas list missing');
+    assertCheck(markdown.includes('leash/balanced/interactive'), 'ChatGPT canvas code missing');
+    assertCheck(markdown.includes('Canvas prefix turn 205'), 'ChatGPT conversation turn limit dropped content');
+    assertCheck(markdown.includes('CANVAS_END_SENTINEL'), 'ChatGPT canvas character limit dropped content');
+    assertCheck(markdown.length > 120_000, `ChatGPT oversized canvas output was unexpectedly short: ${markdown.length}`);
+    assertCheck(!markdown.includes('*[Content truncated for agent context.]*'), 'ChatGPT canvas emitted truncation marker');
+    assertCheck(!markdown.includes('ChatGPT composer must not leak'), 'ChatGPT composer leaked into canvas output');
+    assertCheck(!markdown.includes('\nEdit\n') && !markdown.includes('\nCopy\n'), 'ChatGPT canvas controls leaked');
+    log('✅', 'ChatGPT preserves canvas writing blocks and excludes editor controls');
+  } finally {
+    await chatgptCanvasPage.close();
+  }
+
   const strictCsp = "script-src 'unsafe-inline'; require-trusted-types-for 'script'; trusted-types 'none'";
   const selectionPage = await createFixturePage(browser, scriptContent, {
     url: 'https://fixture.test/selection',
     csp: strictCsp,
     html: `<!doctype html><html><head><title>Selection fixture</title></head><body>
       <main>
-        <p id="selected">alpha\u2028beta / 10\u202F000 / می\u200Cروم / 👩\u200D💻 / \u2066isolated\u2069</p>
+        <p id="selected">alpha\u2028beta / 10\u202F000 / می\u200Cروم / 👩\u200D💻 / \u2066isolated\u2069 / A\u00A0B\u1680C\u2007D\u205FE\u3000F / \u201Cdouble\u201D \u2018single\u2019 \u2014 \u2013 \u2212 \u2026 / ＦＵＬＬ ﬁ / water\u200Bmark\u200Ctest\u200Dvalue\u2060\uFE0F\u{E0100}\u{E0061}</p>
         <p>must not copy</p>
       </main>
     </body></html>`,
@@ -1705,8 +1759,13 @@ DD_SITE=datadoghq.com
     assertCheck(markdown.includes('می\u200Cروم'), 'Persian ZWNJ was stripped');
     assertCheck(markdown.includes('👩\u200D💻'), 'Emoji ZWJ was stripped');
     assertCheck(markdown.includes('isolated') && !markdown.includes('\u2066') && !markdown.includes('\u2069'), 'Bidi isolates were not cleaned');
+    assertCheck(markdown.includes('A B C D E F'), `Non-ASCII spaces were not normalized: ${JSON.stringify(markdown)}`);
+    assertCheck(markdown.includes('"double" \'single\' - - - ...'), `Unicode punctuation was not normalized: ${JSON.stringify(markdown)}`);
+    assertCheck(markdown.includes('FULL fi'), `Compatibility characters were not normalized: ${JSON.stringify(markdown)}`);
+    assertCheck(markdown.includes('watermarktestvalue'), `Invisible watermark characters were not removed: ${JSON.stringify(markdown)}`);
+    assertCheck(!/[\u200B\u2060\uFE0F\u{E0100}\u{E0061}]/u.test(markdown), 'Invisible watermark code points survived normalization');
     assertCheck(!markdown.includes('must not copy'), 'Selected-text fallback copied unselected content');
-    log('✅', 'Strict Trusted Types selection works and Unicode boundaries/joiners are preserved');
+    log('✅', 'Strict Trusted Types selection works and Unicode output is sanitized');
   } finally {
     await selectionPage.close();
   }
@@ -2265,6 +2324,418 @@ async function runExpandedPlatformChecks(browser, scriptContent) {
       expected: ['Operations Runbook', 'Confluence fixture body.'],
     },
     {
+      name: 'Artificial Analysis',
+      extractor: 'Artificial Analysis',
+      url: 'https://artificialanalysis.ai/models/fixture-model',
+      html: `<nav>ARTIFICIAL_ANALYSIS_NAV_NOISE</nav>
+        <section class="bg-brand-blue-light">
+          <div><a target="_blank" href="https://fixture.example/">Fixture Labs</a>
+            <button aria-label="Effort">Effort max<svg aria-hidden="true"></svg></button>
+            <p>Proprietary model</p><p><span>Released</span> August 2026</p>
+          </div>
+          <h1>Fixture Model (Adaptive Reasoning, Max Effort) Intelligence, Performance &amp; Price Analysis</h1>
+          <div aria-labelledby="intelligence-title"><h4 id="intelligence-title">Intelligence</h4>
+            <button><span>#2</span> / 188</button>
+            <div class="metric-block"><div class="value-row"><div class="text-4xl"><span>88</span></div><div>Artificial Analysis Intelligence Index</div></div></div>
+          </div>
+          <div aria-labelledby="cost-title"><h4 id="cost-title">Cost</h4>
+            <button><span>#73</span> / 188</button>
+            <div class="metric-block"><div>In $5.00 Out $25.00 Cache Discount 90%</div><div class="value-row"><div class="text-4xl"><span>$2.34</span></div><div>Cost per Intelligence Index task</div></div></div>
+          </div>
+          <button aria-controls="comparison-summary">Comparison Summary<svg aria-hidden="true"></svg></button>
+          <div id="comparison-summary"><p>Fixture Model leads its comparison class while remaining expensive.</p></div>
+          <button aria-controls="technical-specifications">Technical specifications<svg aria-hidden="true"></svg></button>
+          <div id="technical-specifications"><table><tbody>
+            <tr><th><svg aria-hidden="true"></svg>Reasoning</th><td><span>Yes</span><button><svg></svg></button><div class="sr-only">Hidden explanation noise.</div></td></tr>
+            <tr><th>Input modality</th><td><button><svg></svg></button><div class="sr-only"><p>Supports: text and image</p></div></td></tr>
+            <tr><th>Context window</th><td><span>1M</span><button><svg></svg></button><div class="sr-only">HIDDEN_CONTEXT_NOISE</div></td></tr>
+          </tbody></table></div>
+        </section>
+        <main><div class="recharts-wrapper">CHART_AXIS_NOISE OTHER_MODEL_DOM_NOISE</div></main>
+        <script type="application/ld+json">${JSON.stringify({
+          '@context': 'https://schema.org',
+          '@type': 'Dataset',
+          name: 'Artificial Analysis Intelligence Index',
+          creator: { '@type': 'Organization', name: 'Artificial Analysis', url: 'https://artificialanalysis.ai' },
+          description: 'Composite intelligence score · Higher is better',
+          measurementTechnique: 'Independent fixture evaluation.',
+          license: 'https://artificialanalysis.ai/docs/legal/Terms-of-Use.pdf',
+          citation: 'Artificial Analysis fixture citation.',
+          data: [
+            { label: 'Fixture Model (max)', artificialAnalysisIntelligenceIndex: 88.5, detailsUrl: '/models/fixture-model' },
+            { label: 'Other Model', artificialAnalysisIntelligenceIndex: 87, detailsUrl: '/models/other-model' },
+          ],
+        })}</script>
+        <script type="application/ld+json">${JSON.stringify({
+          '@context': 'https://schema.org',
+          '@type': 'Dataset',
+          name: 'Latency: Time To First Answer Token',
+          description: 'Seconds to first answer token · Lower is better',
+          data: [
+            { label: 'Fixture Model (max)', reasoningTime: 12.5, inputTime: 3.25, detailsUrl: '/models/fixture-model' },
+          ],
+        })}</script>
+        <script type="application/ld+json">${JSON.stringify({
+          '@context': 'https://schema.org',
+          '@type': 'FAQPage',
+          mainEntity: [{
+            '@type': 'Question',
+            name: 'Who created Fixture Model?',
+            acceptedAnswer: { '@type': 'Answer', text: '<strong>Fixture Labs</strong> created Fixture Model.' },
+          }],
+        })}</script>`,
+      expected: [
+        '# Fixture Model (Adaptive Reasoning, Max Effort) Intelligence, Performance & Price Analysis',
+        '| Provider | [Fixture Labs](https://fixture.example/) |',
+        '| Reasoning effort | max |', '| Model class | Proprietary |', '| Released | August 2026 |',
+        '| Intelligence | 88 | #2 / 188 | Artificial Analysis Intelligence Index |',
+        '| Cost | $2.34 | #73 / 188 | Cost per Intelligence Index task | In $5.00 Out $25.00 Cache Discount 90% |',
+        'Fixture Model leads its comparison class while remaining expensive.',
+        '| Reasoning | Yes |', '| Input modality | text and image |', '| Context window | 1M |',
+        '| Artificial Analysis Intelligence Index | Fixture Model (max) | Artificial analysis intelligence index: 88.5 |',
+        '| Latency: Time To First Answer Token | Fixture Model (max) | Reasoning time: 12.5; Input time: 3.25 |',
+        '| Measurement technique | Independent fixture evaluation. |',
+        '[Terms of use](https://artificialanalysis.ai/docs/legal/Terms-of-Use.pdf)',
+        '### Who created Fixture Model?', '**Fixture Labs** created Fixture Model.',
+      ],
+      excluded: [
+        'ARTIFICIAL_ANALYSIS_NAV_NOISE', 'CHART_AXIS_NOISE', 'OTHER_MODEL_DOM_NOISE',
+        'Other Model', 'Hidden explanation noise.', 'HIDDEN_CONTEXT_NOISE',
+      ],
+    },
+    {
+      name: 'Artificial Analysis homepage',
+      extractor: 'Artificial Analysis',
+      url: 'https://artificialanalysis.ai/',
+      html: `<nav>ARTIFICIAL_ANALYSIS_HOME_NAV_NOISE</nav>
+        <section class="container hero">
+          <div><h1>Independent analysis of AI</h1>
+            <p>Understand the AI landscape to choose the best model and provider for your use case</p></div>
+          <div>
+            <a href="/optima"><span>Launch</span><p>Optima</p><p>Build custom benchmarks from your own tasks.</p></a>
+            <a href="/articles/index-update"><span>Update</span><p>Intelligence Index v4.1.1</p><p>Latest evaluation update.</p></a>
+          </div>
+        </section>
+        <main>
+          <section id="intelligence"><div class="section-heading"><div><h2><span aria-hidden="true"></span><span>Intelligence</span></h2></div>
+            <p>Intelligence of leading AI models based on independent evaluations</p></div>
+            <svg>ARTIFICIAL_ANALYSIS_HOME_SVG_NOISE</svg></section>
+          <section id="coding-agents"><div class="section-heading"><div><h2><a href="/agents/coding-agents">Coding Agent Index</a></h2></div>
+            <p>Performance, cost, and execution time for leading coding agents</p></div>
+            <button>ARTIFICIAL_ANALYSIS_HOME_CONTROL_NOISE</button></section>
+        </main>
+        <script type="application/ld+json">${JSON.stringify({
+          '@context': 'https://schema.org',
+          '@type': 'Dataset',
+          name: 'Intelligence',
+          creator: { '@type': 'Organization', name: 'Artificial Analysis', url: 'https://artificialanalysis.ai' },
+          description: 'Artificial Analysis Intelligence Index · Higher is better',
+          measurementTechnique: 'Independent homepage fixture evaluation.',
+          license: 'https://artificialanalysis.ai/docs/legal/Terms-of-Use.pdf',
+          citation: 'Artificial Analysis homepage fixture citation.',
+          data: [
+            { label: 'Fixture Frontier', artificialAnalysisIntelligenceIndex: 91.25, detailsUrl: '/models/fixture-frontier' },
+            { label: 'Fixture Efficient', artificialAnalysisIntelligenceIndex: 89.5, detailsUrl: '/models/fixture-efficient' },
+          ],
+        })}</script>
+        <script type="application/ld+json">${JSON.stringify({
+          '@context': 'https://schema.org',
+          '@type': 'Dataset',
+          name: 'Intelligence',
+          creator: { '@type': 'Organization', name: 'Artificial Analysis', url: 'https://artificialanalysis.ai' },
+          description: 'Artificial Analysis Intelligence Index · Higher is better',
+          measurementTechnique: 'Independent homepage fixture evaluation.',
+          license: 'https://artificialanalysis.ai/docs/legal/Terms-of-Use.pdf',
+          citation: 'Artificial Analysis homepage fixture citation.',
+          data: [
+            { label: 'Fixture Frontier', artificialAnalysisIntelligenceIndex: 91.25, detailsUrl: '/models/fixture-frontier' },
+            { label: 'Fixture Efficient', artificialAnalysisIntelligenceIndex: 89.5, detailsUrl: '/models/fixture-efficient' },
+          ],
+        })}</script>
+        <script type="application/ld+json">${JSON.stringify({
+          '@context': 'https://schema.org',
+          '@type': 'Dataset',
+          name: 'Text to Image Leaderboard',
+          description: 'Elo scores with confidence intervals',
+          data: [{
+            label: 'Fixture Image Model',
+            detailsUrl: '/media/fixture-image-model',
+            elo: [
+              { '@type': 'PropertyValue', name: 'mid', value: 1370.24 },
+              { '@type': 'PropertyValue', name: 'lower', value: 1360.24 },
+              { '@type': 'PropertyValue', name: 'upper', value: 1380.24 },
+            ],
+          }],
+        })}</script>`,
+      expected: [
+        '# Independent analysis of AI',
+        'Understand the AI landscape to choose the best model and provider for your use case',
+        '| Launch | [Optima](https://artificialanalysis.ai/optima) | Build custom benchmarks from your own tasks. |',
+        '| Update | [Intelligence Index v4.1.1](https://artificialanalysis.ai/articles/index-update) | Latest evaluation update. |',
+        '| Intelligence | Intelligence of leading AI models based on independent evaluations |',
+        '| [Coding Agent Index](https://artificialanalysis.ai/agents/coding-agents) | Performance, cost, and execution time for leading coding agents |',
+        '## Published Datasets', '### Intelligence',
+        '| [Fixture Frontier](https://artificialanalysis.ai/models/fixture-frontier) | Artificial analysis intelligence index: 91.25 |',
+        '| [Fixture Efficient](https://artificialanalysis.ai/models/fixture-efficient) | Artificial analysis intelligence index: 89.5 |',
+        '### Text to Image Leaderboard',
+        '| [Fixture Image Model](https://artificialanalysis.ai/media/fixture-image-model) | Elo mid: 1370.24; Elo lower: 1360.24; Elo upper: 1380.24 |',
+        '| Measurement technique | Independent homepage fixture evaluation. |',
+        '[Terms of use](https://artificialanalysis.ai/docs/legal/Terms-of-Use.pdf)',
+      ],
+      excluded: [
+        'ARTIFICIAL_ANALYSIS_HOME_NAV_NOISE', 'ARTIFICIAL_ANALYSIS_HOME_SVG_NOISE',
+        'ARTIFICIAL_ANALYSIS_HOME_CONTROL_NOISE',
+      ],
+      exactOccurrences: { '### Intelligence': 1 },
+    },
+    {
+      name: 'OpenRouter',
+      extractor: 'OpenRouter',
+      url: 'https://openrouter.ai/fixture/model-v1',
+      beforeLoad: () => {
+        window.fetch = async (input) => {
+          const url = String(input);
+          if (url.includes('/api/v1/models/')) {
+            return new Response(JSON.stringify({
+              data: {
+                id: 'fixture/model-v1',
+                name: 'Fixture: Model V1',
+                description: 'Endpoint catalog fixture.',
+                architecture: {
+                  modality: 'text+image->text',
+                  input_modalities: ['text', 'image'],
+                  output_modalities: ['text'],
+                  tokenizer: 'FixtureTokenizer',
+                },
+                endpoints: [{
+                  name: 'Fixture Cloud | fixture/model-v1',
+                  model_id: 'fixture/model-v1',
+                  model_name: 'Fixture: Model V1',
+                  provider_name: 'Fixture Cloud',
+                  tag: 'fixture-cloud/flex',
+                  context_length: 1048576,
+                  max_completion_tokens: 65536,
+                  max_prompt_tokens: null,
+                  quantization: 'fp8',
+                  pricing: {
+                    prompt: '0.000000375',
+                    completion: '0.000001875',
+                    input_cache_read: '0.0000000375',
+                    discount: 0.5,
+                  },
+                  supported_parameters: ['tools', 'structured_outputs'],
+                  status: 0,
+                  uptime_last_5m: 99.9,
+                  uptime_last_30m: 99.8,
+                  uptime_last_1d: 99.7,
+                  supports_implicit_caching: true,
+                  supports_voice_cloning: false,
+                  latency_last_30m: 0.42,
+                  throughput_last_30m: 123.4,
+                }],
+              },
+            }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+          }
+          if (url.includes('/api/v1/model/')) {
+            return new Response(JSON.stringify({
+              data: {
+                id: 'fixture/model-v1',
+                canonical_slug: 'fixture/model-v1-20260814',
+                name: 'Fixture: Model V1',
+                created: 1786665600,
+                description: 'Short API description.',
+                context_length: 1048576,
+                architecture: {
+                  modality: 'text+image->text',
+                  input_modalities: ['text', 'image'],
+                  output_modalities: ['text'],
+                  tokenizer: 'FixtureTokenizer',
+                  instruct_type: null,
+                },
+                pricing: {
+                  prompt: '0.000000375',
+                  completion: '0.000001875',
+                  input_cache_read: '0.0000000375',
+                  web_search: '0.014',
+                },
+                top_provider: {
+                  context_length: 1048576,
+                  max_completion_tokens: 65536,
+                  is_moderated: false,
+                },
+                per_request_limits: { prompt_tokens: 1000000 },
+                supported_parameters: ['temperature', 'tools', 'structured_outputs'],
+                default_parameters: { temperature: 0.7 },
+                expiration_date: null,
+                hugging_face_id: null,
+                knowledge_cutoff: '2026-07',
+                reasoning: {
+                  mandatory: false,
+                  default_enabled: true,
+                  supported_efforts: ['low', 'high'],
+                },
+                supported_voices: null,
+                benchmarks: {
+                  artificial_analysis: { intelligence_index: 88.5 },
+                },
+                links: { details: '/api/v1/models/fixture/model-v1/endpoints' },
+                future_definition: { routing_class: 'exact' },
+              },
+            }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+          }
+          return new Response('Not found', { status: 404 });
+        };
+      },
+      html: `<nav>OPENROUTER_NAV_NOISE</nav>
+        <script type="application/ld+json">{"@context":"https://schema.org","@type":"SoftwareApplication","name":"Fixture: Model V1","description":"Fixture model description from JSON-LD.","author":{"@type":"Organization","name":"fixture"},"featureList":["1,048,576 token context","Input modalities: text, image","Output modalities: text"]}</script>
+        <script type="application/ld+json">{"@context":"https://schema.org","@type":"FAQPage","mainEntity":[{"@type":"Question","name":"Which providers serve Fixture Model?","acceptedAnswer":{"@type":"Answer","text":"Fixture Cloud serves this model with automatic failover."}}]}</script>
+        <main id="app-shell"><div id="page-content"><div data-marketplace-wrapper="true">
+          <div id="model-title-row"><div><h1>Fixture: Model V1</h1><h3 title="Model identifier for use in the API">fixture/model-v1</h3></div></div>
+          <section id="providers"><h2>Providers</h2><table><thead><tr><th>Provider</th><th>Input</th></tr></thead><tbody><tr><td>PAGE_ONLY_PROVIDER_NOISE</td><td>$9</td></tr></tbody></table></section>
+          <script>window.__next_f = ['CLIENT_HYDRATION_NOISE'];</script>
+        </div></div></main>`,
+      expected: [
+        '# Fixture: Model V1', 'Fixture model description from JSON-LD.',
+        '| Model ID | fixture/model-v1 |', '| Canonical slug | fixture/model-v1-20260814 |',
+        '| input_modalities | text, image |',
+        '| prompt | 0.000000375 | $0.375 / 1M input tokens |',
+        'structured_outputs', '| supported_efforts | low, high |',
+        '| artificial_analysis.intelligence_index | 88.5 |',
+        '| future_definition.routing_class | exact |',
+        'fixture-cloud/flex', '| supports_implicit_caching | true |',
+        'Fixture Cloud serves this model with automatic failover.',
+      ],
+      excluded: ['OPENROUTER_NAV_NOISE', 'PAGE_ONLY_PROVIDER_NOISE', 'CLIENT_HYDRATION_NOISE'],
+    },
+    {
+      name: 'OpenRouter JSON-LD fallback',
+      extractor: 'OpenRouter',
+      url: 'https://openrouter.ai/fixture/fallback-model',
+      beforeLoad: () => {
+        window.fetch = async () => new Response('Unavailable', { status: 503 });
+      },
+      html: `<nav>OPENROUTER_FALLBACK_NAV_NOISE</nav>
+        <script type="application/ld+json">{"@context":"https://schema.org","@type":"SoftwareApplication","name":"Fixture: Fallback Model","description":"Structured fallback description.","author":{"@type":"Organization","name":"fixture"},"featureList":["32,768 token context","Input Price: $2/M tokens"]}</script>
+        <script type="application/ld+json">{"@context":"https://schema.org","@type":"FAQPage","mainEntity":[{"@type":"Question","name":"What does fallback preserve?","acceptedAnswer":{"@type":"Answer","text":"Fallback preserves published model definitions."}}]}</script>
+        <main id="app-shell"><div id="page-content"><div data-marketplace-wrapper="true">
+          <div id="model-title-row"><div><h1>Fixture: Fallback Model</h1><h3 title="Model identifier for use in the API">fixture/fallback-model</h3></div></div>
+          <section id="providers"><h2>Providers</h2><table><thead><tr><th>Provider</th><th>Input /M</th></tr></thead><tbody><tr><td>Fallback Cloud</td><td>$2.00</td></tr></tbody></table></section>
+          <section id="api"><h2>API</h2><table><thead><tr><th>Parameter</th><th>Supported</th></tr></thead><tbody><tr><td>tools</td><td>Yes</td></tr></tbody></table></section>
+        </div></div></main>`,
+      expected: [
+        '# Fixture: Fallback Model', 'Structured fallback description.',
+        '32,768 token context', '| Fallback Cloud | $2.00 |',
+        '| tools | Yes |', 'Fallback preserves published model definitions.',
+      ],
+      excluded: ['OPENROUTER_FALLBACK_NAV_NOISE'],
+    },
+    {
+      name: 'DeepSWE',
+      extractor: 'DeepSWE',
+      url: 'https://deepswe.datacurve.ai/',
+      beforeLoad: () => {
+        window.fetch = async (input) => {
+          if (!String(input).includes('/artifacts/v1.1/leaderboard-live.json')) {
+            return new Response('Not found', { status: 404 });
+          }
+          return new Response(JSON.stringify({
+            scope: 'Every fixture rollout grouped by configuration.',
+            unit: 'Fixture pass@1 scoring definition.',
+            generated_at: '2026-08-13T16:11:55Z',
+            n_tasks_in_set: 113,
+            latest_job: { name: 'fixture-latest-job', finished_at: '2026-08-13T05:10:16Z' },
+            rows: [
+              {
+                model: 'fixture-model-alpha', reasoning_effort: 'max',
+                config: 'fixture_alpha_max', harness: 'mini-swe-agent', source: 'deep-swe',
+                pass_at_1: 0.736486, pass_at_4: 0.884956,
+                n_passed: 327, n_attempted: 444,
+                n_tasks_passed_any: 100, n_tasks_attempted: 113,
+                ci_lo: 0.697763, ci_hi: 0.77521, n_runs: 4,
+                ci_method: '95% fixture run-to-run interval',
+                mean_cost_usd: 11.837583, median_cost_usd: 10.428151,
+                mean_output_tokens: 117565.69, median_output_tokens: 113366.5,
+                mean_input_tokens: 15025834.4, median_input_tokens: 12130307.5,
+                mean_duration_seconds: 1911.82, median_duration_seconds: 1801.12,
+                mean_agent_steps: 99.04, median_agent_steps: 90.5,
+                median_peak_context_tokens: 215810,
+                median_output_tokens_to_pass: 112874,
+              },
+              {
+                model: 'fixture-model-beta', reasoning_effort: 'medium',
+                config: 'fixture_beta_medium', harness: 'mini-swe-agent', source: 'deep-swe',
+                pass_at_1: 0.5, pass_at_4: 0.75,
+                n_passed: 226, n_attempted: 452,
+                n_tasks_passed_any: 85, n_tasks_attempted: 113,
+                ci_lo: 0.48, ci_hi: 0.52, n_runs: 4,
+                ci_method: '95% fixture run-to-run interval',
+                mean_cost_usd: 2.5, median_cost_usd: 2,
+                mean_output_tokens: 50000, median_output_tokens: 45000,
+                mean_input_tokens: 1000000, median_input_tokens: 900000,
+                mean_duration_seconds: 600, median_duration_seconds: 550,
+                mean_agent_steps: 50, median_agent_steps: 45,
+                median_peak_context_tokens: 80000,
+                median_output_tokens_to_pass: 42000,
+              },
+            ],
+          }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+        };
+      },
+      html: `<main><header><h1>DeepSWE</h1>
+          <p>Measuring fixture coding agents on original tasks.</p>
+          <dl><div><dt>tasks</dt><dd>113</dd></div><div><dt>models</dt><dd>2</dd></div></dl>
+          <a href="/blog">Read the blog</a><a href="/run">Run DeepSWE</a>
+        </header>
+        <section id="leaderboard"><h2>Leaderboard</h2>
+          <button aria-pressed="true">v1.1</button><button aria-pressed="true">Cost</button>
+          <div role="button" data-chart-pin-source><span class="font-medium text-foreground">DOM_FILTERED_ONLY_NOISE</span><span>[low]</span><span>1%±1%</span><span>Avg cost $99.00</span><span>Out tok 1k</span><span>Steps 1</span></div>
+          <svg role="img" aria-label="Pass rate vs Avg cost"><text>SVG_AXIS_NOISE</text></svg>
+        </section>
+        <section class="article-prose"><p>DeepSWE fixture benchmark separates frontier configurations.</p><ul><li><strong>Contamination free</strong>: Fixture tasks are original.</li></ul></section>
+        <section><h2>Task Examples</h2><a href="/data/tasks/fixture-task"><h3>Fixture task title</h3><p>Fixture task summary.</p><div><span>fixture/repo</span><span>rust</span></div></a><a href="/data/tasks">All 113 tasks</a></section>
+        <section><h2>Read the full blog</h2><ol><li><a href="/blog/deepswe#methodology"><span>01</span><span>Methodology</span></a></li></ol></section>
+        <section id="updates"><form><input value="NEWSLETTER_NOISE"></form></section>
+      </main>`,
+      expected: [
+        '# DeepSWE', '| Version | v1.1 |', 'Measuring fixture coding agents',
+        '| Configurations | 2 |', '| Tasks in set | 113 |', 'fixture-latest-job',
+        'Every fixture rollout grouped by configuration.',
+        '| fixture-model-alpha | max | 73.65% | 69.78% to 77.52% | 88.5%',
+        '| fixture_alpha_max | mini-swe-agent | deep-swe | $10.4282 |',
+        'DeepSWE fixture benchmark separates frontier configurations.',
+        '[Fixture task title](https://deepswe.datacurve.ai/data/tasks/fixture-task)',
+        'Repository: fixture/repo | Language: rust',
+        '[Methodology](https://deepswe.datacurve.ai/blog/deepswe#methodology)',
+        '[Published leaderboard artifact](https://deepswe.datacurve.ai/artifacts/v1.1/leaderboard-live.json)',
+      ],
+      excluded: ['DOM_FILTERED_ONLY_NOISE', 'SVG_AXIS_NOISE', 'NEWSLETTER_NOISE'],
+    },
+    {
+      name: 'DeepSWE DOM fallback',
+      extractor: 'DeepSWE',
+      url: 'https://deepswe.datacurve.ai/',
+      beforeLoad: () => {
+        window.fetch = async () => new Response('Unavailable', { status: 503 });
+      },
+      html: `<main><header><h1>DeepSWE</h1><p>Fallback benchmark.</p></header>
+        <section id="leaderboard"><h2>Leaderboard</h2><button aria-pressed="true">v1.1</button>
+          <div role="button" data-chart-pin-source>
+            <span class="font-medium text-foreground">fixture-fallback-model</span><span>[high]</span>
+            <div class="sm:hidden"><span>74%±4%</span><span>Avg cost $11.84</span><span>Out tok 118k</span><span>Steps 99</span></div>
+            <div class="hidden sm:block"><span>74%±4%</span><span>$11.84</span><span>118k</span><span>99</span></div>
+          </div>
+          <svg role="img"><text>FALLBACK_SVG_NOISE</text></svg>
+        </section>
+      </main>`,
+      expected: [
+        '# DeepSWE', '| Version | v1.1 |',
+        '| fixture-fallback-model | high | 74% | 70% to 78%',
+        '| $11.84 | 118,000 | 99 |',
+      ],
+      excluded: ['FALLBACK_SVG_NOISE', '74%±4%74%±4%'],
+      exactOccurrences: { 'fixture-fallback-model': 1, '$11.84': 1, '118,000': 1 },
+    },
+    {
       name: 'GitLab',
       extractor: 'GitLab',
       url: 'https://gitlab.com/acme/project/-/blob/main/src/app.ts',
@@ -2612,6 +3083,11 @@ async function runExpandedPlatformChecks(browser, scriptContent) {
       for (const value of fixture.excluded || []) {
         assertCheck(!markdown.includes(value), `${fixture.name} output unexpectedly included ${JSON.stringify(value)}: ${markdown}`);
       }
+      for (const [value, expectedCount] of Object.entries(fixture.exactOccurrences || {})) {
+        const actualCount = markdown.split(value).length - 1;
+        assertCheck(actualCount === expectedCount,
+          `${fixture.name} output included ${JSON.stringify(value)} ${actualCount} times instead of ${expectedCount}: ${markdown}`);
+      }
       assertCompactMetadata(markdown, `${fixture.name} output`);
       if (fixture.name === 'Grok') {
         const keys = frontmatterKeys(markdown);
@@ -2658,6 +3134,7 @@ async function runExpandedPlatformChecks(browser, scriptContent) {
     ['VK messages', 'https://vk.com/im'],
     ['Notion public settings', 'https://workspace.notion.site/settings'],
     ['Notion private settings', 'https://www.notion.so/settings'],
+    ['OpenRouter models index', 'https://openrouter.ai/models'],
   ];
   for (const [name, url] of nonContentRoutes) {
     const page = await createFixturePage(browser, scriptContent, {
@@ -3105,8 +3582,8 @@ async function runMetricPlatformChecks(browser, scriptContent) {
   try {
     await assertRouteIdentity(wandbOversizedPage, 'Weights & Biases', 'W&B oversized output fixture');
     const markdown = await clickAndCapture(wandbOversizedPage, 'W&B oversized output');
-    assertBoundedMarkdown(markdown, 'W&B oversized output');
-    log('✅', 'W&B oversized configuration output preserves frontmatter while truncating at context bound');
+    assertUnboundedMarkdown(markdown, 'W&B oversized output');
+    log('✅', 'W&B oversized configuration output preserves complete content');
   } finally {
     await wandbOversizedPage.close();
   }
@@ -3301,8 +3778,8 @@ async function runMetricPlatformChecks(browser, scriptContent) {
   try {
     await assertRouteIdentity(mlflowOversizedPage, 'MLflow', 'MLflow oversized run fixture');
     const markdown = await clickAndCapture(mlflowOversizedPage, 'MLflow oversized run');
-    assertBoundedMarkdown(markdown, 'MLflow oversized run output');
-    log('✅', 'MLflow oversized run parameters preserve frontmatter while truncating at context bound');
+    assertUnboundedMarkdown(markdown, 'MLflow oversized run output');
+    log('✅', 'MLflow oversized run parameters preserve complete content');
   } finally {
     await mlflowOversizedPage.close();
   }
@@ -3430,8 +3907,8 @@ async function runMetricPlatformChecks(browser, scriptContent) {
   try {
     await assertRouteIdentity(mlflowOversizedComparisonPage, 'MLflow', 'MLflow oversized comparison fixture');
     const markdown = await clickAndCapture(mlflowOversizedComparisonPage, 'MLflow oversized comparison');
-    assertBoundedMarkdown(markdown, 'MLflow oversized comparison output');
-    log('✅', 'MLflow oversized comparison output preserves frontmatter while truncating at context bound');
+    assertUnboundedMarkdown(markdown, 'MLflow oversized comparison output');
+    log('✅', 'MLflow oversized comparison output preserves complete content');
   } finally {
     await mlflowOversizedComparisonPage.close();
   }

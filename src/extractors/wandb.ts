@@ -1,5 +1,4 @@
 import { metricSeriesToMarkdown, type MetricSeries } from '../core/metric-series';
-import { DEFAULT_MARKDOWN_LIMIT, limitMarkdown } from '../core/context';
 import * as Markdown from '../core/markdown';
 import { register } from '../core/registry';
 import * as Utils from '../core/utils';
@@ -301,9 +300,7 @@ function buildDomFallback(route = getWandbRunRoute()): string {
 
 function buildBoundedPageMarkdown(metadata: Record<string, string | number | undefined>, body: string): string {
   const boundedMetadata = boundMetadata(metadata);
-  const metadataBlock = Markdown.formatMetadata(boundedMetadata);
-  const bodyLimit = Math.max(1, DEFAULT_MARKDOWN_LIMIT - metadataBlock.length - 2);
-  return Markdown.buildPageMarkdown(boundedMetadata, limitMarkdown(body, bodyLimit).markdown);
+  return Markdown.buildPageMarkdown(boundedMetadata, body);
 }
 
 function boundMetadata(

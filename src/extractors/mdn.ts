@@ -15,15 +15,15 @@ register({
 
   buttonPlacement: 'anchor',
   anchor: {
-    selector: '.document-toc-container, .article-actions-container, .on-github',
-    position: 'before',
+    selector: '.reference-layout__header > h1, .document-toc-container, .article-actions-container, .on-github',
+    position: 'after',
     style: 'pill',
   },
 
   async extract() {
     const url = Utils.getCanonicalUrl();
 
-    const titleEl = document.querySelector('article h1, .main-page-content h1, h1');
+    const titleEl = document.querySelector('#content h1, article h1, .main-page-content h1, h1');
     const title = titleEl?.textContent?.trim() || Utils.getPageTitle();
 
     // Breadcrumb path (e.g., "Web > JavaScript > Reference > Array")
@@ -47,11 +47,15 @@ register({
     if (status) parts.push(`**Status:** ${status}\n`);
 
     // Main content
-    const contentEl = document.querySelector('.main-page-content, article.main-page-content, #content article');
+    const contentEl = document.querySelector('.main-page-content, article.main-page-content, #content article, #content');
     if (contentEl) {
       const clone = contentEl.cloneNode(true) as HTMLElement;
       // Remove noise
-      clone.querySelectorAll('.section-content .hidden, .bc-data, .metadata, .prev-next').forEach(el => el.remove());
+      clone.querySelectorAll([
+        '.section-content .hidden', '.bc-data', '.metadata', '.prev-next',
+        '.reference-layout__toc', '.reference-toc', 'mdn-placement-sidebar', 'mdn-survey',
+        '.reference-layout__header > h1', '#cam-copy-btn', '[data-cam-instance]',
+      ].join(', ')).forEach(el => el.remove());
       parts.push(Markdown.elementToMarkdown(clone));
     }
 

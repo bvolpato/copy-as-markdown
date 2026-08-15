@@ -11,7 +11,107 @@ import { PageMetadata } from './types';
  */
 export function normalizeWhitespace(text: string): string {
   if (!text) return '';
-  return text.replace(/[\s\n\r]+/g, ' ').trim();
+  return normalizeUnicodeText(text).replace(/[\s\n\r]+/g, ' ').trim();
+}
+
+const ASCII_PUNCTUATION = new Map<string, string>([
+  ['\u00AB', '"'], ['\u00BB', '"'],
+  ['\u2018', "'"], ['\u2019', "'"], ['\u201A', "'"], ['\u201B', "'"],
+  ['\u201C', '"'], ['\u201D', '"'], ['\u201E', '"'], ['\u201F', '"'],
+  ['\u2032', "'"], ['\u2033', '"'], ['\u2035', "'"], ['\u2036', '"'],
+  ['\u2039', "'"], ['\u203A', "'"], ['\u275B', "'"], ['\u275C', "'"],
+  ['\u275D', '"'], ['\u275E', '"'], ['\u2E42', '"'],
+  ['\u301D', '"'], ['\u301E', '"'], ['\u301F', '"'],
+  ['\u2026', '...'], ['\u2212', '-'],
+]);
+
+const UNICODE_SEPARATOR = /\p{Separator}/u;
+const UNICODE_LINE_SEPARATOR = /[\p{Line_Separator}\p{Paragraph_Separator}]/u;
+const UNICODE_DASH = /\p{Dash_Punctuation}/u;
+const DEFAULT_IGNORABLE = /\p{Default_Ignorable_Code_Point}/u;
+const CONTROL_OR_PRIVATE_USE = /[\p{Control}\p{Private_Use}\p{Surrogate}]/u;
+const LETTER_OR_MARK = /[\p{Letter}\p{Mark}]/u;
+const LATIN = /\p{Script=Latin}/u;
+const EXTENDED_PICTOGRAPHIC = /\p{Extended_Pictographic}/u;
+
+/**
+ * Normalize compatibility characters and remove common invisible watermark
+ * channels without transliterating ordinary non-ASCII language text.
+ */
+export function normalizeUnicodeText(text: string): string {
+  if (!text) return '';
+
+  const characters = Array.from(text.normalize('NFKC'));
+  const output: string[] = [];
+
+  for (let index = 0; index < characters.length; index += 1) {
+    const character = characters[index];
+    const codePoint = character.codePointAt(0) || 0;
+
+    if (character === '\n' || character === '\r') {
+      output.push(character);
+      continue;
+    }
+    if (character === '\t') {
+      output.push(character);
+      continue;
+    }
+    if (UNICODE_LINE_SEPARATOR.test(character)) {
+      output.push('\n');
+      continue;
+    }
+    if (UNICODE_SEPARATOR.test(character) || isVisualBlank(codePoint)) {
+      output.push(' ');
+      continue;
+    }
+    if (character === '\u200C' || character === '\u200D') {
+      if (isMeaningfulJoiner(characters[index - 1], characters[index + 1])) {
+        output.push(character);
+      }
+      continue;
+    }
+    if (
+      DEFAULT_IGNORABLE.test(character)
+      || CONTROL_OR_PRIVATE_USE.test(character)
+      || isNonCharacter(codePoint)
+    ) {
+      continue;
+    }
+
+    const punctuation = ASCII_PUNCTUATION.get(character);
+    if (punctuation !== undefined) {
+      output.push(punctuation);
+    } else if (UNICODE_DASH.test(character)) {
+      output.push('-');
+    } else {
+      output.push(character);
+    }
+  }
+
+  return output.join('');
+}
+
+function isMeaningfulJoiner(previous: string | undefined, next: string | undefined): boolean {
+  if (!previous || !next) return false;
+  if (EXTENDED_PICTOGRAPHIC.test(previous) && EXTENDED_PICTOGRAPHIC.test(next)) return true;
+  return LETTER_OR_MARK.test(previous)
+    && LETTER_OR_MARK.test(next)
+    && !LATIN.test(previous)
+    && !LATIN.test(next);
+}
+
+function isVisualBlank(codePoint: number): boolean {
+  return codePoint === 0x115f
+    || codePoint === 0x1160
+    || codePoint === 0x2800
+    || codePoint === 0x3164
+    || codePoint === 0xffa0;
+}
+
+function isNonCharacter(codePoint: number): boolean {
+  return (codePoint >= 0xfdd0 && codePoint <= 0xfdef)
+    || (codePoint & 0xffff) === 0xfffe
+    || (codePoint & 0xffff) === 0xffff;
 }
 
 /**
@@ -384,12 +484,7 @@ export function childrenToMarkdown(
  * Post-process Markdown: collapse excessive blank lines, fix spacing, trim.
  */
 export function cleanMarkdown(md: string): string {
-  return md
-    // Preserve boundaries represented by Unicode separators before stripping controls.
-    .replace(/[\u2028\u2029]/g, '\n')
-    .replace(/\u202F/g, ' ')
-    // Strip invisible controls while preserving meaningful ZWNJ/ZWJ characters.
-    .replace(/[\u200B\u200E\u200F\u202A-\u202E\u2060\u2066-\u2069\uFEFF\u00AD]/g, '')
+  return normalizeUnicodeText(md)
     // Fix link spacing: ensure space before [ if preceded by a word char
     .replace(/(\w)\[/g, '$1 [')
     // Fix link spacing: ensure space after ) if followed by a word char

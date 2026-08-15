@@ -255,12 +255,27 @@ function standaloneImages(container: Element, content: Element): string[] {
 }
 
 function clean(element: Element): Element {
-  return Utils.removeNoise(element, [
+  const clone = Utils.removeNoise(element, [
     ...Utils.NOISE_SELECTORS,
     'button', '[data-testid*="actions"]', '[data-testid*="feedback"]',
-    '[class*="toolbar"]', 'textarea', '[contenteditable="true"]',
+    '[class*="toolbar"]', 'textarea',
+    '[data-testid="writing-block-header-sticky-container"]',
     '[class*="avatar"]', '[class*="profile"]',
   ]);
+
+  clone.querySelectorAll('[contenteditable="true"]').forEach((editable) => {
+    if (!isWritingBlockEditor(editable)) editable.remove();
+  });
+
+  return clone;
+}
+
+function isWritingBlockEditor(element: Element): boolean {
+  return Boolean(element.closest([
+    '[data-writing-block="true"]',
+    '[data-testid="writing-block-container"]',
+    '[data-oai-writing-block-surface]',
+  ].join(',')));
 }
 
 function firstElements(selectors: string[]): Element[] {

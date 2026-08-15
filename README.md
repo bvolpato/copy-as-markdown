@@ -34,7 +34,7 @@ You're chatting with ChatGPT, Claude, or Gemini. You want to share a web page fo
 - **Browser Extension:** Click the "Copy as Markdown" icon in your browser toolbar. Datadog dashboards, Datadog notebooks, and W&B runs also get a page button through narrowly scoped site access; extraction and clipboard writes still run only after a click.
 - **Userscript:** A context-aware button is added to supported websites (e.g., a draggable floating button, or inline buttons on Wikipedia, Google Docs, Atlassian, and Datadog pages). Floating positions persist per site.
 
-One click, and the page's content lands in your clipboard as clean, structured Markdown — headers, tables, links, code blocks, metadata — all preserved. Paste it into your LLM conversation. Done.
+One click, and the page's content lands in your clipboard as clean, structured Markdown — headers, tables, links, code blocks, metadata — all preserved. Unicode compatibility forms, non-ASCII spaces, smart quotes, and dashes are normalized; invisible watermark and direction-control characters are removed. Paste it into your LLM conversation. Done.
 
 > 💡 **Structured Markdown is the most token-efficient, context-rich format for sharing web content with LLMs.** It preserves semantic meaning (headers = hierarchy, tables = data, links = sources) while stripping visual noise.
 
@@ -127,6 +127,9 @@ Adding or removing marker updates injected UI dynamically. Extension toolbar act
 | **WhatsApp Web** | Chat name, all messages with sender, timestamp, media indicators |
 | **X (Twitter)** | Single posts with replies, or full timelines with engagement stats |
 | **Polymarket** | Market title, description, outcome probabilities, volume, resolution rules |
+| **OpenRouter** | Full model definitions, architecture, modalities, pricing, limits, supported parameters, benchmarks, provider endpoint fields, and FAQ |
+| **Artificial Analysis** | Homepage featured items, analysis sections, complete published leaderboards, model overview, exact benchmark values, technical specifications, provenance, and FAQ |
+| **DeepSWE** | Benchmark overview, all published leaderboard configurations and efficiency metrics, methodology, task examples, and blog sources |
 | **Datadog dashboards** | Dashboard title, timeframe, template variables, grouped widget values, top lists, and visible chart annotations |
 | **Datadog notebooks** | Notebook metadata, narrative headings and rich text, ordered visualization cells, types, no-data states, and visible chart annotations |
 | **Datadog Documentation** | Authored `.md` source when available; cleaned rendered documentation DOM otherwise |
@@ -137,7 +140,7 @@ Adding or removing marker updates injected UI dynamically. Extension toolbar act
 | **Bitbucket** | Repositories, source files, pull requests, issues, comments, and visible diffs |
 | **Perplexity** | Ordered user and assistant turns with citations and source links |
 | **Grok** | Ordered user and assistant turns with citations, code, and images |
-| **ChatGPT** | Ordered user and assistant turns with Markdown, code, model metadata, and images |
+| **ChatGPT** | Ordered user and assistant turns with Markdown, canvas writing blocks, code, model metadata, and images |
 | **Claude** | Ordered user and assistant turns with Markdown, code, citations, and images |
 | **Gemini** | Ordered user and model turns with Markdown, code, citations, and images |
 | **Meta AI** | Ordered user and assistant turns with citations, code, and images |
@@ -374,6 +377,29 @@ Extractors enable anchored placement only after their site selector and SPA life
 4. If you want to prepare an inline placement for later, add an `anchor` config but do not set `buttonPlacement: 'anchor'` yet
 5. Import the new file in `src/main.ts`
 6. Run `pnpm build` — the new patterns propagate to all targets
+
+### Captured Public-Site Fixtures
+
+Public extractors can be checked against browser-rendered pages without committing raw page data:
+
+```bash
+# Capture current public page in a clean headless browser.
+# If live capture fails, use an exact Wayback CDX capture.
+pnpm fixtures:capture -- --site mdn
+
+# Force one source while debugging.
+pnpm fixtures:capture -- --site mdn --source live
+pnpm fixtures:capture -- --site mdn --source wayback
+
+# Replay committed fixtures entirely offline.
+pnpm fixtures:verify
+```
+
+Catalog lives at `test/sites/catalog.yaml`. Capture writes raw reference screenshots only under gitignored `.fixture-work/`. A failed live attempt writes `live-failure.png` before Wayback fallback. Committed fixtures contain synthetic text, normalized links, no scripts or media, a screenshot of sanitized DOM, expected Markdown, and source provenance. Wayback provenance includes exact capture timestamp and digest. Set `wayback: true` to discover a capture through CDX, then pin accepted timestamp and digest in catalog for stable replay.
+
+Capture refuses credentials, localhost, private IP addresses, and non-HTTP protocols. Use only curated public URLs. Authenticated pages require synthetic fixtures and must never use this capture path.
+
+Each captured fixture verifies extractor identity, exact anchor relationship, singleton UI, Markdown bounds, required output, synthetic markers for excluded page chrome, exact expected Markdown, and privacy rules. `pnpm test:regression` runs this offline lane in CI.
 
 ---
 

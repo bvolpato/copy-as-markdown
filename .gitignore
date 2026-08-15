@@ -23,4 +23,5 @@ Thumbs.db
 # Test outputs
 assets/screenshots/
 test/screenshots/
+.fixture-work/
 .playwright-mcp/

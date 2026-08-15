@@ -1,0 +1,24 @@
+version: 1
+sites:
+  - id: mdn
+    extractor: MDN Web Docs
+    cases:
+      - id: javascript-guide
+        url: https://developer.mozilla.org/en-US/docs/Web/JavaScript/Guide
+        readySelector: "#content"
+        placement: anchor
+        anchorSelector: ".reference-layout__header > h1"
+        anchorPosition: after
+        minChars: 300
+        maxChars: 120000
+        required:
+          - "FIXTURE_H1_"
+        forbidden:
+          - "Copy as Markdown"
+        excludedSelectors:
+          - ".reference-layout__toc"
+          - "mdn-placement-sidebar"
+          - "mdn-survey"
+        wayback:
+          timestamp: "20260810224420"
+          digest: Z73LB34TYPEICKR34H3QSDKHSHFSDAL3
