@@ -4078,7 +4078,7 @@ async function runProductionUiChecks(browser, scriptContent) {
       cardLogosLoaded: [...document.querySelectorAll('.install-card .install-logo')]
         .every((logo) => logo.naturalWidth > 0),
       siteCards: document.querySelectorAll('.site-card').length,
-      purposeBuiltCount: document.body.textContent.includes('64 purpose-built'),
+      purposeBuiltCount: document.body.textContent.includes('50+ purpose-built'),
       favicons: {
         configured: document.querySelectorAll('.site-icon[data-favicon-url]').length,
         invalidTargets: [...document.querySelectorAll('.site-icon[data-favicon-url]')]

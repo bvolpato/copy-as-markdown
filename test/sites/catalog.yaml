@@ -22,3 +22,42 @@ sites:
         wayback:
           timestamp: "20260810224420"
           digest: Z73LB34TYPEICKR34H3QSDKHSHFSDAL3
+  - id: openrouter
+    extractor: OpenRouter
+    cases:
+      - id: gpt-5-1
+        url: https://openrouter.ai/openai/gpt-5.1
+        readySelector: "main h1"
+        placement: floating
+        minChars: 100
+        maxChars: 120000
+        required:
+          - "FIXTURE_H1_"
+        forbidden:
+          - "Copy as Markdown"
+  - id: artificial-analysis
+    extractor: Artificial Analysis
+    cases:
+      - id: gpt-5-1
+        url: https://artificialanalysis.ai/models/gpt-5-1
+        readySelector: "main h1"
+        placement: floating
+        minChars: 100
+        maxChars: 120000
+        required:
+          - "FIXTURE_H1_"
+        forbidden:
+          - "Copy as Markdown"
+  - id: deepswe
+    extractor: DeepSWE
+    cases:
+      - id: leaderboard
+        url: https://deepswe.datacurve.ai/
+        readySelector: "#leaderboard"
+        placement: floating
+        minChars: 100
+        maxChars: 120000
+        required:
+          - "FIXTURE_H1_"
+        forbidden:
+          - "Copy as Markdown"

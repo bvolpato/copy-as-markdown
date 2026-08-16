@@ -55,7 +55,6 @@ function extractAbstract(url: string): string {
   title = title.replace(/^Title:\s*/i, '');
 
   // Authors
-  const authorEl = document.querySelector('.authors a, .ltx_authors');
   const authorEls = document.querySelectorAll('.authors a, .ltx_personname');
   const authors = Array.from(authorEls).map((el) => el.textContent?.trim()).filter(Boolean);
 

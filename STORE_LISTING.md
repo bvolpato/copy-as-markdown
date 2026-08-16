@@ -236,7 +236,7 @@ Context-aware Markdown extraction for articles, documentation, dashboards, conve
 ```
 Copy as Markdown converts web content into clean, structured Markdown with one click. It preserves headings, tables, links, code blocks, lists, title, and URL for AI workflows, research, notes, and documentation.
 
-64 FIRST-CLASS EXTRACTORS
+50+ FIRST-CLASS EXTRACTORS
 
 • Wikipedia: article body, infoboxes, and tables
 • GitHub: issues, pull requests, directory listings, full code files, and patches

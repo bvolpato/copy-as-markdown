@@ -173,7 +173,7 @@ const PAGE_BUTTON_OPTOUT_ID = 'copy_as_markdown_btn';
   // Listen for Extension Toolbar Icon clicks (synchronous registration)
   if (!toolbarListenerAttached && typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.onMessage) {
     toolbarListenerAttached = true;
-    chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
+    chrome.runtime.onMessage.addListener((request, _sender, sendResponse) => {
       if (request.action === 'copy-as-markdown') {
         performCopy().then(
           (copied) => sendResponse({ success: true, copied }),

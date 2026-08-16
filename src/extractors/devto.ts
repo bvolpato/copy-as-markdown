@@ -38,9 +38,6 @@ register({
     const reactionsEl = document.querySelector('.crayons-article__header .reactions-count, [id="article-show-container"] .reactions-count');
     const reactions = reactionsEl?.textContent?.trim() || '';
 
-    const commentsCountEl = document.querySelector('.comments-count, #comments .crayons-subtitle-1');
-    const commentsCount = commentsCountEl?.textContent?.trim() || '';
-
     const metadata: Record<string, string> = {
       source: 'Dev.to',
       title,
