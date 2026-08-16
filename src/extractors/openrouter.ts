@@ -421,7 +421,7 @@ function table(headers: string[], rows: string[][]): string {
 }
 
 function tableCell(value: string): string {
-  return value.replace(/\r?\n/g, '<br>').replace(/\|/g, '\\|').trim();
+  return Markdown.escapeMarkdownTableCell(value, '<br>');
 }
 
 function priceDisplay(field: string, raw: unknown): string {

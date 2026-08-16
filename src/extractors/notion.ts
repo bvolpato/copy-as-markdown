@@ -402,5 +402,5 @@ function escapeInline(value: string): string {
 }
 
 function escapeTableCell(value: string): string {
-  return escapeInline(value).replace(/\|/g, '\\|');
+  return value.replace(/([\\`*_[\]<>|])/g, '\\$1').replace(/\n/g, ' ');
 }

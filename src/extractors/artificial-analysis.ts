@@ -493,5 +493,5 @@ function table(headers: string[], rows: string[][]): string {
 }
 
 function tableCell(value: string): string {
-  return value.replace(/\r?\n/g, ' ').replace(/\|/g, '\\|').trim();
+  return Markdown.escapeMarkdownTableCell(value);
 }

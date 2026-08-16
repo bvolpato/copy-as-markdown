@@ -458,7 +458,7 @@ function normalizeNoData(value: string): string {
 }
 
 function escapeCell(value: string): string {
-  return value.replace(/\|/g, '\\|').replace(/\n/g, ' ').trim();
+  return Markdown.escapeMarkdownTableCell(value);
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

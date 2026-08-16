@@ -341,11 +341,11 @@ function table(headers: string[], rows: string[][]): string {
 }
 
 function tableCell(value: string): string {
-  return String(value ?? '').replace(/\s+/g, ' ').replace(/\|/g, '\\|').trim();
+  return Markdown.escapeMarkdownTableCell(String(value ?? '').replace(/\s+/g, ' '));
 }
 
 function escapeInline(value: string): string {
-  return value.replace(/([\[\]])/g, '\\$1');
+  return Markdown.escapeMarkdownLinkText(value);
 }
 
 function formatPercent(value: unknown): string {

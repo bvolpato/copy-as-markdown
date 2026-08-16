@@ -269,5 +269,5 @@ function normalize(value: string): string {
 }
 
 function escapeLinkText(value: string): string {
-  return value.replace(/]/g, '\\]');
+  return Markdown.escapeMarkdownLinkText(value);
 }
