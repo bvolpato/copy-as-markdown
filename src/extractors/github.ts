@@ -309,7 +309,7 @@ function fencePatch(patch: string): string {
 }
 
 function escapeTableCell(value: string): string {
-  return value.replace(/\|/g, '\\|').replace(/\s+/g, ' ').trim();
+  return Markdown.escapeMarkdownTableCell(value.replace(/\s+/g, ' '));
 }
 
 function extractIssueOrPR(metadata: Record<string, string>, isPR: boolean): string {

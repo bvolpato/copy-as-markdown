@@ -437,5 +437,5 @@ function metadataValue(value: string): string {
 }
 
 function escapeTableCell(value: string): string {
-  return value.replace(/\|/g, '\\|').replace(/\r?\n/g, ' ').trim();
+  return Markdown.escapeMarkdownTableCell(value);
 }

@@ -1770,6 +1770,32 @@ DD_SITE=datadoghq.com
     await selectionPage.close();
   }
 
+  const markdownSafetyPage = await createFixturePage(browser, scriptContent, {
+    url: 'https://fixture.test/markdown-safety',
+    html: `<!doctype html><html><head><title>Markdown safety</title></head><body>
+      <main>
+        <h1>Markdown safety</h1>
+        <p>
+          <a href="javascript:alert(1)">Unsafe JavaScript</a>
+          <a href="data:text/html,unsafe">Unsafe data</a>
+          <a href="vbscript:msgbox(1)">Unsafe VBScript</a>
+          <a href="/safe">Safe relative link</a>
+        </p>
+        <table><tr><th>Value</th></tr><tr><td>left\\|right</td></tr></table>
+      </main>
+    </body></html>`,
+  });
+  try {
+    const markdown = await clickAndCapture(markdownSafetyPage);
+    assertCheck(markdown.includes('[Safe relative link](https://fixture.test/safe)'), 'Safe relative link was removed');
+    assertCheck(!/javascript:|data:text\/html|vbscript:/i.test(markdown), 'Unsafe URL scheme survived Markdown conversion');
+    assertCheck(markdown.includes('Unsafe JavaScript') && markdown.includes('Unsafe data') && markdown.includes('Unsafe VBScript'), 'Unsafe URL labels were removed with their links');
+    assertCheck(markdown.includes('left\\\\\\|right'), `Table delimiter escaping was incomplete: ${JSON.stringify(markdown)}`);
+    log('✅', 'Markdown links reject executable schemes and table cells escape delimiters');
+  } finally {
+    await markdownSafetyPage.close();
+  }
+
   const claudePage = await createFixturePage(browser, scriptContent, {
     url: 'https://claude.ai/chat/regression',
     html: `<!doctype html><html><head><title>Claude fixture</title></head><body>

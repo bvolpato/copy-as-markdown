@@ -14,6 +14,18 @@ export function normalizeWhitespace(text: string): string {
   return normalizeUnicodeText(text).replace(/[\s\n\r]+/g, ' ').trim();
 }
 
+export function escapeMarkdownLinkText(value: string): string {
+  return value.replace(/([\\[\]])/g, '\\$1');
+}
+
+export function escapeMarkdownTableCell(value: string, lineBreak = ' '): string {
+  return value
+    .replace(/\\/g, '\\\\')
+    .replace(/\|/g, '\\|')
+    .replace(/\r?\n/g, lineBreak)
+    .trim();
+}
+
 const ASCII_PUNCTUATION = new Map<string, string>([
   ['\u00AB', '"'], ['\u00BB', '"'],
   ['\u2018', "'"], ['\u2019', "'"], ['\u201A', "'"], ['\u201B', "'"],
@@ -147,7 +159,7 @@ export function tableToMarkdown(tableEl: Element): string {
     const values = cells.map((cell) => {
       // Recursively convert cell contents to Markdown, then flatten to single line
       const md = cellToMarkdown(cell);
-      return md.replace(/\n/g, ' ').replace(/\s+/g, ' ').replace(/\|/g, '\\|').trim();
+      return escapeMarkdownTableCell(md.replace(/\n/g, ' ').replace(/\s+/g, ' '));
     });
     maxCols = Math.max(maxCols, values.length);
     allRowCells.push(values);
@@ -195,9 +207,8 @@ function cellToMarkdown(cell: Element): string {
       } else if (tag === 'A') {
         const href = el.getAttribute('href');
         const text = normalizeWhitespace(el.textContent || '');
-        if (text && href && !href.startsWith('javascript:')) {
-          let fullHref = href;
-          try { fullHref = new URL(href, document.baseURI).href; } catch {}
+        const fullHref = safeMarkdownLinkUrl(href || '');
+        if (text && fullHref) {
           parts.push(`[${text}](${fullHref})`);
         } else {
           parts.push(text);
@@ -380,15 +391,11 @@ export function nodeToMarkdown(
       const href = el.getAttribute('href');
       const text = childrenToMarkdown(el, context).trim();
       if (!text && !href) return '';
-      if (!href || href.startsWith('javascript:')) return text;
+      if (!href) return text;
       // Skip internal anchor-only links (e.g. [1], [2] footnotes)
       if (href.startsWith('#')) return text;
-      let fullHref = href;
-      try {
-        fullHref = new URL(href, document.baseURI).href;
-      } catch {
-        /* keep original */
-      }
+      const fullHref = safeMarkdownLinkUrl(href);
+      if (!fullHref) return text;
       return text ? `[${text}](${fullHref})` : fullHref;
     }
 
@@ -498,6 +505,16 @@ export function cleanMarkdown(md: string): string {
     .replace(/^\n+/, '')
     .replace(/\n+$/, '\n')
     .trim();
+}
+
+function safeMarkdownLinkUrl(value: string): string {
+  if (!value) return '';
+  try {
+    const url = new URL(value, document.baseURI);
+    return /^(?:https?|mailto):$/.test(url.protocol) ? url.href : '';
+  } catch {
+    return '';
+  }
 }
 
 type TrustedHtmlPolicy = {

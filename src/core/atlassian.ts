@@ -117,7 +117,7 @@ function renderInlineChildren(content: JsonObject[]): string {
 function renderText(value: string, marks: JsonObject[]): string {
   const codeMark = marks.some((mark) => mark.type === 'code');
   let rendered = codeMark
-    ? `\`${value.replace(/`/g, '\\`')}\``
+    ? `\`${value.replace(/\\/g, '\\\\').replace(/`/g, '\\`')}\``
     : escapeMarkdown(value);
 
   for (const mark of marks) {
@@ -152,8 +152,9 @@ function renderTable(rows: JsonObject[]): string {
     const value = objectArray(cell.content)
       .map((child) => renderNode(child, 0))
       .join(' ')
-      .replace(/\s*\n\s*/g, '<br>')
+      .replace(/\\/g, '\\\\')
       .replace(/\|/g, '\\|')
+      .replace(/\s*\n\s*/g, '<br>')
       .trim();
     return value;
   }));
