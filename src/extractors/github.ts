@@ -7,7 +7,7 @@ import { register } from '../core/registry';
 import * as Markdown from '../core/markdown';
 import * as Utils from '../core/utils';
 
-register({
+export const githubExtractor = register({
   name: 'GitHub',
   matches: [
     '*://github.com/*/*',

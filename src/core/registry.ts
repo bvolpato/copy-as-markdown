@@ -7,8 +7,8 @@ import { Extractor, ExtractorConfig } from './types';
 
 const extractors: Extractor[] = [];
 
-export function register(config: ExtractorConfig): void {
-  extractors.push({
+export function defineExtractor(config: ExtractorConfig): Extractor {
+  return {
     name: config.name,
     matches: config.matches || [],
     regex: config.regex || null,
@@ -19,13 +19,19 @@ export function register(config: ExtractorConfig): void {
     buttonPlacement: config.buttonPlacement || 'floating',
     extensionPageButton: config.extensionPageButton || false,
     anchor: config.anchor || null,
-  });
+  };
+}
+
+export function register(config: ExtractorConfig): Extractor {
+  const extractor = defineExtractor(config);
+  extractors.push(extractor);
+  return extractor;
 }
 
 export function findExtractor(url?: string): Extractor | null {
   const href = url || window.location.href;
   for (const ext of extractors) {
-    if (matchesExtractorUrl(ext, href) && matchesPathname(ext.pathnameRegex, href)) return ext;
+    if (matchesExtractor(ext, href)) return ext;
   }
   return null;
 }
@@ -37,9 +43,9 @@ export function findExtensionPageButtonCandidate(url?: string): Extractor | null
   ) || null;
 }
 
-export function findDetectedExtractor(): Extractor | null {
+export function findDetectedExtractor(contextDocument?: Document): Extractor | null {
   for (const ext of extractors) {
-    if (ext.detect?.()) return ext;
+    if (ext.detect?.(contextDocument)) return ext;
   }
   return null;
 }
@@ -48,7 +54,7 @@ export function getAll(): Extractor[] {
   return [...extractors];
 }
 
-function matchPatternToRegex(pattern: string): RegExp {
+export function matchPatternToRegex(pattern: string): RegExp {
   // 1. Replace * wildcards with a placeholder that won't be touched by escaping
   const WILDCARD = '\x00';
   let regex = pattern.replace(/\*/g, WILDCARD);
@@ -67,12 +73,12 @@ function testRegex(regex: RegExp | null, value: string): boolean {
   return regex.test(value);
 }
 
-function matchesExtractorUrl(extractor: Extractor, href: string): boolean {
+export function matchesExtractorUrl(extractor: Extractor, href: string): boolean {
   return testRegex(extractor.regex, href) ||
     extractor.matches.some((pattern) => matchPatternToRegex(pattern).test(href));
 }
 
-function matchesPathname(regex: RegExp | null, href: string): boolean {
+export function matchesPathname(regex: RegExp | null, href: string): boolean {
   if (!regex) return true;
   try {
     regex.lastIndex = 0;
@@ -80,6 +86,11 @@ function matchesPathname(regex: RegExp | null, href: string): boolean {
   } catch {
     return false;
   }
+}
+
+export function matchesExtractor(extractor: Extractor, href: string): boolean {
+  return matchesExtractorUrl(extractor, href)
+    && matchesPathname(extractor.pathnameRegex, href);
 }
 
 export function getAllMatchPatterns(): string[] {

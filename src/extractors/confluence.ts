@@ -30,7 +30,7 @@ type ConfluenceApiExtraction = {
   contentSource: string;
 };
 
-register({
+export const confluenceExtractor = register({
   name: 'Confluence',
   matches: ['*://*.atlassian.net/wiki/*'],
   regex: CUSTOM_CONFLUENCE_URL,

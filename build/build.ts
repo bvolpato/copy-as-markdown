@@ -3,11 +3,11 @@
 /**
  * Build script for Copy as Markdown.
  *
- * Uses esbuild to bundle the TypeScript source into a single IIFE, then
- * wraps it into three distribution targets:
+ * Uses esbuild to bundle TypeScript source into four distribution targets:
  *   1. Tampermonkey / Violentmonkey userscript
  *   2. Chrome extension (Manifest V3)
  *   3. Firefox extension (Manifest V2)
+ *   4. Standalone ESM and browser-global library
  *
  * Usage:
  *   npx tsx build/build.ts
@@ -92,6 +92,46 @@ function bundleBackground(): string {
     target: 'es2020',
     write: false,
     minify: true,
+    sourcemap: false,
+    logLevel: 'warning',
+  });
+  return result.outputFiles![0].text;
+}
+
+function buildLibraryEsm(outDir: string): void {
+  buildSync({
+    entryPoints: {
+      index: path.join(SRC, 'library', 'entry.ts'),
+      core: path.join(SRC, 'library', 'index.ts'),
+      'extractors/confluence': path.join(SRC, 'extractors', 'confluence.ts'),
+      'extractors/github': path.join(SRC, 'extractors', 'github.ts'),
+      'extractors/google-docs': path.join(SRC, 'extractors', 'google-docs.ts'),
+      'extractors/jira': path.join(SRC, 'extractors', 'jira.ts'),
+    },
+    bundle: true,
+    format: 'esm',
+    splitting: true,
+    outdir: outDir,
+    entryNames: '[dir]/[name]',
+    chunkNames: 'chunks/[name]-[hash]',
+    platform: 'browser',
+    target: 'es2020',
+    minify: false,
+    sourcemap: false,
+    logLevel: 'warning',
+  });
+}
+
+function bundleLibraryGlobal(): string {
+  const result: BuildResult = buildSync({
+    entryPoints: [path.join(SRC, 'library', 'entry.ts')],
+    bundle: true,
+    format: 'iife',
+    globalName: 'CopyAsMarkdown',
+    platform: 'browser',
+    target: 'es2020',
+    write: false,
+    minify: false,
     sourcemap: false,
     logLevel: 'warning',
   });
@@ -212,7 +252,23 @@ function ensureDir(dir: string): void {
   fs.mkdirSync(dir, { recursive: true });
 }
 
+function buildLibraryArtifacts(): void {
+  const libraryDir = path.join(DIST, 'library');
+  if (fs.existsSync(libraryDir)) fs.rmSync(libraryDir, { recursive: true });
+  ensureDir(libraryDir);
+  buildLibraryEsm(libraryDir);
+  fs.writeFileSync(path.join(libraryDir, 'browser.js'), bundleLibraryGlobal());
+  console.log('  ✅ Library → dist/library/ (ESM + browser global)');
+}
+
 function main(): void {
+  if (process.argv.includes('--library-only')) {
+    console.log('🔨 Building Copy as Markdown library...\n');
+    buildLibraryArtifacts();
+    console.log('\n✨ Library build complete!');
+    return;
+  }
+
   console.log('🔨 Building Copy as Markdown...\n');
 
   // Clean dist
@@ -251,12 +307,15 @@ function main(): void {
   copyIcons(path.join(firefoxDir, 'icons'));
   console.log('  ✅ Firefox Extension → dist/firefox/ (Manifest V2)');
 
+  // 4. Standalone library
+  buildLibraryArtifacts();
+
   // Summary
   const extractorCount = getExtractorCount();
   console.log(`\n📊 Summary:`);
   console.log(`   ${extractorCount} extractors`);
   console.log(`   ${patterns.length} URL match patterns`);
-  console.log(`   3 output targets (userscript, chrome, firefox)`);
+  console.log(`   4 output targets (userscript, chrome, firefox, library)`);
   console.log('\n✨ Build complete!');
 }
 

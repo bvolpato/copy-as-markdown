@@ -53,7 +53,7 @@ register({
 ```
 
 3. **Import in main.ts**: Add `import './extractors/my-site';` to `src/main.ts`
-4. **Build and test**: `pnpm typecheck && pnpm test:regression && pnpm package:all && pnpm verify:release`
+4. **Build and test**: `pnpm typecheck && pnpm test:regression && pnpm package:all && pnpm verify:release && pnpm pack:library`
 5. **Load the userscript** or extension and verify on the target site
 
 `pnpm test:live` runs optional Wayback-based diagnostics. It is not a release gate because archive availability is external and intermittent.
@@ -97,12 +97,12 @@ If unsure, use `pill` — it's the most versatile and always looks good.
 1. Fork the repository
 2. Create a feature branch: `git checkout -b add-github-extractor`
 3. Make your changes and test them
-4. Run `pnpm typecheck && pnpm test:regression && pnpm package:all && pnpm verify:release`
+4. Run `pnpm typecheck && pnpm test:regression && pnpm package:all && pnpm verify:release && pnpm pack:library`
 5. Open a PR with a clear description of what site you're adding and what content is extracted
 
 ## Release Process
 
-GitHub Actions builds and publishes releases. Do not create releases or upload assets manually.
+GitHub Actions builds and publishes browser releases. Do not create releases or upload assets manually.
 
 1. Update `package.json` to the next `MAJOR.MINOR.PATCH` version.
 2. Merge the version and release changes into `main`.
@@ -115,6 +115,8 @@ GitHub Actions builds and publishes releases. Do not create releases or upload a
    ```
 
 The release workflow accepts only signed strict semantic-version tags from an allowed signer. Tag version must match `package.json`, and tagged commit must be reachable from `main`. Workflow runs typechecking, browser regression tests, packaging, and manifest/archive verification before its isolated publish job receives write permission.
+
+Scoped npm package uses same version. Run `pnpm pack:library` before release. Publishing `@bvolpato/copy-as-markdown` requires npm scope access and `pnpm publish --access public`. Configure npm trusted publishing before automating later publications.
 
 ## Reporting Issues
 

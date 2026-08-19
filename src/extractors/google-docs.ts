@@ -10,7 +10,7 @@ import { register } from '../core/registry';
 import * as Markdown from '../core/markdown';
 import * as Utils from '../core/utils';
 
-register({
+export const googleDocsExtractor = register({
   name: 'Google Docs',
   matches: [
     '*://docs.google.com/document/d/*',

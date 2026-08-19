@@ -66,7 +66,7 @@ export interface ExtractorConfig {
   /** Optional pathname constraint applied after URL pattern matching. */
   pathnameRegex?: RegExp;
   /** Optional semantic DOM detector used only when no URL extractor matches. */
-  detect?: () => boolean;
+  detect?: (document?: Document) => boolean;
   /** Optional choices shown before extraction. */
   options?: ExtractionOption[];
   /** The extraction function — returns a Markdown string. */
@@ -87,7 +87,7 @@ export interface Extractor {
   matches: string[];
   regex: RegExp | null;
   pathnameRegex: RegExp | null;
-  detect: (() => boolean) | null;
+  detect: ((document?: Document) => boolean) | null;
   options: ExtractionOption[];
   extract: (optionId?: string) => Promise<string>;
   buttonPlacement: ButtonPlacement;

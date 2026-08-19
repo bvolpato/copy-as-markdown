@@ -207,7 +207,7 @@ function cellToMarkdown(cell: Element): string {
       } else if (tag === 'A') {
         const href = el.getAttribute('href');
         const text = normalizeWhitespace(el.textContent || '');
-        const fullHref = safeMarkdownLinkUrl(href || '');
+        const fullHref = safeMarkdownLinkUrl(href || '', el.ownerDocument?.baseURI);
         if (text && fullHref) {
           parts.push(`[${text}](${fullHref})`);
         } else {
@@ -394,7 +394,7 @@ export function nodeToMarkdown(
       if (!href) return text;
       // Skip internal anchor-only links (e.g. [1], [2] footnotes)
       if (href.startsWith('#')) return text;
-      const fullHref = safeMarkdownLinkUrl(href);
+      const fullHref = safeMarkdownLinkUrl(href, el.ownerDocument?.baseURI);
       if (!fullHref) return text;
       return text ? `[${text}](${fullHref})` : fullHref;
     }
@@ -405,7 +405,7 @@ export function nodeToMarkdown(
       if (!src) return '';
       let fullSrc = src;
       try {
-        fullSrc = new URL(src, document.baseURI).href;
+        fullSrc = new URL(src, el.ownerDocument?.baseURI).href;
       } catch {
         /* keep original */
       }
@@ -507,10 +507,10 @@ export function cleanMarkdown(md: string): string {
     .trim();
 }
 
-function safeMarkdownLinkUrl(value: string): string {
+function safeMarkdownLinkUrl(value: string, baseUrl?: string): string {
   if (!value) return '';
   try {
-    const url = new URL(value, document.baseURI);
+    const url = new URL(value, baseUrl);
     return /^(?:https?|mailto):$/.test(url.protocol) ? url.href : '';
   } catch {
     return '';

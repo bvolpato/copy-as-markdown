@@ -10,6 +10,7 @@
 
 <p align="center">
   <a href="#install">Install</a> ·
+  <a href="#library">Library</a> ·
   <a href="#supported-sites">Supported Sites</a> ·
   <a href="#why">Why?</a> ·
   <a href="#build">Build</a> ·
@@ -91,6 +92,103 @@ An empty marker works too:
 ```
 
 Adding or removing marker updates injected UI dynamically. Extension toolbar action remains available.
+
+---
+
+## Library
+
+Install browser-safe ESM package with pnpm:
+
+```bash
+pnpm add @bvolpato/copy-as-markdown
+```
+
+Library loads only requested extractor chunks without starting userscript or extension UI. It does not inject buttons, write clipboard data, use extension APIs, or persist state. Fixed subpath imports let extension bundlers include only selected extractors.
+
+### Extension content-script example
+
+This matcher enables only Jira, Confluence, GitHub, and Google Docs. Domain list narrows broad built-in site patterns, and `when` adds DOM-specific policy owned by calling extension.
+
+```typescript
+import { createExtractorMatcher } from '@bvolpato/copy-as-markdown/core';
+import { confluenceExtractor } from '@bvolpato/copy-as-markdown/extractors/confluence';
+import { githubExtractor } from '@bvolpato/copy-as-markdown/extractors/github';
+import { googleDocsExtractor } from '@bvolpato/copy-as-markdown/extractors/google-docs';
+import { jiraExtractor } from '@bvolpato/copy-as-markdown/extractors/jira';
+
+const matcher = createExtractorMatcher({
+  extractors: [jiraExtractor, confluenceExtractor, githubExtractor, googleDocsExtractor],
+  domains: [
+    'jira.example.com',
+    'confluence.example.com',
+    'github.com',
+    'docs.google.com',
+    'acme.atlassian.net',
+  ],
+  when: ({ document, extractor }) => {
+    if (extractor.name !== 'GitHub') return true;
+    return Boolean(document?.querySelector('[data-my-extension-context]'));
+  },
+});
+
+const match = matcher.match({
+  url: window.location.href,
+  document,
+});
+
+if (match) {
+  const markdown = await match.extract();
+  await navigator.clipboard.writeText(markdown);
+}
+```
+
+`domains` uses exact hostnames. Use `*.atlassian.net` only when every Atlassian subdomain should be eligible. `origins` can restrict scheme and port. `urlPatterns` accepts userscript-style patterns or regular expressions. `when` receives parsed URL, current document, and matched extractor.
+
+Runtime selection is also available when extractor set is not known at build time:
+
+```typescript
+import {
+  createExtractorMatcher,
+  loadExtractors,
+} from '@bvolpato/copy-as-markdown';
+
+const extractors = await loadExtractors(['jira', 'confluence', 'github', 'google-docs']);
+const matcher = createExtractorMatcher({ extractors });
+```
+
+Site extractors run inside active page because authenticated Jira and Confluence extraction can use same-origin APIs and current browser state. Use generic DOM conversion for detached or caller-created DOM:
+
+```typescript
+import { domToMarkdown, htmlToMarkdown } from '@bvolpato/copy-as-markdown';
+
+const fromElement = domToMarkdown(document.querySelector('main')!);
+const fromDocument = domToMarkdown(new DOMParser().parseFromString(html, 'text/html'));
+const fromHtml = htmlToMarkdown('<article><h1>Hello</h1></article>');
+```
+
+Custom extractors can be DOM-only. Pass empty URL patterns and inspect provided document:
+
+```typescript
+import { defineExtractor, domToMarkdown } from '@bvolpato/copy-as-markdown/core';
+
+const internalApp = defineExtractor({
+  name: 'Internal app',
+  matches: [],
+  detect: (document) => Boolean(document?.querySelector('[data-internal-app]')),
+  extract: async () => domToMarkdown(document.querySelector('main')!),
+});
+```
+
+Useful APIs:
+
+- `getAvailableExtractorIds()` lists 50+ loadable extractor IDs.
+- `loadExtractor('github')` loads one extractor chunk.
+- `loadExtractors(['github', 'jira'])` loads selected chunks in parallel.
+- `loadAllExtractors()` loads full catalog.
+- `getExtractors()` lists extractors loaded in current module instance.
+- `createExtractorMatcher()` applies extractor URL rules plus caller restrictions.
+- `defineExtractor()` creates custom extractor objects for same matcher.
+- `domToMarkdown()`, `elementToMarkdown()`, and `htmlToMarkdown()` convert caller-owned DOM without site UI.
 
 ---
 
@@ -270,18 +368,43 @@ dist/
 │   ├── manifest.json                   ← Chrome Manifest V3
 │   ├── content.js
 │   └── icons/
-└── firefox/
-    ├── manifest.json                   ← Firefox Manifest V2
-    ├── content.js
-    └── icons/
+├── firefox/
+│   ├── manifest.json                   ← Firefox Manifest V2
+│   ├── content.js
+│   └── icons/
+└── library/
+    ├── index.js                        ← Browser-safe ESM package entry
+    ├── browser.js                      ← CopyAsMarkdown browser global
+    ├── chunks/                         ← Lazy site extractor chunks
+    ├── extractors/                     ← Fixed Jira, Confluence, GitHub, Google Docs entries
+    └── types/                          ← TypeScript declarations
 ```
+
+### Publish library
+
+Unscoped `copy-as-markdown` name is already used on npm. This repository publishes as public scoped package `@bvolpato/copy-as-markdown`.
+
+Validate exact package contents without publishing:
+
+```bash
+pnpm pack:library
+```
+
+After setting next release version, publishing requires npm account with access to `@bvolpato` scope:
+
+```bash
+pnpm login
+pnpm publish --access public
+```
+
+`prepack` rebuilds standalone library without touching extension or userscript artifacts. `files` allowlist publishes only standalone library, declarations, README, license, and package manifest. Later CI publishing should use npm trusted publishing with provenance after package exists and trusted publisher is configured for this repository.
 
 ### Tech Stack
 
 - **TypeScript** — all source code, compiled with esbuild
-- **esbuild** — fast bundling into a single IIFE (no Webpack/Rollup)
+- **esbuild** — fast userscript, extension, ESM, and browser-global bundling
 - **pnpm** — package management
-- **Zero runtime dependencies** — the output is a single self-contained JS file
+- **Zero runtime dependencies** — extension targets are self-contained; library uses local ESM chunks only
 
 ---
 
@@ -304,9 +427,11 @@ src/
 │   ├── reddit.ts       ← extractor
 │   ├── x-twitter.ts    ← extractor
 │   └── news.ts         ← extractor
+├── catalog.ts          ← Load extractors without UI startup
+├── library/index.ts    ← Standalone matcher and DOM API
 └── main.ts             ← Entry point: detect site, show button
 build/
-└── build.js            ← esbuild bundler → userscript + extensions
+└── build.ts            ← esbuild bundler → userscript + extensions + library
 ```
 
 ### Userscript Button Positioning
