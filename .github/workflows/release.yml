@@ -75,6 +75,9 @@ jobs:
       - name: Browser regression tests
         run: pnpm test:regression
 
+      - name: Validate npm package contents
+        run: pnpm pack:library
+
       - name: Package release artifacts
         run: pnpm package:all
 

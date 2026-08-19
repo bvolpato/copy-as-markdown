@@ -68,7 +68,7 @@ const JIRA_NOISE_FIELD_NAMES = new Set([
 ]);
 const JIRA_OPAQUE_FIELD_VALUE = /(?:\b(?:cachedValue|devSummaryJson|summaryBean)=|\b[A-Za-z_$][\w.$]*Bean@[\da-f]+\b)/i;
 
-register({
+export const jiraExtractor = register({
   name: 'Jira',
   matches: [
     '*://*.atlassian.net/browse/*',
