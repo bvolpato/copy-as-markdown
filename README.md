@@ -390,14 +390,19 @@ Validate exact package contents without publishing:
 pnpm pack:library
 ```
 
-After setting next release version, publishing requires npm account with access to `@bvolpato` scope:
+Releases are driven by signed `vMAJOR.MINOR.PATCH` tags on `main`. The release workflow validates the tag, tests and packages every target, publishes the npm package when that version does not already exist, then creates the GitHub release and browser artifacts.
+
+npm trusted publishing requires one-time package configuration by an npm owner:
 
 ```bash
-pnpm login
-pnpm publish --access public
+pnpm dlx npm@12.0.2 trust github @bvolpato/copy-as-markdown \
+  --file release.yml \
+  --repo bvolpato/copy-as-markdown \
+  --allow-publish \
+  --yes
 ```
 
-`prepack` rebuilds standalone library without touching extension or userscript artifacts. `files` allowlist publishes only standalone library, declarations, README, license, and package manifest. Later CI publishing should use npm trusted publishing with provenance after package exists and trusted publisher is configured for this repository.
+After this one-time setup, the workflow uses npm OIDC trusted publishing and provenance without a long-lived token. Existing package versions are detected and skipped, allowing the GitHub artifacts for an already-published npm version to be completed safely. `prepack` rebuilds standalone library without touching extension or userscript artifacts. `files` allowlist publishes only standalone library, declarations, README, license, and package manifest.
 
 ### Tech Stack
 

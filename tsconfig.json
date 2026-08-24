@@ -8,6 +8,7 @@
     "skipLibCheck": true,
     "forceConsistentCasingInFileNames": true,
     "lib": ["ES2020", "DOM", "DOM.Iterable"],
+    "types": ["chrome"],
     "outDir": "build/compiled",
     "rootDir": "src",
     "declaration": false,

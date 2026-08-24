@@ -12,6 +12,9 @@ concurrency:
 permissions:
   contents: read
 
+env:
+  PACKAGE_NAME: '@bvolpato/copy-as-markdown'
+
 jobs:
   validate:
     name: Validate & Package
@@ -77,6 +80,11 @@ jobs:
 
       - name: Validate npm package contents
         run: pnpm pack:library
+
+      - name: Build npm package tarball
+        run: |
+          mkdir npm-package
+          pnpm pack --pack-destination npm-package
 
       - name: Package release artifacts
         run: pnpm package:all
@@ -148,9 +156,71 @@ jobs:
           if-no-files-found: error
           retention-days: 14
 
-  publish:
-    name: Publish
+      - name: Upload npm package tarball
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: npm-package
+          path: npm-package/*.tgz
+          if-no-files-found: error
+          retention-days: 14
+
+  publish-npm:
+    name: Publish npm Package
     needs: validate
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      id-token: write
+
+    steps:
+      - name: Setup pnpm
+        uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6.0.9
+        with:
+          version: 11.22.0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22.22.2
+          registry-url: https://registry.npmjs.org
+
+      - name: Check npm registry
+        id: registry
+        shell: bash
+        env:
+          VERSION: ${{ needs.validate.outputs.version }}
+        run: |
+          if pnpm view "${PACKAGE_NAME}@${VERSION}" version --json >/dev/null 2>&1; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+            echo "${PACKAGE_NAME}@${VERSION} is already published"
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Download npm package tarball
+        if: steps.registry.outputs.exists != 'true'
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: npm-package
+          path: npm-package
+
+      - name: Publish npm package
+        if: steps.registry.outputs.exists != 'true'
+        shell: bash
+        env:
+          NPM_CONFIG_PROVENANCE: 'true'
+        run: |
+          tarball="$(find npm-package -maxdepth 1 -name '*.tgz' -print -quit)"
+          if [[ -z "$tarball" ]]; then
+            echo "npm package tarball not found" >&2
+            exit 1
+          fi
+          pnpm dlx npm@12.0.2 publish "$tarball" --access public
+
+  publish-github:
+    name: Publish GitHub Release
+    needs: [validate, publish-npm]
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
