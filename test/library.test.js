@@ -268,6 +268,19 @@ try {
         <header data-tid="chat-header"><h1 data-tid="header-chat-title">Project Phoenix</h1></header>
         <main data-tid="chat-pane-message-list" role="log" aria-label="Messages">
           <div role="listitem">Activity chrome that is not a message</div>
+          <article data-tid="chat-pane-item" data-message-id="chat-pane-item-message">
+            <span data-tid="message-author-name">Live Alice</span>
+            <time data-tid="message-timestamp" datetime="2026-08-29T13:55:00Z">9:55 AM</time>
+            <div data-tid="message-attachment">
+              <a href="https://files.example.com/live-chat.pdf">live-chat.pdf</a>
+            </div>
+            <div data-tid="message-reactions">
+              <button aria-label="Live Alice reacted with Like">Like 1</button>
+            </div>
+            <div data-tid="chat-pane-message">
+              <div data-tid="messageBodyContent">Outer chat item owns this message.</div>
+            </div>
+          </article>
           <article data-tid="message-group-container" data-message-id="message-1">
             <span data-tid="message-group-author">Alice</span>
             <time data-tid="message-group-time" datetime="2026-08-29T14:00:00Z">10:00 AM</time>
@@ -309,6 +322,10 @@ try {
   });
   assert.equal(teamsResult.name, 'Microsoft Teams');
   assert.match(teamsResult.markdown, /# Microsoft Teams · Project Phoenix/);
+  assert.match(teamsResult.markdown, /## Live Alice[\s\S]+\*\*Time:\*\* 2026-08-29T13:55:00Z/);
+  assert.match(teamsResult.markdown, /## Live Alice[\s\S]+Outer chat item owns this message\./);
+  assert.match(teamsResult.markdown, /\*\*Attachments:\*\* \[live-chat\.pdf\]\(https:\/\/files\.example\.com\/live-chat\.pdf\)/);
+  assert.match(teamsResult.markdown, /\*\*Reactions:\*\* Live Alice reacted with Like/);
   assert.match(teamsResult.markdown, /## Alice[\s\S]+### ↳ Bob[\s\S]+## Zoe/);
   assert.doesNotMatch(teamsResult.markdown, /Activity chrome/);
   assert.match(teamsResult.markdown, /```[\s\S]*pnpm typecheck[\s\S]*```/);

@@ -24,6 +24,7 @@ type TeamsMessage = {
 };
 
 const OUTER_MESSAGE_ROOT_SELECTORS = [
+  '[data-tid="chat-pane-item"]',
   '[data-tid="chat-pane-message"]',
   '[data-tid="channel-pane-message"]',
   '[data-tid="thread-pane-message"]',
@@ -33,6 +34,7 @@ const OUTER_MESSAGE_ROOT_SELECTORS = [
   '[data-tid="channel-replies-pane-message"]',
   '[role="listitem"][id*="message"]',
 ];
+const CHAT_PANE_ITEM_SELECTOR = '[data-tid="chat-pane-item"]';
 
 const LABELLED_BODY_ROOT_SELECTOR = '[id^="message-body-"][aria-labelledby]';
 const MESSAGE_GROUP_ROOT_SELECTOR = '[data-tid="message-group-container"]';
@@ -223,7 +225,8 @@ function canonicalMessageElements(scope: ParentNode): HTMLElement[] {
 }
 
 function closestMessageRoot(element: Element): HTMLElement | null {
-  return element.closest<HTMLElement>(OUTER_MESSAGE_ROOT_SELECTORS.join(', '))
+  return element.closest<HTMLElement>(CHAT_PANE_ITEM_SELECTOR)
+    || element.closest<HTMLElement>(OUTER_MESSAGE_ROOT_SELECTORS.join(', '))
     || element.closest<HTMLElement>(GENERIC_MESSAGE_ROOT_SELECTOR)
     || element.closest<HTMLElement>(MESSAGE_GROUP_ROOT_SELECTOR)
     || element.closest<HTMLElement>(MESSAGE_WRAPPER_ROOT_SELECTOR)
