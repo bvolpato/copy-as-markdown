@@ -25,6 +25,7 @@ const EXTRACTOR_LOADERS = {
   'fox': { name: 'FOX', load: () => import('../extractors/fox') },
   'gemini': { name: 'Gemini', load: () => import('../extractors/gemini') },
   'github': { name: 'GitHub', load: () => import('../extractors/github') },
+  'hugging-face': { name: 'Hugging Face', load: () => import('../extractors/hugging-face') },
   'gitlab': { name: 'GitLab', load: () => import('../extractors/gitlab') },
   'globo': { name: 'Globo', load: () => import('../extractors/globo') },
   'gmail': { name: 'Gmail', load: () => import('../extractors/gmail') },

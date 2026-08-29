@@ -9,7 +9,7 @@ const library = await import(path.join(ROOT, 'dist', 'library', 'index.js'));
 
 const available = library.getAvailableExtractorIds();
 assert.ok(available.length >= 50, 'published catalog should expose 50+ extractor loaders');
-const selectedExtractors = await library.loadExtractors(['jira', 'confluence', 'github', 'google-docs', 'linear']);
+const selectedExtractors = await library.loadExtractors(['jira', 'confluence', 'github', 'hugging-face', 'google-docs', 'linear']);
 const catalog = library.getExtractors();
 assert.deepEqual(
   catalog.map(({ name }) => name).sort(),
@@ -20,12 +20,23 @@ const directCore = await import(path.join(ROOT, 'dist', 'library', 'core.js'));
 const { jiraExtractor } = await import(path.join(ROOT, 'dist', 'library', 'extractors', 'jira.js'));
 const { confluenceExtractor } = await import(path.join(ROOT, 'dist', 'library', 'extractors', 'confluence.js'));
 const { githubExtractor } = await import(path.join(ROOT, 'dist', 'library', 'extractors', 'github.js'));
+const { huggingFaceExtractor } = await import(path.join(ROOT, 'dist', 'library', 'extractors', 'hugging-face.js'));
 const { googleDocsExtractor } = await import(path.join(ROOT, 'dist', 'library', 'extractors', 'google-docs.js'));
 const { linearExtractor } = await import(path.join(ROOT, 'dist', 'library', 'extractors', 'linear.js'));
 const directMatcher = directCore.createExtractorMatcher({
-  extractors: [jiraExtractor, confluenceExtractor, githubExtractor, googleDocsExtractor, linearExtractor],
+  extractors: [jiraExtractor, confluenceExtractor, githubExtractor, huggingFaceExtractor, googleDocsExtractor, linearExtractor],
 });
 assert.equal(directMatcher.match({ url: 'https://github.com/bvolpato/copy-as-markdown' })?.name, 'GitHub');
+assert.equal(directMatcher.match({ url: 'https://huggingface.co/google/gemma-3-270m' })?.name, 'Hugging Face');
+assert.equal(directMatcher.match({ url: 'https://huggingface.co/datasets/HuggingFaceFW/fineweb/tree/main' })?.name, 'Hugging Face');
+assert.equal(directMatcher.match({ url: 'https://huggingface.co/spaces/Qwen/Qwen-Image-Edit' })?.name, 'Hugging Face');
+assert.equal(directMatcher.match({ url: 'https://huggingface.co/models' }), null);
+assert.equal(directMatcher.match({ url: 'https://huggingface.co/models/text-generation' }), null);
+assert.equal(directMatcher.match({ url: 'https://huggingface.co/Models/text-generation' }), null);
+assert.equal(directMatcher.match({ url: 'https://huggingface.co/api/models' }), null);
+assert.equal(directMatcher.match({ url: 'https://huggingface.co/auth/login' }), null);
+assert.equal(directMatcher.match({ url: 'https://huggingface.co/oauth/authorize' }), null);
+assert.equal(directMatcher.match({ url: 'https://huggingface.co/inference/models' }), null);
 assert.equal(
   directMatcher.match({ url: 'https://docs.google.com/document/d/example/edit' })?.name,
   'Google Docs',
@@ -62,7 +73,7 @@ const matcher = library.createExtractorMatcher({
 
 assert.deepEqual(
   matcher.extractors.map(({ name }) => name),
-  ['Jira', 'Confluence', 'GitHub', 'Google Docs', 'Linear'],
+  ['Jira', 'Confluence', 'GitHub', 'Hugging Face', 'Google Docs', 'Linear'],
 );
 assert.equal(
   matcher.match({ url: 'https://jira.corp.example/browse/ENG-123' })?.name,
@@ -151,7 +162,7 @@ try {
   await page.addScriptTag({ content: browserCode });
 
   const result = await page.evaluate(async () => {
-    await CopyAsMarkdown.loadExtractors(['jira', 'confluence', 'github', 'google-docs', 'linear']);
+    await CopyAsMarkdown.loadExtractors(['jira', 'confluence', 'github', 'hugging-face', 'google-docs', 'linear']);
     return {
       markdown: CopyAsMarkdown.domToMarkdown(document.querySelector('#content')),
       extractorCount: CopyAsMarkdown.getExtractors().length,

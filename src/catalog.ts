@@ -40,6 +40,7 @@ import './extractors/news';
 import './extractors/globo';
 import './extractors/fox';
 import './extractors/github';
+import './extractors/hugging-face';
 import './extractors/gitlab';
 import './extractors/bitbucket';
 import './extractors/stackoverflow';
