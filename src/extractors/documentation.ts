@@ -418,6 +418,7 @@ async function fetchPublicMarkdown(markdownUrl: URL, pageHref: string): Promise<
 function resolveMarkdownUrls(markdown: string, baseUrl: URL): string {
   const lines = markdown.split(/\r?\n/);
   let fence: { marker: string; length: number } | null = null;
+  let indentedCode = false;
 
   return lines.map((line) => {
     const fenceMatch = parseMarkdownFence(line);
@@ -434,7 +435,18 @@ function resolveMarkdownUrls(markdown: string, baseUrl: URL): string {
       }
       return line;
     }
-    return fence ? line : resolveMarkdownLineUrls(line, baseUrl);
+    if (fence) return line;
+
+    const lineIsIndentedCode = isIndentedMarkdownCode(line);
+    if (indentedCode) {
+      if (lineIsIndentedCode || line.trim() === '') return line;
+      indentedCode = false;
+    }
+    if (lineIsIndentedCode) {
+      indentedCode = true;
+      return line;
+    }
+    return resolveMarkdownLineUrls(line, baseUrl);
   }).join('\n');
 }
 
@@ -444,6 +456,13 @@ function parseMarkdownFence(line: string): {
   trailing: string;
 } | null {
   let index = 0;
+  let leadingWhitespace = 0;
+
+  while (line[index] === ' ' || line[index] === '\t') {
+    leadingWhitespace += line[index] === '\t' ? 4 : 1;
+    index += 1;
+  }
+  if (leadingWhitespace >= 4) return null;
 
   while (index < line.length) {
     while (line[index] === ' ' || line[index] === '\t') index += 1;
@@ -470,6 +489,15 @@ function parseMarkdownFence(line: string): {
   while (line[index] === marker) index += 1;
   const length = index - start;
   return length >= 3 ? { marker, length, trailing: line.slice(index) } : null;
+}
+
+function isIndentedMarkdownCode(line: string): boolean {
+  let indentation = 0;
+  while (line[indentation] === ' ' || line[indentation] === '\t') {
+    indentation += line[indentation] === '\t' ? 4 : 1;
+    if (indentation >= 4) return true;
+  }
+  return false;
 }
 
 function markdownListMarkerEnd(line: string, index: number): number {
@@ -561,11 +589,11 @@ function resolveInlineMarkdownTarget(target: string, baseUrl: URL): string {
 
 function resolveMarkdownDestination(destination: string, baseUrl: URL): string {
   if (!destination || destination.startsWith('#')) return destination;
-  if (/^[a-z][a-z\d+.-]*:/i.test(destination)) return destination;
   try {
-    return new URL(destination, baseUrl).href;
+    const url = new URL(destination, baseUrl);
+    return /^(?:https?|mailto):$/.test(url.protocol) ? url.href : '';
   } catch {
-    return destination;
+    return '';
   }
 }
 

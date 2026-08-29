@@ -282,7 +282,15 @@ try {
   await page.addScriptTag({ content: browserCode });
 
   const result = await page.evaluate(async () => {
-    await CopyAsMarkdown.loadExtractors(['jira', 'confluence', 'github', 'hugging-face', 'google-docs', 'linear']);
+    await CopyAsMarkdown.loadExtractors([
+      'jira',
+      'confluence',
+      'documentation',
+      'github',
+      'hugging-face',
+      'google-docs',
+      'linear',
+    ]);
     return {
       markdown: CopyAsMarkdown.domToMarkdown(document.querySelector('#content')),
       extractorCount: CopyAsMarkdown.getExtractors().length,

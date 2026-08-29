@@ -2362,6 +2362,32 @@ async function runExpandedPlatformChecks(browser, scriptContent) {
       ],
     },
     {
+      name: 'Mintlify fetched Markdown safety',
+      extractor: 'Sphinx / Read the Docs',
+      url: 'https://mint.example.org/guide/safety',
+      beforeLoad: () => {
+        window.fetch = async (url) => new Response(
+          String(url) === 'https://mint.example.org/guide/safety.md'
+            ? '# Safety\n\n[Unsafe script](javascript:alert(1))\n[Unsafe data](data:text/html,unsafe)\n\n    ```literal\n    [Indented code](../leave-indented-code-alone)\n\n[After indented literal](./after-indented-literal)\n'
+            : 'Invalid documentation source request',
+          {
+            status: String(url) === 'https://mint.example.org/guide/safety.md' ? 200 : 400,
+            headers: { 'Content-Type': 'text/markdown' },
+          },
+        );
+      },
+      html: `<link rel="alternate" type="text/markdown" href="/guide/safety.md">
+        <section data-page-title="Safety" data-page-href="/guide/safety">
+          <h1>Safety</h1><p>Rendered safety fallback.</p>
+        </section>`,
+      expected: [
+        '# Safety', '[Unsafe script]()', '[Unsafe data]()',
+        '[Indented code](../leave-indented-code-alone)',
+        '[After indented literal](https://mint.example.org/guide/after-indented-literal)',
+      ],
+      excluded: ['javascript:', 'data:text/html'],
+    },
+    {
       name: 'Mintlify rendered code language',
       extractor: 'Sphinx / Read the Docs',
       url: 'https://mint.example.org/guide/cli',
