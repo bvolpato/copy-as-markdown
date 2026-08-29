@@ -2368,7 +2368,7 @@ async function runExpandedPlatformChecks(browser, scriptContent) {
       beforeLoad: () => {
         window.fetch = async (url) => new Response(
           String(url) === 'https://mint.example.org/guide/safety.md'
-            ? '# Safety\n\n[Unsafe script](javascript:alert(1))\n[Unsafe data](data:text/html,unsafe)\n\n    ```literal\n    [Indented code](../leave-indented-code-alone)\n\n[After indented literal](./after-indented-literal)\n'
+            ? '# Safety\n\n[Unsafe script](javascript:alert(1))\n[Unsafe data](data:text/html,unsafe)\n<javascript:alert(2)>\n<https://mint.example.org/safe-autolink>\n<a href="javascript:alert(3)">Unsafe anchor</a>\n<img src="data:text/html,unsafe" alt="Unsafe image">\n<a href="./safe-anchor">Safe anchor</a>\n\n```literal\n<a href="javascript:alert(4)">Fence code</a>\n```\n\n    ```literal\n    [Indented code](../leave-indented-code-alone)\n    `<javascript:alert(5)>`\n\n[After indented literal](./after-indented-literal)\n- Parent\n    - [Nested child](./nested-child)\n'
             : 'Invalid documentation source request',
           {
             status: String(url) === 'https://mint.example.org/guide/safety.md' ? 200 : 400,
@@ -2381,11 +2381,19 @@ async function runExpandedPlatformChecks(browser, scriptContent) {
           <h1>Safety</h1><p>Rendered safety fallback.</p>
         </section>`,
       expected: [
-        '# Safety', '[Unsafe script]()', '[Unsafe data]()',
+        '# Safety', '[Unsafe script]()', '[Unsafe data]()', '<>',
+        '<https://mint.example.org/safe-autolink>',
+        '<a href="">Unsafe anchor</a>',
+        '<img src="" alt="Unsafe image">',
+        '<a href="https://mint.example.org/guide/safe-anchor">Safe anchor</a>',
+        '```literal\n<a href="javascript:alert(4)">Fence code</a>\n```',
         '[Indented code](../leave-indented-code-alone)',
+        '`<javascript:alert(5)>`',
         '[After indented literal](https://mint.example.org/guide/after-indented-literal)',
+        '- Parent',
+        '    - [Nested child](https://mint.example.org/guide/nested-child)',
       ],
-      excluded: ['javascript:', 'data:text/html'],
+      excluded: ['<javascript:alert(2)>', 'href="javascript:alert(3)"', 'src="data:', 'data:text/html'],
     },
     {
       name: 'Mintlify rendered code language',

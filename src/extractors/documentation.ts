@@ -419,6 +419,7 @@ function resolveMarkdownUrls(markdown: string, baseUrl: URL): string {
   const lines = markdown.split(/\r?\n/);
   let fence: { marker: string; length: number } | null = null;
   let indentedCode = false;
+  let activeListIndentation: number | null = null;
 
   return lines.map((line) => {
     const fenceMatch = parseMarkdownFence(line);
@@ -437,7 +438,24 @@ function resolveMarkdownUrls(markdown: string, baseUrl: URL): string {
     }
     if (fence) return line;
 
-    const lineIsIndentedCode = isIndentedMarkdownCode(line);
+    const indentation = getMarkdownIndentation(line);
+    const listMarkerEnd = markdownListMarkerEnd(line, indentation.index);
+    const hasListMarker = listMarkerEnd > indentation.index;
+    const listItemContainsMarkdown = hasListMarker && (
+      indentation.width < 4
+      || (activeListIndentation !== null && indentation.width >= activeListIndentation)
+    );
+    if (
+      line.trim()
+      && !hasListMarker
+      && activeListIndentation !== null
+      && indentation.width <= activeListIndentation
+    ) {
+      activeListIndentation = null;
+    }
+    if (listItemContainsMarkdown) activeListIndentation = indentation.width;
+
+    const lineIsIndentedCode = isIndentedMarkdownCode(line) && !listItemContainsMarkdown;
     if (indentedCode) {
       if (lineIsIndentedCode || line.trim() === '') return line;
       indentedCode = false;
@@ -448,6 +466,16 @@ function resolveMarkdownUrls(markdown: string, baseUrl: URL): string {
     }
     return resolveMarkdownLineUrls(line, baseUrl);
   }).join('\n');
+}
+
+function getMarkdownIndentation(line: string): { index: number; width: number } {
+  let index = 0;
+  let width = 0;
+  while (line[index] === ' ' || line[index] === '\t') {
+    width += line[index] === '\t' ? 4 : 1;
+    index += 1;
+  }
+  return { index, width };
 }
 
 function parseMarkdownFence(line: string): {
@@ -557,10 +585,80 @@ function resolveMarkdownLineUrls(line: string, baseUrl: URL): string {
       }
     }
 
+    if (inlineCodeTicks === 0 && line[index] === '<') {
+      const htmlLink = resolveMarkdownHtmlLinkTag(line, index, baseUrl);
+      if (htmlLink) {
+        result += htmlLink.value;
+        index += htmlLink.length;
+        continue;
+      }
+
+      const autolink = resolveMarkdownAutolink(line, index, baseUrl);
+      if (autolink) {
+        result += autolink.value;
+        index += autolink.length;
+        continue;
+      }
+    }
+
     result += line[index];
     index += 1;
   }
   return result;
+}
+
+function resolveMarkdownAutolink(
+  line: string,
+  start: number,
+  baseUrl: URL,
+): { value: string; length: number } | null {
+  const closing = findUnescapedCharacter(line, '>', start + 1);
+  if (closing === -1) return null;
+  const destination = line.slice(start + 1, closing);
+  if (!/^[a-z][a-z\d+.-]*:[^\s<>]+$/i.test(destination)) return null;
+  return {
+    value: `<${resolveMarkdownDestination(destination, baseUrl)}>`,
+    length: closing - start + 1,
+  };
+}
+
+function resolveMarkdownHtmlLinkTag(
+  line: string,
+  start: number,
+  baseUrl: URL,
+): { value: string; length: number } | null {
+  const closing = findMarkdownHtmlTagEnd(line, start + 1);
+  if (closing === -1) return null;
+  const tag = line.slice(start, closing + 1);
+  if (!/^<\s*[a-z][a-z\d:-]*(?=\s|\/?>)/i.test(tag)) return null;
+  if (!/\b(?:href|src)\s*=/i.test(tag)) return null;
+
+  const value = tag.replace(
+    /\b(href|src)\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s"'=<>`]+))/gi,
+    (_match, name: string, doubleQuoted: string | undefined, singleQuoted: string | undefined, unquoted: string | undefined) => {
+      const destination = doubleQuoted ?? singleQuoted ?? unquoted ?? '';
+      const resolved = resolveMarkdownDestination(destination, baseUrl);
+      if (doubleQuoted !== undefined) return `${name}="${resolved}"`;
+      if (singleQuoted !== undefined) return `${name}='${resolved}'`;
+      return `${name}=${resolved}`;
+    },
+  );
+  return { value, length: closing - start + 1 };
+}
+
+function findMarkdownHtmlTagEnd(line: string, start: number): number {
+  let quote = '';
+  for (let index = start; index < line.length; index += 1) {
+    const character = line[index];
+    if (quote) {
+      if (character === quote && !isEscapedCharacter(line, index)) quote = '';
+    } else if (character === '"' || character === "'") {
+      quote = character;
+    } else if (character === '>') {
+      return index;
+    }
+  }
+  return -1;
 }
 
 function resolveInlineMarkdownTarget(target: string, baseUrl: URL): string {
