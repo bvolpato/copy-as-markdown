@@ -382,7 +382,7 @@ export function nodeToMarkdown(
         ? codeEl.textContent || ''
         : el.textContent || '';
       const lang = codeEl
-        ? (codeEl.className.match(/language-(\w+)/) || ['', ''])[1]
+        ? (codeEl.className.match(/language-([\w.+-]+)/) || ['', ''])[1]
         : '';
       return `\n\`\`\`${lang}\n${code.trimEnd()}\n\`\`\`\n`;
     }
