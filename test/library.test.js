@@ -338,6 +338,13 @@ try {
               id="message-body-channel-body"
               aria-labelledby="author-channel-body timestamp-channel-body"
             >Labelled body-root message.</div>
+            <div data-testid="file-attachment" aria-label="labelled-sibling.txt">
+              <a href="https://files.example.com/labelled-sibling.txt"></a>
+            </div>
+            <div data-tid="message-reactions">
+              <button aria-label="Fran reacted with Heart">Heart 1</button>
+            </div>
+            <button data-tid="response-summary-button">4 replies</button>
           </section>
           <section data-tid="message-group-container">
             <div data-tid="message-group-header">Grace</div>
@@ -358,9 +365,15 @@ try {
   assert.match(channelMarkdown, /\*\*Replies:\*\* 2 replies/);
   assert.match(channelMarkdown, /\*\*Time:\*\* 2026-08-29T15:30:00Z/);
   assert.match(channelMarkdown, /\*\*Time:\*\* 2026-08-29T15:35:00Z/);
+  assert.equal(channelMarkdown.match(/## Fran/g)?.length, 1);
+  assert.match(
+    channelMarkdown,
+    /Labelled body-root message\.[\s\S]+\[labelled-sibling\.txt\]\(https:\/\/files\.example\.com\/labelled-sibling\.txt\)[\s\S]+\*\*Reactions:\*\* Fran reacted with Heart[\s\S]+\*\*Replies:\*\* 4 replies/,
+  );
 
   await page.setContent(`<!doctype html>
     <html>
+      <head><base href="https://teams.cloud.microsoft/v2/"></head>
       <body>
         <div data-tid="team-name">Core Platform</div>
         <header><h1 data-tid="channel-header-title">Incidents</h1></header>
@@ -408,6 +421,21 @@ try {
                     title="Unsafe preview"
                     amspreviewurl="javascript:alert(1)"
                   ></div>
+                  <div
+                    data-tid="file-preview-root"
+                    aria-label="Preview fallback.pdf"
+                    amspreviewurl="https://files.example.com/preview-fallback.pdf"
+                  ><a href="javascript:alert(2)"></a></div>
+                  <div
+                    data-tid="file-preview-root"
+                    aria-label="Title fallback.pdf"
+                    title="https://files.example.com/title-fallback.pdf"
+                  ><a href="#"></a></div>
+                  <div
+                    data-tid="file-preview-root"
+                    aria-label="Empty-anchor fallback.pdf"
+                    amspreviewurl="https://files.example.com/empty-anchor-fallback.pdf"
+                  ><a href=""></a></div>
                 </div>
               </div>
             </article>
@@ -449,6 +477,10 @@ try {
   assert.match(threadMarkdown, /\[spec \\\] draft\.pdf\]\(https:\/\/files\.example\.com\/spec-draft\.pdf\)/);
   assert.match(threadMarkdown, /Unsafe preview/);
   assert.doesNotMatch(threadMarkdown, /javascript:/);
+  assert.match(threadMarkdown, /\[Preview fallback\.pdf\]\(https:\/\/files\.example\.com\/preview-fallback\.pdf\)/);
+  assert.match(threadMarkdown, /\[Title fallback\.pdf\]\(https:\/\/files\.example\.com\/title-fallback\.pdf\)/);
+  assert.match(threadMarkdown, /\[Empty-anchor fallback\.pdf\]\(https:\/\/files\.example\.com\/empty-anchor-fallback\.pdf\)/);
+  assert.doesNotMatch(threadMarkdown, /\]\(https:\/\/teams\.cloud\.microsoft\/v2\/#?\)/);
 } finally {
   await browser.close();
 }

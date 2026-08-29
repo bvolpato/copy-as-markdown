@@ -35,9 +35,11 @@ const OUTER_MESSAGE_ROOT_SELECTORS = [
 ];
 
 const LABELLED_BODY_ROOT_SELECTOR = '[id^="message-body-"][aria-labelledby]';
+const MESSAGE_GROUP_ROOT_SELECTOR = '[data-tid="message-group-container"]';
+const MESSAGE_WRAPPER_ROOT_SELECTOR = '[data-tid="message-wrapper"]';
 const NESTED_MESSAGE_ROOT_SELECTORS = [
-  '[data-tid="message-wrapper"]',
-  '[data-tid="message-group-container"]',
+  MESSAGE_GROUP_ROOT_SELECTOR,
+  MESSAGE_WRAPPER_ROOT_SELECTOR,
 ];
 const STABLE_MESSAGE_ROOT_SELECTORS = [
   ...OUTER_MESSAGE_ROOT_SELECTORS,
@@ -222,9 +224,10 @@ function canonicalMessageElements(scope: ParentNode): HTMLElement[] {
 
 function closestMessageRoot(element: Element): HTMLElement | null {
   return element.closest<HTMLElement>(OUTER_MESSAGE_ROOT_SELECTORS.join(', '))
-    || element.closest<HTMLElement>(LABELLED_BODY_ROOT_SELECTOR)
     || element.closest<HTMLElement>(GENERIC_MESSAGE_ROOT_SELECTOR)
-    || element.closest<HTMLElement>(NESTED_MESSAGE_ROOT_SELECTORS.join(', '));
+    || element.closest<HTMLElement>(MESSAGE_GROUP_ROOT_SELECTOR)
+    || element.closest<HTMLElement>(LABELLED_BODY_ROOT_SELECTOR)
+    || element.closest<HTMLElement>(MESSAGE_WRAPPER_ROOT_SELECTOR);
 }
 
 function scopeContains(scope: ParentNode, element: Element): boolean {
@@ -409,13 +412,28 @@ function getAttachments(root: HTMLElement): string[] {
     const preview = attachment.getAttribute('amspreviewurl')
       || attachment.querySelector<HTMLElement>('[amspreviewurl]')?.getAttribute('amspreviewurl')
       || '';
-    const href = safeHttpUrl(link?.href || preview || titleUrl || media?.getAttribute('src') || '');
+    const href = firstSafeAttachmentUrl([
+      link?.getAttribute('href') || '',
+      preview,
+      titleUrl,
+      media?.getAttribute('src') || '',
+    ]);
     const key = href || name;
     if (!key) return;
     const value = href ? `[${escapeLabel(name)}](${href})` : name;
     if (!attachments.has(key) || name !== 'Attachment') attachments.set(key, value);
   });
   return Array.from(attachments.values()).filter(Boolean);
+}
+
+function firstSafeAttachmentUrl(candidates: string[]): string {
+  for (const candidate of candidates) {
+    const value = candidate.trim();
+    if (!value || value.startsWith('#')) continue;
+    const href = safeHttpUrl(value);
+    if (href) return href;
+  }
+  return '';
 }
 
 function getLinks(root: ParentNode, attachments: string[]): string[] {
