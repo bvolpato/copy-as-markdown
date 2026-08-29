@@ -420,17 +420,15 @@ function resolveMarkdownUrls(markdown: string, baseUrl: URL): string {
   let fence: { marker: string; length: number } | null = null;
 
   return lines.map((line) => {
-    const fenceMatch = line.match(
-      /^(?:(?:[ \t]*>[ \t]?)|(?:[ \t]*(?:[-+*]|\d{1,9}[.)])[ \t]+))*[ \t]*(`{3,}|~{3,})(.*)$/,
-    );
+    const fenceMatch = parseMarkdownFence(line);
     if (fenceMatch) {
-      const marker = fenceMatch[1][0];
+      const marker = fenceMatch.marker;
       if (!fence) {
-        fence = { marker, length: fenceMatch[1].length };
+        fence = { marker, length: fenceMatch.length };
       } else if (
         marker === fence.marker
-        && fenceMatch[1].length >= fence.length
-        && fenceMatch[2].trim() === ''
+        && fenceMatch.length >= fence.length
+        && fenceMatch.trailing.trim() === ''
       ) {
         fence = null;
       }
@@ -438,6 +436,61 @@ function resolveMarkdownUrls(markdown: string, baseUrl: URL): string {
     }
     return fence ? line : resolveMarkdownLineUrls(line, baseUrl);
   }).join('\n');
+}
+
+function parseMarkdownFence(line: string): {
+  marker: string;
+  length: number;
+  trailing: string;
+} | null {
+  let index = 0;
+
+  while (index < line.length) {
+    while (line[index] === ' ' || line[index] === '\t') index += 1;
+
+    if (line[index] === '>') {
+      index += 1;
+      if (line[index] === ' ' || line[index] === '\t') index += 1;
+      continue;
+    }
+
+    const listEnd = markdownListMarkerEnd(line, index);
+    if (listEnd > index) {
+      index = listEnd;
+      continue;
+    }
+    break;
+  }
+
+  while (line[index] === ' ' || line[index] === '\t') index += 1;
+  const marker = line[index];
+  if (marker !== '`' && marker !== '~') return null;
+
+  const start = index;
+  while (line[index] === marker) index += 1;
+  const length = index - start;
+  return length >= 3 ? { marker, length, trailing: line.slice(index) } : null;
+}
+
+function markdownListMarkerEnd(line: string, index: number): number {
+  const marker = line[index];
+  let end = index;
+
+  if (marker === '-' || marker === '+' || marker === '*') {
+    end += 1;
+  } else {
+    while (end < line.length && end - index < 9) {
+      const code = line.charCodeAt(end);
+      if (code < 48 || code > 57) break;
+      end += 1;
+    }
+    if (end === index || (line[end] !== '.' && line[end] !== ')')) return index;
+    end += 1;
+  }
+
+  if (line[end] !== ' ' && line[end] !== '\t') return index;
+  while (line[end] === ' ' || line[end] === '\t') end += 1;
+  return end;
 }
 
 function resolveMarkdownLineUrls(line: string, baseUrl: URL): string {
