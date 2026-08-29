@@ -13,6 +13,7 @@ import './extractors/google-sheets';
 import './extractors/google-slides';
 import './extractors/gmail';
 import './extractors/notion';
+import './extractors/linear';
 import './extractors/microsoft-office';
 import './extractors/bing';
 import './extractors/reddit';

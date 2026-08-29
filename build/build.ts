@@ -107,6 +107,7 @@ function buildLibraryEsm(outDir: string): void {
       'extractors/github': path.join(SRC, 'extractors', 'github.ts'),
       'extractors/google-docs': path.join(SRC, 'extractors', 'google-docs.ts'),
       'extractors/jira': path.join(SRC, 'extractors', 'jira.ts'),
+      'extractors/linear': path.join(SRC, 'extractors', 'linear.ts'),
     },
     bundle: true,
     format: 'esm',
