@@ -211,6 +211,7 @@ Useful APIs:
 | **Slack** | Loaded channel or thread messages with authors, timestamps, reactions, replies, and attachments |
 | **Discord** | Loaded channel messages and threads with authors, timestamps, replies, reactions, and attachments |
 | **Jira** | Authenticated REST issue fields, ADF descriptions/comments, and links; rendered issue DOM fallback |
+| **Linear** | Issues, projects, and documents with rendered properties, descriptions, links, and visible comments |
 | **Confluence** | Authenticated REST page body, labels, tables, and code; visible comments and rendered DOM fallback |
 | **Grokipedia** | Full article content with metadata |
 | **Google Search** | Query, featured snippets, knowledge panel, ranked results, "People Also Ask" |

@@ -38,6 +38,7 @@ const EXTRACTOR_LOADERS = {
   'instagram': { name: 'Instagram', load: () => import('../extractors/instagram') },
   'jira': { name: 'Jira', load: () => import('../extractors/jira') },
   'leetllm': { name: 'LeetLLM', load: () => import('../extractors/leetllm') },
+  'linear': { name: 'Linear', load: () => import('../extractors/linear') },
   'linkedin': { name: 'LinkedIn', load: () => import('../extractors/linkedin') },
   'mdn': { name: 'MDN Web Docs', load: () => import('../extractors/mdn') },
   'medium': { name: 'Medium', load: () => import('../extractors/medium') },

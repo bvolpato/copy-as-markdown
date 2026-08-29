@@ -9,7 +9,7 @@ const library = await import(path.join(ROOT, 'dist', 'library', 'index.js'));
 
 const available = library.getAvailableExtractorIds();
 assert.ok(available.length >= 50, 'published catalog should expose 50+ extractor loaders');
-const selectedExtractors = await library.loadExtractors(['jira', 'confluence', 'github', 'google-docs']);
+const selectedExtractors = await library.loadExtractors(['jira', 'confluence', 'github', 'google-docs', 'linear']);
 const catalog = library.getExtractors();
 assert.deepEqual(
   catalog.map(({ name }) => name).sort(),
@@ -21,13 +21,22 @@ const { jiraExtractor } = await import(path.join(ROOT, 'dist', 'library', 'extra
 const { confluenceExtractor } = await import(path.join(ROOT, 'dist', 'library', 'extractors', 'confluence.js'));
 const { githubExtractor } = await import(path.join(ROOT, 'dist', 'library', 'extractors', 'github.js'));
 const { googleDocsExtractor } = await import(path.join(ROOT, 'dist', 'library', 'extractors', 'google-docs.js'));
+const { linearExtractor } = await import(path.join(ROOT, 'dist', 'library', 'extractors', 'linear.js'));
 const directMatcher = directCore.createExtractorMatcher({
-  extractors: [jiraExtractor, confluenceExtractor, githubExtractor, googleDocsExtractor],
+  extractors: [jiraExtractor, confluenceExtractor, githubExtractor, googleDocsExtractor, linearExtractor],
 });
 assert.equal(directMatcher.match({ url: 'https://github.com/bvolpato/copy-as-markdown' })?.name, 'GitHub');
 assert.equal(
   directMatcher.match({ url: 'https://docs.google.com/document/d/example/edit' })?.name,
   'Google Docs',
+);
+assert.equal(
+  directMatcher.match({ url: 'https://linear.app/acme/issue/ENG-123/example' })?.name,
+  'Linear',
+);
+assert.equal(
+  directMatcher.match({ url: 'https://linear.app/issue/ENG-123' })?.name,
+  'Linear',
 );
 
 const markerDocument = {
@@ -44,6 +53,7 @@ const matcher = library.createExtractorMatcher({
     'docs.google.com',
     'jira.corp.example',
     'confluence.corp.example',
+    'linear.app',
     '*.atlassian.net',
   ],
   when: ({ document, extractor }) => extractor.name !== 'GitHub'
@@ -52,7 +62,7 @@ const matcher = library.createExtractorMatcher({
 
 assert.deepEqual(
   matcher.extractors.map(({ name }) => name),
-  ['Jira', 'Confluence', 'GitHub', 'Google Docs'],
+  ['Jira', 'Confluence', 'GitHub', 'Google Docs', 'Linear'],
 );
 assert.equal(
   matcher.match({ url: 'https://jira.corp.example/browse/ENG-123' })?.name,
@@ -80,6 +90,10 @@ assert.equal(matcher.match({
 assert.equal(
   matcher.match({ url: 'https://acme.atlassian.net/browse/ENG-123' })?.name,
   'Jira',
+);
+assert.equal(
+  matcher.match({ url: 'https://linear.app/acme/document/specification-123' })?.name,
+  'Linear',
 );
 
 const originMatcher = library.createExtractorMatcher({
@@ -137,7 +151,7 @@ try {
   await page.addScriptTag({ content: browserCode });
 
   const result = await page.evaluate(async () => {
-    await CopyAsMarkdown.loadExtractors(['jira', 'confluence', 'github', 'google-docs']);
+    await CopyAsMarkdown.loadExtractors(['jira', 'confluence', 'github', 'google-docs', 'linear']);
     return {
       markdown: CopyAsMarkdown.domToMarkdown(document.querySelector('#content')),
       extractorCount: CopyAsMarkdown.getExtractors().length,

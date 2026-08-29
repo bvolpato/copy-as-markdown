@@ -33,6 +33,10 @@
       "types": "./dist/library/types/extractors/jira.d.ts",
       "import": "./dist/library/extractors/jira.js"
     },
+    "./extractors/linear": {
+      "types": "./dist/library/types/extractors/linear.d.ts",
+      "import": "./dist/library/extractors/linear.js"
+    },
     "./package.json": "./package.json"
   },
   "files": [

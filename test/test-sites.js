@@ -166,6 +166,7 @@ const REQUESTED_FIRST_CLASS_SITES = new Map([
   ['Fox News', 'News (Generic)'],
   ['BBC', 'News (Generic)'],
   ['Discord', 'Discord'],
+  ['Linear', 'Linear'],
   ['GitHub', 'GitHub'],
   ['Brave Search', 'Brave Search'],
   ['Booking.com', 'Booking.com'],
@@ -2339,6 +2340,175 @@ async function runExpandedPlatformChecks(browser, scriptContent) {
         <div data-testid="issue.views.field.rich-text.description"><p>Jira fixture description.</p></div>
         <dl><dt>Status</dt><dd>In Progress</dd></dl></main>`,
       expected: ['PROJ-42', 'Jira fixture description.'],
+    },
+    {
+      name: 'Linear',
+      extractor: 'Linear',
+      url: 'https://linear.app/acme/issue/ENG-42/fix-production-export',
+      html: `<main data-testid="issue-view"><h1 data-testid="issue-title">Fix production export</h1>
+        <div data-testid="issue-status">In Progress</div>
+        <button data-testid="issue-priority" aria-label="Change Priority from High">High</button>
+        <button data-testid="issue-assignee" aria-label="Change Assignee from Ada Lovelace">Ada Lovelace</button>
+        <span data-testid="issue-label">Bug</span><span data-testid="issue-label">Backend</span>
+        <time data-testid="issue-created-at" datetime="2026-08-20T12:00:00Z">Aug 20</time>
+        <time data-testid="issue-due-date" datetime="2026-09-01">Sep 1</time>
+        <div data-testid="issue-description"><p>Linear fixture description with <a href="https://example.com/runbook">runbook</a>.</p></div>
+        <div data-testid="issue-attachments"><a href="https://github.com/acme/backend/pull/7">Backend PR</a></div>
+        <section data-testid="activity"><article data-testid="comment">
+          <strong data-testid="comment-author">Grace Hopper</strong>
+          <time datetime="2026-08-21T09:30:00Z">Aug 21</time>
+          <div data-testid="comment-body"><p>Verified rendered Linear comment.</p></div>
+        </article><button>Load more</button></section></main>`,
+      expected: [
+        '# ENG-42: Fix production export', '**Status:** In Progress', '**Priority:** High',
+        '**Assignee:** Ada Lovelace', '**Labels:** Bug, Backend', '**Created:** 2026-08-20T12:00:00Z',
+        '**Due date:** 2026-09-01', 'Linear fixture description with [runbook](https://example.com/runbook).',
+        '[Backend PR](https://github.com/acme/backend/pull/7)', '### Grace Hopper',
+        '*2026-08-21T09:30:00Z*', 'Verified rendered Linear comment.',
+        'comments_scope:', 'virtualization_detected: true',
+        'Comments include visible rendered items only',
+      ],
+      exactOccurrences: { 'Verified rendered Linear comment.': 1 },
+    },
+    {
+      name: 'Linear rendered DOM',
+      extractor: 'Linear',
+      url: 'https://linear.app/acme/issue/ENG-84/actual-rendered-shape',
+      html: `<h1 data-testid="issue-title">OUTSIDE ISSUE TITLE</h1>
+        <div data-detail-button="status">OUTSIDE STATUS</div>
+        <span data-testid="issue-label">OUTSIDE LABEL</span>
+        <time data-testid="issue-due-date" datetime="2099-01-01">OUTSIDE DATE</time>
+        <main data-testid="issue-view"><h1 aria-label="Issue title">Actual rendered shape</h1>
+          <button data-detail-button><span>In Review</span></button>
+          <button data-detail-button><span>Urgent</span></button>
+          <button data-detail-button="assignee"><span>Katherine Johnson</span></button>
+          <div data-detail-button="labels"><span data-label-name="Security">Security</span>
+            <span data-label-name="Customer">Customer</span></div>
+          <button data-detail-button><time datetime="2026-09-15">Sep 15</time></button>
+          <button data-detail-button><time datetime="2026-08-29T13:00:00Z">Today</time></button>
+          <button data-detail-button><time datetime="2026-08-29T13:30:00Z">Today</time></button>
+          <div class="ProseMirror" aria-label="Issue description"><p>Actual description with
+            <a href="https://example.com/scoped-runbook">scoped runbook</a>.</p></div>
+          <div data-attachment-container><a target="_blank" rel="noopener" href="https://github.com/acme/service/pull/84">Implementation PR</a>
+            <a target="_blank" href="https://user:secret@example.net/private">UNSAFE CREDENTIAL LINK</a>
+            <a href="javascript:alert(1)">UNSAFE SCRIPT LINK</a></div>
+          <nav><a target="_blank" href="https://help.example.com/linear">IRRELEVANT NAV LINK</a></nav>
+          <section data-comment-thread-container>
+            <article id="parent-comment-container"><strong data-comment-author>Alan Turing</strong>
+              <time datetime="2026-08-29T14:00:00Z">Today</time>
+              <div data-testid="comment-content"><div class="ProseMirror" aria-label="Comment"><p>Top-level actual comment.</p>
+                <div role="toolbar">COMMENT TOOLBAR NOISE</div><span data-comment-actions>COMMENT CONTROL NOISE</span></div></div>
+              <article id="reply-comment-container"><strong data-comment-author>Dorothy Vaughan</strong>
+                <time datetime="2026-08-29T14:05:00Z">Today</time>
+                <div class="ProseMirror" aria-label="Comment"><p>Nested reply only once.</p></div></article>
+            </article>
+            <article data-comment-container><strong data-comment-author>Same Author</strong>
+              <time datetime="2026-08-29T15:00:00Z">Today</time>
+              <div class="ProseMirror" aria-label="Comment"><p>Legitimate identical update.</p></div></article>
+            <article data-comment-container><strong data-comment-author>Same Author</strong>
+              <time datetime="2026-08-29T15:00:00Z">Today</time>
+              <div class="ProseMirror" aria-label="Comment"><p>Legitimate identical update.</p></div></article>
+            <div data-comment-editor><div class="ProseMirror" aria-label="Comment">DRAFT COMMENT CONTROL NOISE</div></div>
+            <button data-testid="issue-activity-load-more" aria-label="Show older comments"></button>
+          </section>
+        </main>`,
+      expected: [
+        '# ENG-84: Actual rendered shape', '**Status:** In Review', '**Priority:** Urgent',
+        '**Assignee:** Katherine Johnson', '**Labels:** Security, Customer',
+        '**Due date:** 2026-09-15', '**Created:** 2026-08-29T13:00:00Z',
+        '[scoped runbook](https://example.com/scoped-runbook)',
+        '[Implementation PR](https://github.com/acme/service/pull/84)',
+        '### Alan Turing', 'Top-level actual comment.', '### Dorothy Vaughan',
+        'Nested reply only once.', 'virtualization_detected: true',
+      ],
+      excluded: [
+        'OUTSIDE ISSUE TITLE', 'OUTSIDE STATUS', 'OUTSIDE LABEL', '2099-01-01',
+        'COMMENT TOOLBAR NOISE', 'COMMENT CONTROL NOISE', 'UNSAFE CREDENTIAL LINK',
+        'DRAFT COMMENT CONTROL NOISE', 'UNSAFE SCRIPT LINK', 'IRRELEVANT NAV LINK',
+      ],
+      exactOccurrences: {
+        'Top-level actual comment.': 1,
+        'Nested reply only once.': 1,
+        'Legitimate identical update.': 2,
+      },
+    },
+    {
+      name: 'Linear optional anonymous dates',
+      extractor: 'Linear',
+      url: 'https://linear.app/acme/issue/ENG-85/optional-dates',
+      html: `<main data-testid="issue-view"><h1 aria-label="Issue title">Optional dates</h1>
+        <button data-detail-button><span>In Progress</span></button>
+        <button data-detail-button><time datetime="2026-08-20T12:00:00Z">Aug 20</time></button>
+        <button data-detail-button><time datetime="2026-08-29T12:00:00Z">Today</time></button>
+        <div class="ProseMirror" aria-label="Issue description"><p>Dates without unsafe field guesses.</p></div>
+      </main>`,
+      expected: [
+        '# ENG-85: Optional dates', '**Status:** In Progress',
+        '**Dates:** 2026-08-20T12:00:00Z, 2026-08-29T12:00:00Z',
+        'Dates without unsafe field guesses.',
+      ],
+      excluded: ['**Due date:**', '**Created:**', '**Updated:**'],
+    },
+    {
+      name: 'Linear project',
+      extractor: 'Linear',
+      url: 'https://linear.app/acme/project/payments-reliability-123/overview',
+      html: `<main data-testid="project-view"><h1 data-testid="project-title">Payments Reliability</h1>
+        <div data-testid="project-status">Started</div><div data-testid="project-lead">Margaret Hamilton</div>
+        <time data-testid="project-start-date" datetime="2026-08-01">Aug 1</time>
+        <time data-testid="project-target-date" datetime="2026-10-15">Oct 15</time>
+        <div data-testid="project-description"><p>Project rendered overview.</p>
+          <a href="https://docs.example.com/payments">Project brief</a></div></main>`,
+      expected: [
+        '# Payments Reliability', '**Status:** Started', '**Lead:** Margaret Hamilton',
+        '**Start date:** 2026-08-01', '**Target date:** 2026-10-15',
+        'Project rendered overview.', '[Project brief](https://docs.example.com/payments)',
+      ],
+    },
+    {
+      name: 'Linear project detail buttons',
+      extractor: 'Linear',
+      url: 'https://linear.app/acme/project/detail-buttons-789/overview',
+      html: `<div data-detail-button="status">OUTSIDE PROJECT STATUS</div>
+        <main data-testid="project-view"><h1 data-testid="project-title">Detail Button Project</h1>
+          <button data-detail-button="status"><span>Planned</span></button>
+          <button data-detail-button aria-label="Lead"><span>Barbara Liskov</span></button>
+          <button data-detail-button><time datetime="2026-10-01">Oct 1</time></button>
+          <button data-detail-button><time datetime="2026-11-30">Nov 30</time></button>
+          <button data-detail-button><time datetime="2026-08-01T12:00:00Z">Aug 1</time></button>
+          <button data-detail-button><time datetime="2026-08-29T12:00:00Z">Today</time></button>
+          <div data-detail-button="labels"><span data-label-name="Infrastructure">Infrastructure</span></div>
+          <div data-testid="project-description"><p>Scoped project details.</p></div></main>`,
+      expected: [
+        '# Detail Button Project', '**Status:** Planned', '**Lead:** Barbara Liskov',
+        '**Labels:** Infrastructure', '**Start date:** 2026-10-01',
+        '**Target date:** 2026-11-30', '**Created:** 2026-08-01T12:00:00Z',
+        '**Updated:** 2026-08-29T12:00:00Z', 'Scoped project details.',
+      ],
+      excluded: ['OUTSIDE PROJECT STATUS'],
+    },
+    {
+      name: 'Linear document',
+      extractor: 'Linear',
+      url: 'https://linear.app/acme/document/export-runbook-123',
+      html: `<main data-testid="document-view"><h1 data-testid="document-title">Export Runbook</h1>
+        <article data-testid="document-content"><h2>Recovery</h2><p>Restart worker and verify queue.</p>
+          <a href="https://status.example.com">Service status</a></article></main>`,
+      expected: [
+        '# Export Runbook', '## Document', '## Recovery', 'Restart worker and verify queue.',
+        '[Service status](https://status.example.com/)', 'comments_scope:',
+      ],
+    },
+    {
+      name: 'Linear document content root',
+      extractor: 'Linear',
+      url: 'https://linear.app/acme/document/root-content-456',
+      html: `<article data-testid="document-content"><h1 data-testid="document-title">Root Content</h1>
+        <p>Document body stored on the selected root.</p><button hidden>Load more</button></article>`,
+      expected: [
+        '# Root Content', '## Document', 'Document body stored on the selected root.',
+        'virtualization_detected: false',
+      ],
     },
     {
       name: 'Confluence',
