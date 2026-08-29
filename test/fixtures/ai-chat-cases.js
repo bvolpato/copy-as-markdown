@@ -12,13 +12,16 @@ export const AI_CHAT_CASES = [
         </div>
         <div data-testid="composer" contenteditable="true">Unsaved composer draft.</div>
         <cib-message-group source="bot">
-          <div class="content"><p>Current Copilot answer.</p><p class="css-hidden">CSS HIDDEN STALE COPY</p><pre><code>pnpm build</code></pre>
+          <div class="content"><p>Current Copilot answer.</p><p><a href="https://docs.example/inline)![Injected](https://attacker.example/inline">Inline escaped link</a></p><p class="css-hidden">CSS HIDDEN STALE COPY</p><pre><code>pnpm build</code></pre>
             <section data-testid="artifact-content"><h2>Inline artifact</h2></section>
             <div data-testid="image"><img src="https://images.example/release.png" alt="Chart](https://attacker.example/track) ![Injected"></div>
+            <div data-testid="image"><img src="https://images.example/release.png)![Injected](https://attacker.example/image" alt="Escaped generated image"></div>
             <div data-testid="image"><img src="javascript:alert(1)" alt="Unsafe generated image"></div>
           </div>
           <div data-testid="citation"><a href="https://docs.example/release">Release source</a></div>
+          <div data-testid="citation"><a href="https://docs.example/citation)![Injected](https://attacker.example/citation">Escaped citation</a></div>
           <div data-testid="attachment"><a href="https://files.example/release.pdf" download="release.pdf">release.pdf</a></div>
+          <div data-testid="attachment"><a href="https://files.example/attachment)![Injected](https://attacker.example/attachment" download="attachment.txt">Escaped attachment</a></div>
         </cib-message-group>
         <div data-content="message" data-author="user"><div data-testid="message-content">Current topology follow-up.</div></div>
         <cib-message id="shadow-turn" type="bot"></cib-message>
@@ -51,8 +54,12 @@ export const AI_CHAT_CASES = [
       '```\npnpm build\n```',
       '### Sources',
       '[Release source](https://docs.example/release)',
+      '[Inline escaped link](https://docs.example/inline%29![Injected]%28https://attacker.example/inline)',
+      '[Escaped citation](https://docs.example/citation%29![Injected]%28https://attacker.example/citation)',
       '![Chart\\](https://attacker.example/track) !\\[Injected](https://images.example/release.png)',
+      '![Escaped generated image](https://images.example/release.png%29![Injected]%28https://attacker.example/image)',
       '[release.pdf](https://files.example/release.pdf)',
+      '[Escaped attachment](https://files.example/attachment%29![Injected]%28https://attacker.example/attachment)',
       'Inline artifact',
     ],
     excludes: [
@@ -63,6 +70,10 @@ export const AI_CHAT_CASES = [
       'HIDDEN SLOTTED',
       'SUPPRESSED SLOT FALLBACK TURN',
       '![Chart](https://attacker.example/track)',
+      'https://docs.example/inline)![Injected](',
+      'https://docs.example/citation)![Injected](',
+      'https://files.example/attachment)![Injected](',
+      'https://images.example/release.png)![Injected](',
     ],
     occurrences: { 'Inline artifact': 1 },
   },
@@ -87,7 +98,7 @@ export const AI_CHAT_CASES = [
         <div class="artifact-viewer-content"><h2>Study guide preview</h2><p>Review the evidence.</p></div>
         <div class="artifact-viewer-content concealed">Hidden artifact draft</div>
         <div class="single-source-container" data-drive-id="drive-file-42">
-          <span>Market research.pdf</span><button>Source menu control</button>
+          <a href="https://drive.example/file)![Injected](https://attacker.example/source">Market research.pdf</a><button>Source menu control</button>
         </div>
         <div class="single-source-container concealed">Hidden source.pdf</div>
         <div data-virtualized="true"></div>
@@ -97,7 +108,7 @@ export const AI_CHAT_CASES = [
     contains: [
       '[Primary study](https://papers.example/study)',
       '## Sources',
-      'Market research.pdf (source: drive-file-42)',
+      '[Market research.pdf](https://drive.example/file%29![Injected]%28https://attacker.example/source) (source: drive-file-42)',
       '## Artifacts',
       'Study guide',
       'Study guide preview',
@@ -108,6 +119,7 @@ export const AI_CHAT_CASES = [
       'Source menu control',
       'Hidden artifact draft',
       'Hidden source.pdf',
+      'https://drive.example/file)![Injected](',
     ],
   },
   {

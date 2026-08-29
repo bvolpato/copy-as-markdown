@@ -376,6 +376,7 @@ function standaloneImages(container: Element, content: Element): string[] {
   const existing = new Set(
     queryAll<HTMLImageElement>(content, ['img[src]'])
       .map(imageSource)
+      .map(safeImageUrl)
       .filter(Boolean),
   );
   const images: string[] = [];
@@ -484,17 +485,31 @@ function clean(element: Element, keepEditable = false): Element {
     'input',
     ...(keepEditable ? [] : ['[contenteditable="true"]']),
   ]);
-  clone.querySelectorAll<HTMLImageElement>('img[src]').forEach((image) => {
-    if (!safeImageUrl(image.getAttribute('src') || '')) {
+  matchingElements<HTMLAnchorElement>(clone, 'a[href]').forEach((link) => {
+    const href = safeLinkUrl(link.getAttribute('href') || '');
+    if (href) link.setAttribute('href', href);
+    else link.removeAttribute('href');
+  });
+  matchingElements<HTMLImageElement>(clone, 'img[src]').forEach((image) => {
+    const source = safeImageUrl(image.getAttribute('src') || '');
+    if (!source) {
       image.remove();
       return;
     }
+    image.setAttribute('src', source);
     image.setAttribute(
       'alt',
       Markdown.escapeMarkdownLinkText(image.getAttribute('alt') || ''),
     );
   });
   return clone;
+}
+
+function matchingElements<T extends Element>(element: Element, selector: string): T[] {
+  return [
+    ...(element.matches(selector) ? [element as T] : []),
+    ...element.querySelectorAll<T>(selector),
+  ];
 }
 
 function cloneVisibleRenderedElement(element: Element): Element {
@@ -696,22 +711,34 @@ function isComputedVisible(element: Element): boolean {
 }
 
 function safeHttpUrl(value: string): string {
+  return safeMarkdownDestination(value, /^https?:$/);
+}
+
+function safeLinkUrl(value: string): string {
+  if (value.startsWith('#')) return value;
+  return safeMarkdownDestination(value, /^(?:https?|mailto):$/);
+}
+
+function safeMarkdownDestination(value: string, allowedProtocols: RegExp): string {
   try {
     const url = new URL(value, document.baseURI);
-    return /^https?:$/.test(url.protocol) ? url.href : '';
+    return allowedProtocols.test(url.protocol)
+      ? escapeMarkdownDestination(url.href)
+      : '';
   } catch {
     return '';
   }
 }
 
+function escapeMarkdownDestination(value: string): string {
+  return value.replace(/\(/g, '%28').replace(/\)/g, '%29');
+}
+
 function safeImageUrl(value: string): string {
-  if (/^data:image\/(?:avif|gif|jpe?g|png|webp);base64,/i.test(value)) return value;
-  try {
-    const url = new URL(value, document.baseURI);
-    return /^(?:https?|blob):$/.test(url.protocol) ? url.href : '';
-  } catch {
-    return '';
+  if (/^data:image\/(?:avif|gif|jpe?g|png|webp);base64,/i.test(value)) {
+    return escapeMarkdownDestination(value);
   }
+  return safeMarkdownDestination(value, /^(?:https?|blob):$/);
 }
 
 function hostname(value: string): string {
