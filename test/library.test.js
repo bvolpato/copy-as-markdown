@@ -9,7 +9,13 @@ const library = await import(path.join(ROOT, 'dist', 'library', 'index.js'));
 
 const available = library.getAvailableExtractorIds();
 assert.ok(available.length >= 50, 'published catalog should expose 50+ extractor loaders');
-const selectedExtractors = await library.loadExtractors(['jira', 'confluence', 'github', 'google-docs']);
+const selectedExtractors = await library.loadExtractors([
+  'jira',
+  'confluence',
+  'documentation',
+  'github',
+  'google-docs',
+]);
 const catalog = library.getExtractors();
 assert.deepEqual(
   catalog.map(({ name }) => name).sort(),
@@ -19,15 +25,42 @@ assert.deepEqual(
 const directCore = await import(path.join(ROOT, 'dist', 'library', 'core.js'));
 const { jiraExtractor } = await import(path.join(ROOT, 'dist', 'library', 'extractors', 'jira.js'));
 const { confluenceExtractor } = await import(path.join(ROOT, 'dist', 'library', 'extractors', 'confluence.js'));
+const { documentationExtractor } = await import(path.join(ROOT, 'dist', 'library', 'extractors', 'documentation.js'));
 const { githubExtractor } = await import(path.join(ROOT, 'dist', 'library', 'extractors', 'github.js'));
 const { googleDocsExtractor } = await import(path.join(ROOT, 'dist', 'library', 'extractors', 'google-docs.js'));
 const directMatcher = directCore.createExtractorMatcher({
-  extractors: [jiraExtractor, confluenceExtractor, githubExtractor, googleDocsExtractor],
+  extractors: [
+    jiraExtractor,
+    confluenceExtractor,
+    documentationExtractor,
+    githubExtractor,
+    googleDocsExtractor,
+  ],
 });
 assert.equal(directMatcher.match({ url: 'https://github.com/bvolpato/copy-as-markdown' })?.name, 'GitHub');
 assert.equal(
   directMatcher.match({ url: 'https://docs.google.com/document/d/example/edit' })?.name,
   'Google Docs',
+);
+assert.equal(
+  directMatcher.match({
+    url: 'https://docs.internal.example/guide',
+    document: {
+      location: { hostname: 'docs.internal.example' },
+      querySelector(selector) {
+        if (selector === 'meta[name="generator"]') return { content: 'Docusaurus v3' };
+        if (selector === '.theme-doc-markdown.markdown') {
+          return { textContent: 'Docusaurus content', querySelector: () => null };
+        }
+        return null;
+      },
+      querySelectorAll(selector) {
+        const element = this.querySelector(selector);
+        return element ? [element] : [];
+      },
+    },
+  })?.name,
+  'Sphinx / Read the Docs',
 );
 
 const markerDocument = {
@@ -52,7 +85,7 @@ const matcher = library.createExtractorMatcher({
 
 assert.deepEqual(
   matcher.extractors.map(({ name }) => name),
-  ['Jira', 'Confluence', 'GitHub', 'Google Docs'],
+  ['Jira', 'Confluence', 'Sphinx / Read the Docs', 'GitHub', 'Google Docs'],
 );
 assert.equal(
   matcher.match({ url: 'https://jira.corp.example/browse/ENG-123' })?.name,
@@ -137,7 +170,13 @@ try {
   await page.addScriptTag({ content: browserCode });
 
   const result = await page.evaluate(async () => {
-    await CopyAsMarkdown.loadExtractors(['jira', 'confluence', 'github', 'google-docs']);
+    await CopyAsMarkdown.loadExtractors([
+      'jira',
+      'confluence',
+      'documentation',
+      'github',
+      'google-docs',
+    ]);
     return {
       markdown: CopyAsMarkdown.domToMarkdown(document.querySelector('#content')),
       extractorCount: CopyAsMarkdown.getExtractors().length,

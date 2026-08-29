@@ -21,6 +21,10 @@
       "types": "./dist/library/types/extractors/confluence.d.ts",
       "import": "./dist/library/extractors/confluence.js"
     },
+    "./extractors/documentation": {
+      "types": "./dist/library/types/extractors/documentation.d.ts",
+      "import": "./dist/library/extractors/documentation.js"
+    },
     "./extractors/github": {
       "types": "./dist/library/types/extractors/github.d.ts",
       "import": "./dist/library/extractors/github.js"
