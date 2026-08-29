@@ -9,6 +9,17 @@ const library = await import(path.join(ROOT, 'dist', 'library', 'index.js'));
 
 const available = library.getAvailableExtractorIds();
 assert.ok(available.length >= 50, 'published catalog should expose 50+ extractor loaders');
+assert.deepEqual(
+  [
+    'microsoft-copilot',
+    'gemini-notebook',
+    'mistral-vibe',
+    'deepseek',
+    'google-ai-studio',
+  ].filter((id) => !available.includes(id)),
+  [],
+  'AI chat extractor loader IDs should be published',
+);
 const selectedExtractors = await library.loadExtractors(['jira', 'confluence', 'github', 'hugging-face', 'google-docs', 'linear']);
 const catalog = library.getExtractors();
 assert.deepEqual(
@@ -23,6 +34,11 @@ const { githubExtractor } = await import(path.join(ROOT, 'dist', 'library', 'ext
 const { huggingFaceExtractor } = await import(path.join(ROOT, 'dist', 'library', 'extractors', 'hugging-face.js'));
 const { googleDocsExtractor } = await import(path.join(ROOT, 'dist', 'library', 'extractors', 'google-docs.js'));
 const { linearExtractor } = await import(path.join(ROOT, 'dist', 'library', 'extractors', 'linear.js'));
+const { microsoftCopilotExtractor } = await import(path.join(ROOT, 'dist', 'library', 'extractors', 'microsoft-copilot.js'));
+const { geminiNotebookExtractor } = await import(path.join(ROOT, 'dist', 'library', 'extractors', 'gemini-notebook.js'));
+const { mistralVibeExtractor } = await import(path.join(ROOT, 'dist', 'library', 'extractors', 'mistral-vibe.js'));
+const { deepSeekExtractor } = await import(path.join(ROOT, 'dist', 'library', 'extractors', 'deepseek.js'));
+const { googleAiStudioExtractor } = await import(path.join(ROOT, 'dist', 'library', 'extractors', 'google-ai-studio.js'));
 const directMatcher = directCore.createExtractorMatcher({
   extractors: [jiraExtractor, confluenceExtractor, githubExtractor, huggingFaceExtractor, googleDocsExtractor, linearExtractor],
 });
@@ -49,6 +65,36 @@ assert.equal(
   directMatcher.match({ url: 'https://linear.app/issue/ENG-123' })?.name,
   'Linear',
 );
+
+const aiMatcher = directCore.createExtractorMatcher({
+  extractors: [
+    microsoftCopilotExtractor,
+    geminiNotebookExtractor,
+    mistralVibeExtractor,
+    deepSeekExtractor,
+    googleAiStudioExtractor,
+  ],
+});
+assert.equal(aiMatcher.match({ url: 'https://copilot.com/chats/example' })?.name, 'Microsoft Copilot');
+assert.equal(aiMatcher.match({ url: 'https://copilot.microsoft.com/shares/example' })?.name, 'Microsoft Copilot');
+assert.equal(aiMatcher.match({ url: 'https://copilot.microsoft.com/shares/pages/example' })?.name, 'Microsoft Copilot');
+assert.equal(aiMatcher.match({ url: 'https://copilot.microsoft.com/projects/project/chats/chat' })?.name, 'Microsoft Copilot');
+assert.equal(aiMatcher.match({ url: 'https://notebook.google.com/notebook/example' })?.name, 'Gemini Notebook');
+assert.equal(aiMatcher.match({ url: 'https://notebooklm.google.com/notebook/example' })?.name, 'Gemini Notebook');
+assert.equal(aiMatcher.match({ url: 'https://chat.mistral.ai/chat/12345678-1234-1234-1234-123456789abc' })?.name, 'Mistral Vibe');
+assert.equal(aiMatcher.match({ url: 'https://chat.deepseek.com/share/example' })?.name, 'DeepSeek');
+assert.equal(aiMatcher.match({ url: 'https://aistudio.google.com/prompts/example' })?.name, 'Google AI Studio');
+assert.equal(aiMatcher.match({ url: 'https://aistudio.google.com/app/prompts/example' })?.name, 'Google AI Studio');
+assert.equal(aiMatcher.match({ url: 'https://aistudio.google.com/apps/12345678-1234-1234-1234-123456789abc' })?.name, 'Google AI Studio');
+assert.equal(aiMatcher.match({ url: 'https://copilot.com/account/general' }), null);
+assert.equal(aiMatcher.match({ url: 'https://notebook.google.com/' }), null);
+assert.equal(aiMatcher.match({ url: 'https://chat.mistral.ai/libraries/example' }), null);
+assert.equal(aiMatcher.match({ url: 'https://chat.mistral.ai/work/example' }), null);
+assert.equal(aiMatcher.match({ url: 'https://chat.deepseek.com/downloads/privacy.pdf' }), null);
+assert.equal(aiMatcher.match({ url: 'https://aistudio.google.com/api-keys' }), null);
+assert.equal(aiMatcher.match({ url: 'https://aistudio.google.com/apps?prompt=hello' }), null);
+assert.equal(aiMatcher.match({ url: 'https://aistudio.google.com/prompts' }), null);
+assert.equal(aiMatcher.match({ url: 'https://aistudio.google.com/apps/not-a-uuid' }), null);
 
 const markerDocument = {
   querySelector(selector) {
