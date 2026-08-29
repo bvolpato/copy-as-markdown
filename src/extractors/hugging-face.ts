@@ -373,6 +373,7 @@ function extractTree(
 
 function escapeTableLinkText(value: string): string {
   return value
+    .replace(/[\r\n]+/g, ' ')
     .replace(/\(/g, '&#40;')
     .replace(/\)/g, '&#41;')
     .replace(/([\\[\]|])/g, '\\$1');

@@ -2549,6 +2549,7 @@ async function runExpandedPlatformChecks(browser, scriptContent) {
           { path: 'README.md', type: 'file', size: 2048, lastCommit: { date: '2026-08-21' } },
           { path: 'notes\\unsafe|name.md', type: 'file', size: 8 },
           { path: 'a)b.md', type: 'file', size: 4 },
+          { path: 'bad\nname.md', type: 'file', size: 4 },
         ],
       })}'></div></main>`,
       expected: [
@@ -2557,6 +2558,7 @@ async function runExpandedPlatformChecks(browser, scriptContent) {
         '[README.md](https://huggingface.co/datasets/HuggingFaceFW/fineweb/blob/main/README.md)',
         '[notes\\\\unsafe\\|name.md](https://huggingface.co/datasets/HuggingFaceFW/fineweb/blob/main/notes%5Cunsafe%7Cname.md)',
         '[a&#41;b.md](https://huggingface.co/datasets/HuggingFaceFW/fineweb/blob/main/a%29b.md)',
+        '[bad name.md](https://huggingface.co/datasets/HuggingFaceFW/fineweb/blob/main/bad%0Aname.md)',
         '2.05 kB', 'Listing includes current directory entries exposed by rendered page',
       ],
     },
