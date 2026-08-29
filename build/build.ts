@@ -114,6 +114,7 @@ function buildLibraryEsm(outDir: string): void {
       'extractors/microsoft-copilot': path.join(SRC, 'extractors', 'microsoft-copilot.ts'),
       'extractors/mistral-vibe': path.join(SRC, 'extractors', 'mistral-vibe.ts'),
       'extractors/deepseek': path.join(SRC, 'extractors', 'deepseek.ts'),
+      'extractors/microsoft-teams': path.join(SRC, 'extractors', 'microsoft-teams.ts'),
     },
     bundle: true,
     format: 'esm',

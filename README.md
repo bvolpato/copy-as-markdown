@@ -208,6 +208,7 @@ Useful APIs:
 | **Notion** | Pages and databases with properties, rich blocks, tables, code, and rendered rows |
 | **Sphinx / Read the Docs** | Content-detected documentation on hosted or custom domains, with navigation stripped and code languages preserved |
 | **Microsoft 365** | Word, Excel, and PowerPoint web content through structured live-page views |
+| **Microsoft Teams** | Loaded chats, channels, and threads with authors, timestamps, replies, reactions, attachments, links, and code |
 | **Slack** | Loaded channel or thread messages with authors, timestamps, reactions, replies, and attachments |
 | **Discord** | Loaded channel messages and threads with authors, timestamps, replies, reactions, and attachments |
 | **Jira** | Authenticated REST issue fields, ADF descriptions/comments, and links; rendered issue DOM fallback |

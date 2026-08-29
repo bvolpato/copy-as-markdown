@@ -49,6 +49,7 @@ const EXTRACTOR_LOADERS = {
   'meta-ai': { name: 'Meta AI', load: () => import('../extractors/meta-ai') },
   'microsoft-copilot': { name: 'Microsoft Copilot', load: () => import('../extractors/microsoft-copilot') },
   'microsoft-office': { name: 'Microsoft 365', load: () => import('../extractors/microsoft-office') },
+  'microsoft-teams': { name: 'Microsoft Teams', load: () => import('../extractors/microsoft-teams') },
   'mlflow': { name: 'MLflow', load: () => import('../extractors/mlflow') },
   'mistral-vibe': { name: 'Mistral Vibe', load: () => import('../extractors/mistral-vibe') },
   'netflix': { name: 'Netflix', load: () => import('../extractors/netflix') },

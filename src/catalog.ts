@@ -23,6 +23,7 @@ import './extractors/twitch';
 import './extractors/whatsapp';
 import './extractors/slack';
 import './extractors/discord';
+import './extractors/microsoft-teams';
 import './extractors/polymarket';
 import './extractors/openrouter';
 import './extractors/artificial-analysis';
