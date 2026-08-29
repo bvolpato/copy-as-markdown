@@ -420,7 +420,9 @@ function resolveMarkdownUrls(markdown: string, baseUrl: URL): string {
   let fence: { marker: string; length: number } | null = null;
 
   return lines.map((line) => {
-    const fenceMatch = line.match(/^ {0,3}(`{3,}|~{3,})/);
+    const fenceMatch = line.match(
+      /^(?:(?:[ \t]*>[ \t]?)|(?:[ \t]*(?:[-+*]|\d{1,9}[.)])[ \t]+))*[ \t]*(`{3,}|~{3,})(.*)$/,
+    );
     if (fenceMatch) {
       const marker = fenceMatch[1][0];
       if (!fence) {
@@ -428,7 +430,7 @@ function resolveMarkdownUrls(markdown: string, baseUrl: URL): string {
       } else if (
         marker === fence.marker
         && fenceMatch[1].length >= fence.length
-        && line.slice(fenceMatch[0].length).trim() === ''
+        && fenceMatch[2].trim() === ''
       ) {
         fence = null;
       }
@@ -636,7 +638,7 @@ function annotateCodeLanguages(root: HTMLElement): void {
   root.querySelectorAll<HTMLElement>('pre').forEach((pre) => {
     const existingCode = pre.querySelector<HTMLElement>(':scope > code');
     const existingLanguage = Array.from(existingCode?.classList || [])
-      .map((name) => name.match(/^language-([\w.+-]+)$/)?.[1] || '')
+      .map((name) => name.match(/^language-([\w.+#-]+)$/)?.[1] || '')
       .find((name) => name && !/^(?:default|none|text)$/i.test(name));
     if (existingLanguage) {
       return;
@@ -654,7 +656,7 @@ function annotateCodeLanguages(root: HTMLElement): void {
       || '';
     const dataLanguage = container?.dataset.language || pre.dataset.language || '';
     const classLanguage = Array.from(container?.classList || [])
-      .map((name) => name.match(/^(?:highlight|language)-([\w.+-]+)$/)?.[1] || '')
+      .map((name) => name.match(/^(?:highlight|language)-([\w.+#-]+)$/)?.[1] || '')
       .find((name) => name && !/^(?:default|none|text)$/i.test(name));
     const language = normalizeCodeLanguage(attributeLanguage)
       || normalizeCodeLanguage(dataLanguage)
@@ -675,5 +677,5 @@ function annotateCodeLanguages(root: HTMLElement): void {
 
 function normalizeCodeLanguage(value: string): string {
   const language = value.trim().replace(/^language-/i, '');
-  return /^[\w.+-]+$/.test(language) ? language : '';
+  return /^[\w.+#-]+$/.test(language) ? language : '';
 }
