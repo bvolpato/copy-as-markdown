@@ -226,8 +226,8 @@ function closestMessageRoot(element: Element): HTMLElement | null {
   return element.closest<HTMLElement>(OUTER_MESSAGE_ROOT_SELECTORS.join(', '))
     || element.closest<HTMLElement>(GENERIC_MESSAGE_ROOT_SELECTOR)
     || element.closest<HTMLElement>(MESSAGE_GROUP_ROOT_SELECTOR)
-    || element.closest<HTMLElement>(LABELLED_BODY_ROOT_SELECTOR)
-    || element.closest<HTMLElement>(MESSAGE_WRAPPER_ROOT_SELECTOR);
+    || element.closest<HTMLElement>(MESSAGE_WRAPPER_ROOT_SELECTOR)
+    || element.closest<HTMLElement>(LABELLED_BODY_ROOT_SELECTOR);
 }
 
 function scopeContains(scope: ParentNode, element: Element): boolean {

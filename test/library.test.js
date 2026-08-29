@@ -353,6 +353,21 @@ try {
               Group-header fallback message.
             </div>
           </section>
+          <section data-tid="message-wrapper">
+            <span id="author-wrapper-body">A</span>
+            <time id="timestamp-wrapper-body" datetime="2026-08-29T15:40:00Z">11:40 AM</time>
+            <div
+              id="message-body-wrapper-body"
+              aria-labelledby="author-wrapper-body timestamp-wrapper-body"
+            >Nested labelled wrapper body.</div>
+            <div data-testid="file-attachment" aria-label="wrapper-sibling.txt">
+              <a href="https://files.example.com/wrapper-sibling.txt"></a>
+            </div>
+            <div data-tid="message-reactions">
+              <button aria-label="A reacted with Like">Like 1</button>
+            </div>
+            <button data-tid="response-summary-button">3 replies</button>
+          </section>
         </main>
       </body>
     </html>`);
@@ -365,10 +380,16 @@ try {
   assert.match(channelMarkdown, /\*\*Replies:\*\* 2 replies/);
   assert.match(channelMarkdown, /\*\*Time:\*\* 2026-08-29T15:30:00Z/);
   assert.match(channelMarkdown, /\*\*Time:\*\* 2026-08-29T15:35:00Z/);
+  assert.match(channelMarkdown, /\*\*Time:\*\* 2026-08-29T15:40:00Z/);
   assert.equal(channelMarkdown.match(/## Fran/g)?.length, 1);
   assert.match(
     channelMarkdown,
     /Labelled body-root message\.[\s\S]+\[labelled-sibling\.txt\]\(https:\/\/files\.example\.com\/labelled-sibling\.txt\)[\s\S]+\*\*Reactions:\*\* Fran reacted with Heart[\s\S]+\*\*Replies:\*\* 4 replies/,
+  );
+  assert.equal(channelMarkdown.match(/^## A$/gm)?.length, 1);
+  assert.match(
+    channelMarkdown,
+    /## A[\s\S]+Nested labelled wrapper body\.[\s\S]+\[wrapper-sibling\.txt\]\(https:\/\/files\.example\.com\/wrapper-sibling\.txt\)[\s\S]+\*\*Reactions:\*\* A reacted with Like[\s\S]+\*\*Replies:\*\* 3 replies/,
   );
 
   await page.setContent(`<!doctype html>
