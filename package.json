@@ -33,6 +33,14 @@
       "types": "./dist/library/types/extractors/google-docs.d.ts",
       "import": "./dist/library/extractors/google-docs.js"
     },
+    "./extractors/google-ai-studio": {
+      "types": "./dist/library/types/extractors/google-ai-studio.d.ts",
+      "import": "./dist/library/extractors/google-ai-studio.js"
+    },
+    "./extractors/gemini-notebook": {
+      "types": "./dist/library/types/extractors/gemini-notebook.d.ts",
+      "import": "./dist/library/extractors/gemini-notebook.js"
+    },
     "./extractors/jira": {
       "types": "./dist/library/types/extractors/jira.d.ts",
       "import": "./dist/library/extractors/jira.js"
@@ -40,6 +48,18 @@
     "./extractors/linear": {
       "types": "./dist/library/types/extractors/linear.d.ts",
       "import": "./dist/library/extractors/linear.js"
+    },
+    "./extractors/microsoft-copilot": {
+      "types": "./dist/library/types/extractors/microsoft-copilot.d.ts",
+      "import": "./dist/library/extractors/microsoft-copilot.js"
+    },
+    "./extractors/mistral-vibe": {
+      "types": "./dist/library/types/extractors/mistral-vibe.d.ts",
+      "import": "./dist/library/extractors/mistral-vibe.js"
+    },
+    "./extractors/deepseek": {
+      "types": "./dist/library/types/extractors/deepseek.d.ts",
+      "import": "./dist/library/extractors/deepseek.js"
     },
     "./package.json": "./package.json"
   },
@@ -72,7 +92,8 @@
     "test": "pnpm test:regression",
     "test:live": "pnpm build && node test/test-sites.js",
     "test:library": "pnpm build && node test/library.test.js",
-    "test:regression": "pnpm build && node test/library.test.js && node test/background.test.js && node test/test-sites.js --regression && tsx test/fixtures/security.test.ts && tsx test/fixtures/verify.ts",
+    "test:ai-chat": "pnpm build && node test/ai-chat.test.js",
+    "test:regression": "pnpm build && node test/library.test.js && node test/ai-chat.test.js && node test/background.test.js && node test/test-sites.js --regression && tsx test/fixtures/security.test.ts && tsx test/fixtures/verify.ts",
     "test:site": "pnpm build && node test/test-sites.js",
     "fixtures:capture": "pnpm build && tsx test/fixtures/capture.ts",
     "fixtures:verify": "pnpm build && tsx test/fixtures/verify.ts",

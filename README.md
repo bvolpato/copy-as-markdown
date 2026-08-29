@@ -243,6 +243,11 @@ Useful APIs:
 | **ChatGPT** | Ordered user and assistant turns with Markdown, canvas writing blocks, code, model metadata, and images |
 | **Claude** | Ordered user and assistant turns with Markdown, code, citations, and images |
 | **Gemini** | Ordered user and model turns with Markdown, code, citations, and images |
+| **Microsoft Copilot** | Consumer chats and shares with ordered turns, citations, code, files, images, and Copilot Pages when rendered |
+| **Gemini Notebook / NotebookLM** | Current and legacy notebook chats with ordered grounded answers, source citations, files, and rendered Studio artifacts |
+| **Mistral Vibe / Le Chat** | Chats with ordered turns, citations, files, code, images, workspace context, and rendered Canvas output |
+| **DeepSeek** | Authenticated and shared chats with ordered user and assistant turns, citations, reasoning/code content, files, and images |
+| **Google AI Studio** | Saved and new chat prompts with system instructions, ordered user/model turns, model metadata, grounding citations, code, files, and rendered artifacts |
 | **Meta AI** | Ordered user and assistant turns with citations, code, and images |
 | **LeetLLM** | Lessons, glossary pages, practice content, code, links, and learning context |
 | **Stack Overflow** | Question with votes & tags, all answers (✅ accepted marked), comment threads |
@@ -265,6 +270,8 @@ Useful APIs:
 | **News sites** | Fox News, CNN, BBC, NYT, Reuters, and 20+ others — article body, author, date; paywall detection |
 
 Every extractor is purpose-built to separate **signal from noise**: no ads, no navigation menus, no cookie banners, no related-articles sidebars. Just the content that matters.
+
+AI chat extractors use rendered page content only and explicitly report visible-only coverage. When a product virtualizes history or exposes a load-older control, output also warns that older content was not loaded.
 
 W&B returns up to 500 sampled history rows per run through its browser GraphQL API. MLflow run history fetches are paginated up to 10,000 points per metric. MLflow chart comparisons include up to 10 visible runs and 50 loaded run-metric series, fetching up to 2,500 points per series. Both integrations include full-series statistics, then evenly sample Markdown history rows when needed to keep clipboard output bounded. W&B Server and arbitrary self-hosted MLflow deployments work through userscript content detection or extension toolbar; their active browser session must permit same-origin API access.
 
