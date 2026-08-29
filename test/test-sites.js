@@ -2434,6 +2434,31 @@ async function runExpandedPlatformChecks(browser, scriptContent) {
       },
     },
     {
+      name: 'Linear current comment containers',
+      extractor: 'Linear',
+      url: 'https://linear.app/acme/issue/ENG-86/current-comment-containers',
+      html: `<main data-testid="issue-view"><h1 aria-label="Issue title">Current comment containers</h1>
+        <div class="ProseMirror" aria-label="Issue description"><p>Current comments.</p></div>
+        <section data-comment-thread-container>
+          <article id="comment-a-container"><header><img alt="Alice"><span>Alice</span>
+            <a tabindex="-1" aria-label="Aug 29 at 10:00 AM">Today</a></header>
+            <div class="ProseMirror" aria-label="Comment"><p>First current comment.</p></div></article>
+          <article id="comment-b-container"><header><img alt="Bob"><a aria-label="View Bob profile">Bob</a>
+            <a aria-label="Aug 29 at 11:00 AM">Today</a></header>
+            <div class="ProseMirror" aria-label="Comment"><p>Second current comment.</p></div></article>
+        </section></main>`,
+      expected: [
+        '### Alice', '*Aug 29 at 10:00 AM*', 'First current comment.',
+        '### Bob', '*Aug 29 at 11:00 AM*', 'Second current comment.',
+      ],
+      exactOccurrences: {
+        '### Alice': 1,
+        'First current comment.': 1,
+        '### Bob': 1,
+        'Second current comment.': 1,
+      },
+    },
+    {
       name: 'Linear optional anonymous dates',
       extractor: 'Linear',
       url: 'https://linear.app/acme/issue/ENG-85/optional-dates',

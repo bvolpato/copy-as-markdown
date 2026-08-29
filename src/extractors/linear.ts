@@ -634,7 +634,7 @@ function extractComments(root: Element): Comment[] {
       '[data-testid="user-name"]',
       '[rel="author"]',
     ]);
-    const avatar = container.querySelector<HTMLImageElement>('img[alt]');
+    const avatar = commentHeaderAvatar(container, bodyElement);
     const ariaAuthor = container.getAttribute('aria-label')?.match(/^Comment by\s+(.+?)(?:\s+at\s+|$)/i)?.[1] || '';
     const author = firstValue(container, [
       '[data-comment-author]',
@@ -645,13 +645,7 @@ function extractComments(root: Element): Comment[] {
       '[data-testid="user-name"]',
       '[rel="author"]',
     ]) || normalize(authorElement?.getAttribute('aria-label') || avatar?.alt || ariaAuthor);
-    const time = container.querySelector('time');
-    const date = normalize(
-      time?.getAttribute('datetime')
-      || time?.getAttribute('title')
-      || firstValue(container, ['[data-testid*="comment-date"]', '[data-testid*="timestamp"]']),
-    );
-    comments.push({ author, date, body });
+    comments.push({ author, date: commentTimestamp(container), body });
   });
   return comments;
 }
@@ -701,20 +695,59 @@ function nearestCommentContainer(element: Element, root: Element): Element {
 
 function looksLikeGeneratedCommentContainer(element: Element): boolean {
   if (!/-container$/i.test(element.id)) return false;
-  const hasAuthor = Boolean(element.querySelector([
+  const body = element.querySelector([
+    '[data-testid="comment-body"]',
+    '[data-testid="comment-content"]',
+    '[data-comment-body]',
+    '.ProseMirror[aria-label*="comment" i]',
+  ].join(', '));
+  if (!body) return false;
+
+  const hasAuthorMarker = Boolean(element.querySelector([
     '[data-comment-author]',
     '[data-comment-user-name]',
     '[data-testid*="comment-author"]',
     '[data-testid*="author-name"]',
     '[rel="author"]',
   ].join(', ')));
-  const hasBody = Boolean(element.querySelector([
-    '[data-testid="comment-body"]',
-    '[data-testid="comment-content"]',
-    '[data-comment-body]',
-    '.ProseMirror[aria-label*="comment" i]',
-  ].join(', ')));
-  return hasAuthor && hasBody;
+  return hasAuthorMarker || Boolean(commentHeaderAvatar(element, body));
+}
+
+function commentHeaderAvatar(container: Element, body: Element): HTMLImageElement | null {
+  return Array.from(container.querySelectorAll<HTMLImageElement>('img[alt]'))
+    .find((avatar) => isVisible(avatar)
+      && normalize(avatar.alt)
+      && !body.contains(avatar)
+      && compareDomOrder(avatar, body) < 0) || null;
+}
+
+function commentTimestamp(container: Element): string {
+  const candidates = matchingElements(container, [
+    'time',
+    '[data-testid*="comment-date"]',
+    '[data-testid*="timestamp"]',
+    'a[aria-label]',
+  ]);
+  for (const candidate of candidates) {
+    if (!isVisible(candidate) || nearestCommentContainer(candidate, container) !== container) continue;
+    const value = normalize(
+      candidate.getAttribute('datetime')
+      || candidate.getAttribute('title')
+      || candidate.getAttribute('aria-label')
+      || candidate.textContent
+      || '',
+    );
+    if (!candidate.matches('a[aria-label]') || looksLikeCommentTimestamp(value)) return value;
+  }
+  return '';
+}
+
+function looksLikeCommentTimestamp(value: string): boolean {
+  const timestamp = value.replace(/\s+\(edited\)$/i, '');
+  return /^(?:today|yesterday|tomorrow|monday|tuesday|wednesday|thursday|friday|saturday|sunday)\b/i.test(timestamp)
+    || /^(?:jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|aug(?:ust)?|sep(?:tember)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)\s+\d{1,2}\b/i.test(timestamp)
+    || /^(?:\d{4}-\d{2}-\d{2}|\d{1,2}\/\d{1,2}\/\d{2,4})\b/.test(timestamp)
+    || /^\d+\s+(?:seconds?|minutes?|hours?|days?|weeks?|months?|years?)\s+ago\b/i.test(timestamp);
 }
 
 function commentContainerAttribute(element: Element): string {
