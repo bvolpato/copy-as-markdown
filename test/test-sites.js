@@ -2298,7 +2298,7 @@ async function runExpandedPlatformChecks(browser, scriptContent) {
             && options?.redirect === 'error'
             && options?.referrerPolicy === 'no-referrer';
           return new Response(validRequest
-            ? `---\ntitle: Source title\ndescription: Source metadata\n---\n\n# Getting Started\n\nMintlify same-page Markdown source.\n\n[Install](../install)\n\n![Diagram](./images/diagram.png "Architecture")\n\n[Root](/reference)\n\n[Absolute](https://docs.example.net/reference)\n\n[Email](mailto:docs@example.net)\n\n[Section](#configuration)\n\n[Configuration][config]\n\n[config]: ../config "Configuration"\n\n\`[Example](../leave-inline-code-alone)\`\n\n\`\`\`markdown\n[Example](../leave-fenced-code-alone)\n\`\`\`\n`
+            ? `---\ntitle: Source title\ndescription: Source metadata\n---\n\n# Getting Started\n\nMintlify same-page Markdown source.\n\n[Install](../install)\n\n![Diagram](./images/diagram.png "Architecture")\n\n[Root](/reference)\n\n[Absolute](https://docs.example.net/reference)\n\n[Email](mailto:docs@example.net)\n\n[Section](#configuration)\n\n[Configuration][config]\n\n[config]: ../config "Configuration"\n\n\`[Example](../leave-inline-code-alone)\`\n\n\`\`\`markdown\n[Example](../leave-fenced-code-alone)\n\`\`\`\n\n> \`\`\`markdown\n> [Blockquote example](../leave-blockquote-fenced-code-alone)\n> \`\`\`\n\n- \`\`\`markdown\n  [List example](../leave-list-fenced-code-alone)\n  \`\`\`\n\n    \`\`\`markdown\n    [Indented example](../leave-indented-fenced-code-alone)\n    \`\`\`\n\n[After containers](./after-containers)\n`
             : 'Invalid documentation source request', {
             status: validRequest ? 200 : 400,
             headers: { 'Content-Type': 'text/markdown' },
@@ -2321,6 +2321,10 @@ async function runExpandedPlatformChecks(browser, scriptContent) {
         '[config]: https://mint.example.org/config "Configuration"',
         '`[Example](../leave-inline-code-alone)`',
         '[Example](../leave-fenced-code-alone)',
+        '[Blockquote example](../leave-blockquote-fenced-code-alone)',
+        '[List example](../leave-list-fenced-code-alone)',
+        '[Indented example](../leave-indented-fenced-code-alone)',
+        '[After containers](https://mint.example.org/guide/after-containers)',
       ],
       excluded: [
         'title: Source title', 'description: Source metadata',
@@ -2363,11 +2367,13 @@ async function runExpandedPlatformChecks(browser, scriptContent) {
         <h1>CLI</h1><p>Mintlify rendered fallback.</p>
         <pre language="shellscript"><code>npm run docs</code></pre>
         <pre language="c++"><code>std::vector&lt;int&gt; values;</code></pre>
+        <pre language="c#"><code>var client = new Client();</code></pre>
         <pre><code class="language-objective-c">@interface Client</code></pre>
       </section>`,
       expected: [
         '# CLI', 'Mintlify rendered fallback.', '```shellscript\nnpm run docs\n```',
         '```c++\nstd::vector<int> values;\n```',
+        '```c#\nvar client = new Client();\n```',
         '```objective-c\n@interface Client\n```',
       ],
     },
