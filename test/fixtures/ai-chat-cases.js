@@ -34,7 +34,7 @@ export const AI_CHAT_CASES = [
         </div>
         <div id="text-slot-host">Assigned plain text.</div>
         <div id="shadow-artifact"></div>
-      </div></main>
+      </div><aside aria-label="Unrelated virtualized picker"><div data-virtualized="true"></div></aside></main>
     </body></html>`,
     ordered: [
       '## 👤 User',
@@ -61,6 +61,7 @@ export const AI_CHAT_CASES = [
       '[release.pdf](https://files.example/release.pdf)',
       '[Escaped attachment](https://files.example/attachment%29![Injected]%28https://attacker.example/attachment)',
       'Inline artifact',
+      '> **Coverage:** Visible rendered conversation only; unloaded page history is not included.',
     ],
     excludes: [
       'javascript:alert',
@@ -74,6 +75,7 @@ export const AI_CHAT_CASES = [
       'https://docs.example/citation)![Injected](',
       'https://files.example/attachment)![Injected](',
       'https://images.example/release.png)![Injected](',
+      'older or virtualized history was not loaded',
     ],
     occurrences: { 'Inline artifact': 1 },
   },
@@ -84,7 +86,7 @@ export const AI_CHAT_CASES = [
     html: `<!doctype html><html><head><title>Research notebook - Gemini Notebook</title><style>.concealed { display: none; }</style></head><body>
       <main>
         <h1 data-testid="notebook-title">Research notebook</h1>
-        <chat-panel><div class="chat-panel-content" role="log">
+        <chat-panel><div class="chat-panel-content" role="log" data-virtualized="true">
         <article class="from-user-container"><div class="query-text">What supports the claim?</div></article>
         <article class="to-user-container">
           <div class="response-content"><p>The primary study supports it.</p></div>
@@ -101,7 +103,6 @@ export const AI_CHAT_CASES = [
           <a href="https://drive.example/file)![Injected](https://attacker.example/source">Market research.pdf</a><button>Source menu control</button>
         </div>
         <div class="single-source-container concealed">Hidden source.pdf</div>
-        <div data-virtualized="true"></div>
       </main>
     </body></html>`,
     ordered: ['## 👤 User', 'What supports the claim?', '## 🤖 Gemini Notebook', 'The primary study supports it.'],
@@ -112,7 +113,7 @@ export const AI_CHAT_CASES = [
       '## Artifacts',
       'Study guide',
       'Study guide preview',
-      '> **Coverage:** Visible rendered conversation only;',
+      '> **Coverage:** Visible rendered conversation only; older or virtualized history was not loaded.',
     ],
     excludes: [
       'Artifact viewer controls',

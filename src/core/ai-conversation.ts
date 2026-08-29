@@ -165,7 +165,7 @@ export function registerAiConversationExtractor(config: AiConversationConfig): E
       if (artifacts.length) parts.push('', '## Artifacts', '', ...artifacts);
 
       const captured = userCount + assistantCount;
-      const structuralIncomplete = turns.truncated || hasUnrenderedHistory(config);
+      const structuralIncomplete = turns.truncated || hasUnrenderedHistory(config, turns.items);
       parts.push(
         '',
         structuralIncomplete
@@ -566,11 +566,38 @@ function conversationTitle(config: AiConversationConfig): string {
   return title || config.titleFallback;
 }
 
-function hasUnrenderedHistory(config: AiConversationConfig): boolean {
-  return Boolean(queryFirst(document, [
+function hasUnrenderedHistory(config: AiConversationConfig, turns: Turn[]): boolean {
+  const signals = queryAll(document, [
     ...(config.unrenderedHistorySelectors || []),
     ...DEFAULT_UNRENDERED_SELECTORS,
-  ]));
+  ]).filter(isComputedVisible);
+  if (!signals.length || !turns.length) return false;
+
+  const turnContainers = Array.from(new Set(turns.map(({ container }) => container)));
+  const scopes = conversationScopes(config, turnContainers);
+  return signals.some((signal) => (
+    turnContainers.some((container) => (
+      composedContains(signal, container) || composedContains(container, signal)
+    ))
+    || scopes.some((scope) => (
+      composedContains(scope, signal) || composedContains(signal, scope)
+    ))
+  ));
+}
+
+function conversationScopes(config: AiConversationConfig, turns: Element[]): Element[] {
+  const candidates = queryAll(document, config.fallbackSelectors)
+    .filter((element) => (
+      isComputedVisible(element)
+      && element.tagName !== 'MAIN'
+      && element.tagName !== 'BODY'
+      && element.tagName !== 'HTML'
+      && element.getAttribute('role') !== 'main'
+      && turns.every((turn) => composedContains(element, turn))
+    ));
+  return candidates.filter((candidate) => !candidates.some((nested) => (
+    nested !== candidate && composedContains(candidate, nested)
+  )));
 }
 
 function queryFirst(root: ParentNode, selectors: string[]): Element | null {
