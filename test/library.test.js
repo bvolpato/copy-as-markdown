@@ -20,7 +20,15 @@ assert.deepEqual(
   [],
   'AI chat extractor loader IDs should be published',
 );
-const selectedExtractors = await library.loadExtractors(['jira', 'confluence', 'github', 'hugging-face', 'google-docs', 'linear']);
+const selectedExtractors = await library.loadExtractors([
+  'jira',
+  'confluence',
+  'documentation',
+  'github',
+  'google-docs',
+  'linear',
+  'hugging-face',
+]);
 const catalog = library.getExtractors();
 assert.deepEqual(
   catalog.map(({ name }) => name).sort(),
@@ -30,6 +38,7 @@ assert.deepEqual(
 const directCore = await import(path.join(ROOT, 'dist', 'library', 'core.js'));
 const { jiraExtractor } = await import(path.join(ROOT, 'dist', 'library', 'extractors', 'jira.js'));
 const { confluenceExtractor } = await import(path.join(ROOT, 'dist', 'library', 'extractors', 'confluence.js'));
+const { documentationExtractor } = await import(path.join(ROOT, 'dist', 'library', 'extractors', 'documentation.js'));
 const { githubExtractor } = await import(path.join(ROOT, 'dist', 'library', 'extractors', 'github.js'));
 const { huggingFaceExtractor } = await import(path.join(ROOT, 'dist', 'library', 'extractors', 'hugging-face.js'));
 const { googleDocsExtractor } = await import(path.join(ROOT, 'dist', 'library', 'extractors', 'google-docs.js'));
@@ -40,7 +49,15 @@ const { mistralVibeExtractor } = await import(path.join(ROOT, 'dist', 'library',
 const { deepSeekExtractor } = await import(path.join(ROOT, 'dist', 'library', 'extractors', 'deepseek.js'));
 const { googleAiStudioExtractor } = await import(path.join(ROOT, 'dist', 'library', 'extractors', 'google-ai-studio.js'));
 const directMatcher = directCore.createExtractorMatcher({
-  extractors: [jiraExtractor, confluenceExtractor, githubExtractor, huggingFaceExtractor, googleDocsExtractor, linearExtractor],
+  extractors: [
+    jiraExtractor,
+    confluenceExtractor,
+    documentationExtractor,
+    githubExtractor,
+    googleDocsExtractor,
+    linearExtractor,
+    huggingFaceExtractor,
+  ],
 });
 assert.equal(directMatcher.match({ url: 'https://github.com/bvolpato/copy-as-markdown' })?.name, 'GitHub');
 assert.equal(directMatcher.match({ url: 'https://huggingface.co/google/gemma-3-270m' })?.name, 'Hugging Face');
@@ -56,6 +73,26 @@ assert.equal(directMatcher.match({ url: 'https://huggingface.co/inference/models
 assert.equal(
   directMatcher.match({ url: 'https://docs.google.com/document/d/example/edit' })?.name,
   'Google Docs',
+);
+assert.equal(
+  directMatcher.match({
+    url: 'https://docs.internal.example/guide',
+    document: {
+      location: { hostname: 'docs.internal.example' },
+      querySelector(selector) {
+        if (selector === 'meta[name="generator"]') return { content: 'Docusaurus v3' };
+        if (selector === '.theme-doc-markdown.markdown') {
+          return { textContent: 'Docusaurus content', querySelector: () => null };
+        }
+        return null;
+      },
+      querySelectorAll(selector) {
+        const element = this.querySelector(selector);
+        return element ? [element] : [];
+      },
+    },
+  })?.name,
+  'Sphinx / Read the Docs',
 );
 assert.equal(
   directMatcher.match({ url: 'https://linear.app/acme/issue/ENG-123/example' })?.name,
@@ -156,7 +193,7 @@ const matcher = library.createExtractorMatcher({
 
 assert.deepEqual(
   matcher.extractors.map(({ name }) => name),
-  ['Jira', 'Confluence', 'GitHub', 'Hugging Face', 'Google Docs', 'Linear'],
+  ['Jira', 'Confluence', 'Sphinx / Read the Docs', 'GitHub', 'Google Docs', 'Linear', 'Hugging Face'],
 );
 assert.equal(
   matcher.match({ url: 'https://jira.corp.example/browse/ENG-123' })?.name,
@@ -245,7 +282,15 @@ try {
   await page.addScriptTag({ content: browserCode });
 
   const result = await page.evaluate(async () => {
-    await CopyAsMarkdown.loadExtractors(['jira', 'confluence', 'github', 'hugging-face', 'google-docs', 'linear']);
+    await CopyAsMarkdown.loadExtractors([
+      'jira',
+      'confluence',
+      'documentation',
+      'github',
+      'hugging-face',
+      'google-docs',
+      'linear',
+    ]);
     return {
       markdown: CopyAsMarkdown.domToMarkdown(document.querySelector('#content')),
       extractorCount: CopyAsMarkdown.getExtractors().length,
