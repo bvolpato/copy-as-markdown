@@ -61,6 +61,10 @@
       "types": "./dist/library/types/extractors/deepseek.d.ts",
       "import": "./dist/library/extractors/deepseek.js"
     },
+    "./extractors/microsoft-teams": {
+      "types": "./dist/library/types/extractors/microsoft-teams.d.ts",
+      "import": "./dist/library/extractors/microsoft-teams.js"
+    },
     "./package.json": "./package.json"
   },
   "files": [
