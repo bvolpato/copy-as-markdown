@@ -104,7 +104,7 @@ export const documentationExtractor = register({
     if (markdownUrl) {
       try {
         const sourceMarkdown = await fetchPublicMarkdown(markdownUrl, window.location.href);
-        const body = ensureTitle(sourceMarkdown, title);
+        const body = ensureTitle(resolveMarkdownUrls(sourceMarkdown, markdownUrl), title);
         const limited = limitMarkdown(body);
         addExtractionMetadata(metadata, {
           contentSource: `${framework} same-page public Markdown`,
@@ -413,6 +413,165 @@ async function fetchPublicMarkdown(markdownUrl: URL, pageHref: string): Promise<
     throw new Error('Documentation Markdown request did not return Markdown');
   }
   return text;
+}
+
+function resolveMarkdownUrls(markdown: string, baseUrl: URL): string {
+  const lines = markdown.split(/\r?\n/);
+  let fence: { marker: string; length: number } | null = null;
+
+  return lines.map((line) => {
+    const fenceMatch = line.match(/^ {0,3}(`{3,}|~{3,})/);
+    if (fenceMatch) {
+      const marker = fenceMatch[1][0];
+      if (!fence) {
+        fence = { marker, length: fenceMatch[1].length };
+      } else if (
+        marker === fence.marker
+        && fenceMatch[1].length >= fence.length
+        && line.slice(fenceMatch[0].length).trim() === ''
+      ) {
+        fence = null;
+      }
+      return line;
+    }
+    return fence ? line : resolveMarkdownLineUrls(line, baseUrl);
+  }).join('\n');
+}
+
+function resolveMarkdownLineUrls(line: string, baseUrl: URL): string {
+  const reference = line.match(/^(\s{0,3}\[([^\]]+)\]:[ \t]*)(<([^>]*)>|(\S+))(.*)$/);
+  if (reference && !reference[2].trim().startsWith('^')) {
+    const destination = reference[4] ?? reference[5];
+    const resolved = resolveMarkdownDestination(destination, baseUrl);
+    const formatted = reference[4] !== undefined ? `<${resolved}>` : resolved;
+    return `${reference[1]}${formatted}${reference[6]}`;
+  }
+
+  let result = '';
+  let inlineCodeTicks = 0;
+  for (let index = 0; index < line.length;) {
+    if (line[index] === '`') {
+      const tickCount = countRepeatedCharacter(line, index, '`');
+      result += line.slice(index, index + tickCount);
+      if (inlineCodeTicks === 0) inlineCodeTicks = tickCount;
+      else if (tickCount === inlineCodeTicks) inlineCodeTicks = 0;
+      index += tickCount;
+      continue;
+    }
+
+    if (
+      inlineCodeTicks === 0
+      && line[index] === ']'
+      && line[index + 1] === '('
+      && hasMarkdownLinkOpening(line, index)
+    ) {
+      const closing = findMarkdownDestinationEnd(line, index + 1);
+      if (closing !== -1) {
+        const target = line.slice(index + 2, closing);
+        result += `](${resolveInlineMarkdownTarget(target, baseUrl)})`;
+        index = closing + 1;
+        continue;
+      }
+    }
+
+    result += line[index];
+    index += 1;
+  }
+  return result;
+}
+
+function resolveInlineMarkdownTarget(target: string, baseUrl: URL): string {
+  const leadingWhitespace = target.match(/^\s*/)?.[0] || '';
+  const remainder = target.slice(leadingWhitespace.length);
+  if (remainder.startsWith('<')) {
+    const closing = findUnescapedCharacter(remainder, '>', 1);
+    if (closing !== -1) {
+      const destination = remainder.slice(1, closing);
+      return `${leadingWhitespace}<${resolveMarkdownDestination(destination, baseUrl)}>${remainder.slice(closing + 1)}`;
+    }
+  }
+
+  let destinationEnd = 0;
+  while (destinationEnd < remainder.length) {
+    if (remainder[destinationEnd] === '\\' && destinationEnd + 1 < remainder.length) {
+      destinationEnd += 2;
+      continue;
+    }
+    if (/\s/.test(remainder[destinationEnd])) break;
+    destinationEnd += 1;
+  }
+  const destination = remainder.slice(0, destinationEnd);
+  return `${leadingWhitespace}${resolveMarkdownDestination(destination, baseUrl)}${remainder.slice(destinationEnd)}`;
+}
+
+function resolveMarkdownDestination(destination: string, baseUrl: URL): string {
+  if (!destination || destination.startsWith('#')) return destination;
+  if (/^[a-z][a-z\d+.-]*:/i.test(destination)) return destination;
+  try {
+    return new URL(destination, baseUrl).href;
+  } catch {
+    return destination;
+  }
+}
+
+function hasMarkdownLinkOpening(line: string, closingBracket: number): boolean {
+  let bracketDepth = 0;
+  for (let index = closingBracket - 1; index >= 0; index -= 1) {
+    if (isEscapedCharacter(line, index)) continue;
+    if (line[index] === ']') bracketDepth += 1;
+    if (line[index] !== '[') continue;
+    if (bracketDepth === 0) return true;
+    bracketDepth -= 1;
+  }
+  return false;
+}
+
+function findMarkdownDestinationEnd(line: string, openingParenthesis: number): number {
+  let depth = 1;
+  let titleQuote = '';
+  let destinationEnded = false;
+  for (let index = openingParenthesis + 1; index < line.length; index += 1) {
+    if (isEscapedCharacter(line, index)) continue;
+    const character = line[index];
+    if (titleQuote) {
+      if (character === titleQuote) titleQuote = '';
+      continue;
+    }
+    if (depth === 1 && /\s/.test(character)) {
+      destinationEnded = true;
+      continue;
+    }
+    if (destinationEnded && depth === 1 && (character === '"' || character === "'")) {
+      titleQuote = character;
+      continue;
+    }
+    if (character === '(') depth += 1;
+    if (character !== ')') continue;
+    depth -= 1;
+    if (depth === 0) return index;
+  }
+  return -1;
+}
+
+function findUnescapedCharacter(value: string, character: string, start: number): number {
+  for (let index = start; index < value.length; index += 1) {
+    if (value[index] === character && !isEscapedCharacter(value, index)) return index;
+  }
+  return -1;
+}
+
+function isEscapedCharacter(value: string, index: number): boolean {
+  let backslashes = 0;
+  for (let cursor = index - 1; cursor >= 0 && value[cursor] === '\\'; cursor -= 1) {
+    backslashes += 1;
+  }
+  return backslashes % 2 === 1;
+}
+
+function countRepeatedCharacter(value: string, start: number, character: string): number {
+  let count = 0;
+  while (value[start + count] === character) count += 1;
+  return count;
 }
 
 function removeDocumentationNoise(root: HTMLElement): void {

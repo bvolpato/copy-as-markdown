@@ -2300,7 +2300,7 @@ async function runExpandedPlatformChecks(browser, scriptContent) {
             && options?.redirect === 'error'
             && options?.referrerPolicy === 'no-referrer';
           return new Response(validRequest
-            ? `---\ntitle: Source title\ndescription: Source metadata\n---\n\n# Getting Started\n\nMintlify same-page Markdown source.\n`
+            ? `---\ntitle: Source title\ndescription: Source metadata\n---\n\n# Getting Started\n\nMintlify same-page Markdown source.\n\n[Install](../install)\n\n![Diagram](./images/diagram.png "Architecture")\n\n[Root](/reference)\n\n[Absolute](https://docs.example.net/reference)\n\n[Email](mailto:docs@example.net)\n\n[Section](#configuration)\n\n[Configuration][config]\n\n[config]: ../config "Configuration"\n\n\`[Example](../leave-inline-code-alone)\`\n\n\`\`\`markdown\n[Example](../leave-fenced-code-alone)\n\`\`\`\n`
             : 'Invalid documentation source request', {
             status: validRequest ? 200 : 400,
             headers: { 'Content-Type': 'text/markdown' },
@@ -2312,7 +2312,18 @@ async function runExpandedPlatformChecks(browser, scriptContent) {
           <h1>Getting Started</h1>
           <p>STALE MINTLIFY RENDERED BODY</p><div data-page-feedback>MINTLIFY FEEDBACK NOISE</div>
         </section>`,
-      expected: ['# Getting Started', 'Mintlify same-page Markdown source.'],
+      expected: [
+        '# Getting Started', 'Mintlify same-page Markdown source.',
+        '[Install](https://mint.example.org/install)',
+        '![Diagram](https://mint.example.org/guide/images/diagram.png "Architecture")',
+        '[Root](https://mint.example.org/reference)',
+        '[Absolute](https://docs.example.net/reference)',
+        '[Email](mailto:docs@example.net)',
+        '[Section](#configuration)',
+        '[config]: https://mint.example.org/config "Configuration"',
+        '`[Example](../leave-inline-code-alone)`',
+        '[Example](../leave-fenced-code-alone)',
+      ],
       excluded: [
         'title: Source title', 'description: Source metadata',
         'STALE MINTLIFY RENDERED BODY', 'MINTLIFY FEEDBACK NOISE',
@@ -2353,9 +2364,13 @@ async function runExpandedPlatformChecks(browser, scriptContent) {
       html: `<section data-page-title="CLI" data-page-href="/guide/cli">
         <h1>CLI</h1><p>Mintlify rendered fallback.</p>
         <pre language="shellscript"><code>npm run docs</code></pre>
+        <pre language="c++"><code>std::vector&lt;int&gt; values;</code></pre>
+        <pre><code class="language-objective-c">@interface Client</code></pre>
       </section>`,
       expected: [
         '# CLI', 'Mintlify rendered fallback.', '```shellscript\nnpm run docs\n```',
+        '```c++\nstd::vector<int> values;\n```',
+        '```objective-c\n@interface Client\n```',
       ],
     },
     {
