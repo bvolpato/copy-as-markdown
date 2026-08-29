@@ -360,7 +360,7 @@ function extractTree(
       '| --- | --- | ---: | --- |',
       ...entries.map((entry) => {
         const label = escapeTableLinkText(entry.path);
-        const path = `[${label}](${entry.href})`;
+        const path = `[${label}](${escapeMarkdownDestination(entry.href)})`;
         return `| ${entry.type} | ${path} | ${formatBytes(entry.size)} | ${Markdown.escapeMarkdownTableCell(entry.updated || '')} |`;
       }),
     ].join('\n'));
@@ -372,7 +372,10 @@ function extractTree(
 }
 
 function escapeTableLinkText(value: string): string {
-  return value.replace(/([\\[\]|])/g, '\\$1');
+  return value
+    .replace(/\(/g, '&#40;')
+    .replace(/\)/g, '&#41;')
+    .replace(/([\\[\]|])/g, '\\$1');
 }
 
 function getFileEntries(route: RepositoryRoute): FileEntry[] {
@@ -395,12 +398,13 @@ function getFileEntries(route: RepositoryRoute): FileEntry[] {
 
   const links = Array.from(viewer?.querySelectorAll<HTMLAnchorElement>('a[href]') || []);
   return uniqueEntries(links.flatMap((link) => {
-    const parsed = parseEntryLink(route, link.href);
+    const href = safeRepositoryUrl(link.href);
+    const parsed = href ? parseEntryLink(route, href) : null;
     if (!parsed) return [];
     const row = link.closest('li, [role="row"]');
     return [{
       ...parsed,
-      href: link.href,
+      href,
       ...(row?.querySelector('time')?.getAttribute('datetime')
         ? { updated: row.querySelector('time')?.getAttribute('datetime') || undefined }
         : {}),
@@ -418,7 +422,9 @@ function entryHref(route: RepositoryRoute, type: FileEntry['type'], path: string
 function parseEntryLink(route: RepositoryRoute, href: string): Pick<FileEntry, 'path' | 'type'> | null {
   let parts: string[];
   try {
-    parts = new URL(href, window.location.href).pathname.split('/').filter(Boolean).map(decodePart);
+    const url = new URL(href, window.location.href);
+    if (!/^https?:$/.test(url.protocol) || url.origin !== window.location.origin) return null;
+    parts = url.pathname.split('/').filter(Boolean).map(decodePart);
   } catch {
     return null;
   }
@@ -434,6 +440,19 @@ function parseEntryLink(route: RepositoryRoute, href: string): Pick<FileEntry, '
   const path = parts.slice(base.length + 2).join('/');
   if (!path) return null;
   return { path, type: view === 'tree' ? 'directory' : 'file' };
+}
+
+function safeRepositoryUrl(value: string): string {
+  try {
+    const url = new URL(value, window.location.href);
+    return /^https?:$/.test(url.protocol) && url.origin === window.location.origin ? url.href : '';
+  } catch {
+    return '';
+  }
+}
+
+function escapeMarkdownDestination(value: string): string {
+  return value.replace(/\(/g, '%28').replace(/\)/g, '%29');
 }
 
 function uniqueEntries(entries: FileEntry[]): FileEntry[] {
