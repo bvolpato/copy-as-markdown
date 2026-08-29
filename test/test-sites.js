@@ -2290,6 +2290,149 @@ async function runExpandedPlatformChecks(browser, scriptContent) {
       excluded: ['SPHINX NAVIGATION NOISE', 'SPHINX SIDEBAR NOISE', '¶'],
     },
     {
+      name: 'Mintlify custom domain',
+      extractor: 'Sphinx / Read the Docs',
+      url: 'https://mint.example.org/guide/getting-started',
+      beforeLoad: () => {
+        window.fetch = async (url, options) => {
+          const validRequest = String(url) === 'https://mint.example.org/guide/getting-started.md'
+            && options?.credentials === 'omit'
+            && options?.redirect === 'error'
+            && options?.referrerPolicy === 'no-referrer';
+          return new Response(validRequest
+            ? `---\ntitle: Source title\ndescription: Source metadata\n---\n\n# Getting Started\n\nMintlify same-page Markdown source.\n`
+            : 'Invalid documentation source request', {
+            status: validRequest ? 200 : 400,
+            headers: { 'Content-Type': 'text/markdown' },
+          });
+        };
+      },
+      html: `<link rel="alternate" type="text/markdown" href="/guide/getting-started.md">
+        <section data-page-title="Getting Started" data-page-href="/guide/getting-started">
+          <h1>Getting Started</h1>
+          <p>STALE MINTLIFY RENDERED BODY</p><div data-page-feedback>MINTLIFY FEEDBACK NOISE</div>
+        </section>`,
+      expected: ['# Getting Started', 'Mintlify same-page Markdown source.'],
+      excluded: [
+        'title: Source title', 'description: Source metadata',
+        'STALE MINTLIFY RENDERED BODY', 'MINTLIFY FEEDBACK NOISE',
+      ],
+    },
+    {
+      name: 'Docusaurus custom domain',
+      extractor: 'Sphinx / Read the Docs',
+      url: 'https://docusaurus.example.org/docs/configure',
+      beforeLoad: () => {
+        window.fetch = async () => new Response('# WRONG CROSS-ORIGIN SOURCE', {
+          status: 200,
+          headers: { 'Content-Type': 'text/markdown' },
+        });
+      },
+      html: `<meta name="generator" content="Docusaurus v3.9">
+        <link rel="alternate" type="text/markdown" href="https://source.example.net/configure.md">
+        <div id="__docusaurus"><main><article><div class="theme-doc-markdown markdown">
+          <div class="theme-doc-breadcrumbs">DOCUSAURUS BREADCRUMB NOISE</div>
+          <h1>Configure<a class="hash-link" href="#configure">#</a></h1>
+          <p>Docusaurus rendered documentation.</p>
+          <div class="language-typescript"><pre><code>const configured = true;</code></pre></div>
+          <nav class="pagination-nav">DOCUSAURUS PAGINATION NOISE</nav>
+        </div></article></main></div>`,
+      expected: [
+        '# Configure', 'Docusaurus rendered documentation.',
+        '```typescript\nconst configured = true;\n```',
+      ],
+      excluded: [
+        'WRONG CROSS-ORIGIN SOURCE', 'DOCUSAURUS BREADCRUMB NOISE',
+        'DOCUSAURUS PAGINATION NOISE',
+      ],
+    },
+    {
+      name: 'Mintlify rendered code language',
+      extractor: 'Sphinx / Read the Docs',
+      url: 'https://mint.example.org/guide/cli',
+      html: `<section data-page-title="CLI" data-page-href="/guide/cli">
+        <h1>CLI</h1><p>Mintlify rendered fallback.</p>
+        <pre language="shellscript"><code>npm run docs</code></pre>
+      </section>`,
+      expected: [
+        '# CLI', 'Mintlify rendered fallback.', '```shellscript\nnpm run docs\n```',
+      ],
+    },
+    {
+      name: 'GitBook custom domain',
+      extractor: 'Sphinx / Read the Docs',
+      url: 'https://handbook.example.org/platform/overview',
+      html: `<div data-content-ref-root><h1>Platform Overview</h1>
+          <p>GitBook rendered documentation.</p>
+          <div class="group/ask-ai">GITBOOK ASK AI NOISE</div>
+          <div class="group/input">GITBOOK INPUT NOISE</div>
+          <div data-testid="ai-chat">GITBOOK ASSISTANT NOISE</div>
+          <div data-testid="page-feedback">GITBOOK FEEDBACK NOISE</div>
+          <div data-testid="page-footer">GITBOOK FOOTER NOISE</div>
+        </div>`,
+      expected: ['# Platform Overview', 'GitBook rendered documentation.'],
+      excluded: [
+        'GITBOOK ASK AI NOISE', 'GITBOOK INPUT NOISE', 'GITBOOK ASSISTANT NOISE',
+        'GITBOOK FEEDBACK NOISE', 'GITBOOK FOOTER NOISE',
+      ],
+    },
+    {
+      name: 'MkDocs custom domain',
+      extractor: 'Sphinx / Read the Docs',
+      url: 'https://manual.example.org/reference/client',
+      html: `<article class="md-content__inner md-typeset"></article>
+        <div class="md-content__inner md-typeset">
+          <a class="md-content__button">MKDOCS EDIT NOISE</a>
+          <h1>Client Reference<a class="headerlink" href="#client-reference">¶</a></h1>
+          <p>MkDocs rendered documentation.</p>
+          <div class="highlight-rust"><pre>let ready = true;</pre></div>
+          <small class="md-source-file">MKDOCS SOURCE NOISE</small>
+        </div>
+        <section class="md-content__inner md-typeset"><figure><figcaption><h2>Trusted in production</h2>
+          <p hidden>Second populated MkDocs homepage section.</p></figcaption></figure></section>
+        <div id="mkdocs_search_modal"><input id="mkdocs-search-query"></div>`,
+      expected: [
+        '# Client Reference', 'MkDocs rendered documentation.',
+        '```rust\nlet ready = true;\n```',
+        '## Trusted in production', 'Second populated MkDocs homepage section.',
+      ],
+      excluded: ['MKDOCS EDIT NOISE', 'MKDOCS SOURCE NOISE', '¶'],
+    },
+    {
+      name: 'VitePress custom domain',
+      extractor: 'Sphinx / Read the Docs',
+      url: 'https://vite.example.org/guide/api',
+      html: `<meta name="generator" content="VitePress v1.6.4">
+        <div id="app"><main class="VPDoc"><div class="vp-doc">
+          <h1>API Guide<a class="header-anchor" href="#api-guide">#</a></h1>
+          <p>VitePress rendered documentation.</p>
+          <div data-nosnippet>VITEPRESS AI HINT NOISE</div>
+          <div class="VPDocAside">VITEPRESS ASIDE NOISE</div>
+          <footer class="VPDocFooter">VITEPRESS FOOTER NOISE</footer>
+        </div></main></div>`,
+      expected: ['# API Guide', 'VitePress rendered documentation.'],
+      excluded: [
+        'VITEPRESS AI HINT NOISE', 'VITEPRESS ASIDE NOISE', 'VITEPRESS FOOTER NOISE',
+      ],
+    },
+    {
+      name: 'Nextra custom domain',
+      extractor: 'Sphinx / Read the Docs',
+      url: 'https://nextra.example.org/docs/quickstart',
+      html: `<meta name="generator" content="Next.js">
+        <div><nav>NEXTRA OUTER NAVIGATION</nav><article>
+          <div id="nextra-skip-nav"></div><main data-pagefind-body="true">
+          <div class="nextra-breadcrumb">NEXTRA BREADCRUMB NOISE</div>
+          <h1>Quickstart<a class="subheading-anchor" href="#quickstart">#</a></h1>
+          <p>Nextra rendered documentation.</p>
+          <div class="nextra-navigation-links">NEXTRA NAVIGATION NOISE</div>
+        </main></article></div>`,
+      expected: ['# Quickstart', 'Nextra rendered documentation.'],
+      excluded: [
+        'NEXTRA BREADCRUMB NOISE', 'NEXTRA OUTER NAVIGATION', 'NEXTRA NAVIGATION NOISE',
+      ],
+    },
+    {
       name: 'Read the Docs classic',
       extractor: 'Sphinx / Read the Docs',
       url: 'https://project.readthedocs.io/en/latest/quickstart.html',

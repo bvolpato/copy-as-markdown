@@ -206,7 +206,7 @@ Useful APIs:
 | **Google Slides** | Choose current slide or full deck; preserves order, titles, text, links, and speaker notes when available |
 | **Gmail** | Full authenticated thread from Print all view — subject, participants, message headers, bodies, links, images, and attachments |
 | **Notion** | Pages and databases with properties, rich blocks, tables, code, and rendered rows |
-| **Sphinx / Read the Docs** | Content-detected documentation on hosted or custom domains, with navigation stripped and code languages preserved |
+| **Documentation frameworks** | Mintlify, Docusaurus, GitBook, MkDocs, VitePress, Nextra, Sphinx, and Read the Docs on hosted or custom domains, with semantic content roots, navigation stripped, and code languages preserved |
 | **Microsoft 365** | Word, Excel, and PowerPoint web content through structured live-page views |
 | **Microsoft Teams** | Loaded chats, channels, and threads with authors, timestamps, replies, reactions, attachments, links, and code |
 | **Slack** | Loaded channel or thread messages with authors, timestamps, reactions, replies, and attachments |

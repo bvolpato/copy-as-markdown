@@ -1,4 +1,4 @@
-/** Semantic extractor for Sphinx and Read the Docs documentation pages. */
+/** Semantic extractor for common documentation frameworks on any public domain. */
 
 import { addExtractionMetadata, limitMarkdown } from '../core/context';
 import * as Markdown from '../core/markdown';
@@ -6,16 +6,88 @@ import { register } from '../core/registry';
 import { type PageMetadata } from '../core/types';
 import * as Utils from '../core/utils';
 
-type DocumentationFramework = 'Read the Docs' | 'Sphinx';
+type DocumentationFramework =
+  | 'Docusaurus'
+  | 'GitBook'
+  | 'Mintlify'
+  | 'MkDocs'
+  | 'Nextra'
+  | 'Read the Docs'
+  | 'Sphinx'
+  | 'VitePress';
 
-register({
+const ROOT_SELECTORS: Record<DocumentationFramework, readonly string[]> = {
+  'Mintlify': [
+    '#content-area',
+    '[data-page-title][data-page-href]',
+    'main [data-pagefind-body]',
+    'main article',
+  ],
+  'Docusaurus': [
+    '.theme-doc-markdown.markdown',
+    '.theme-doc-markdown',
+    'main article',
+  ],
+  'GitBook': [
+    '[data-content-ref-root]',
+    'main [data-testid="page-content"]',
+    'main [data-pagefind-body]',
+    'main article',
+    'main',
+  ],
+  'MkDocs': [
+    'article.md-content__inner',
+    '.md-content__inner',
+    'main .md-content',
+    '.container [role="main"]',
+    '[role="main"]',
+  ],
+  'VitePress': [
+    '.VPDoc .vp-doc',
+    '.VPDoc main',
+    '.vp-doc',
+  ],
+  'Nextra': [
+    'article.nextra-body-typesetting-articles',
+    'article[class*="nextra-content"]',
+    'main [class*="nextra-content"]',
+    'main article',
+  ],
+  'Read the Docs': [
+    '[itemprop="articleBody"]',
+    '.wy-nav-content .rst-content [role="main"]',
+    '.rst-content .document',
+    '.wy-nav-content .rst-content',
+  ],
+  'Sphinx': [
+    '[itemprop="articleBody"]',
+    '.document .body[role="main"]',
+    'article.bd-article',
+    'main#furo-main-content',
+    '[role="main"].document',
+    '.document .body',
+    '.rst-content .document',
+    '.rst-content',
+    '.document',
+  ],
+};
+
+const FALLBACK_ROOT_SELECTORS = [
+  '[data-pagefind-body]',
+  'main article',
+  'main[role="main"]',
+  'main',
+];
+
+export const documentationExtractor = register({
+  // Keep established name stable for library callers and saved UI state.
   name: 'Sphinx / Read the Docs',
   matches: [],
-  detect: () => detectFramework() !== null,
+  detect: (contextDocument) => detectFramework(contextDocument) !== null,
 
   async extract() {
-    const framework = detectFramework() || 'Sphinx';
-    const root = findDocumentationRoot();
+    const framework = detectFramework(document) || 'Sphinx';
+    const root = findDocumentationRoot(document, framework);
     const title = getTitle(root);
     const metadata: PageMetadata = {
       source: framework,
@@ -27,6 +99,23 @@ register({
       'meta[name="readthedocs-version-slug"]',
     )?.content.trim();
     if (version) metadata.version = version;
+
+    const markdownUrl = findSamePageMarkdownUrl(document, window.location.href);
+    if (markdownUrl) {
+      try {
+        const sourceMarkdown = await fetchPublicMarkdown(markdownUrl, window.location.href);
+        const body = ensureTitle(sourceMarkdown, title);
+        const limited = limitMarkdown(body);
+        addExtractionMetadata(metadata, {
+          contentSource: `${framework} same-page public Markdown`,
+          truncated: limited.truncated,
+          complete: !limited.truncated,
+        });
+        return Markdown.buildPageMarkdown(metadata, limited.markdown);
+      } catch (error) {
+        console.warn('[Copy as Markdown] Documentation Markdown fetch failed; using rendered DOM', error);
+      }
+    }
 
     if (!root) {
       addExtractionMetadata(metadata, {
@@ -41,12 +130,10 @@ register({
 
     const clone = root.cloneNode(true) as HTMLElement;
     removeDocumentationNoise(clone);
+    unwrapStructuralFigureCaptions(clone);
     annotateCodeLanguages(clone);
     const markdown = Markdown.elementToMarkdown(clone).trim();
-    const hasHeading = Boolean(clone.querySelector('h1')) || /^#\s/m.test(markdown);
-    const body = hasHeading
-      ? markdown
-      : `# ${title}\n\n${markdown}`;
+    const body = ensureTitle(markdown, title, Boolean(clone.querySelector('h1')));
     const limited = limitMarkdown(body);
     addExtractionMetadata(metadata, {
       contentSource: `${framework} semantic documentation DOM`,
@@ -57,56 +144,275 @@ register({
   },
 });
 
-function detectFramework(): DocumentationFramework | null {
-  if (!findDocumentationRoot()) return null;
-  if (/\.readthedocs\.(?:io|org)$/i.test(window.location.hostname) || document.querySelector([
-    'meta[name="readthedocs-project-slug"]',
-    'script[src*="readthedocs"]',
-    'readthedocs-flyout',
-    '[data-readthedocs-flyout]',
-  ].join(', '))) return 'Read the Docs';
+function detectFramework(contextDocument: Document = document): DocumentationFramework | null {
+  const generator = getGenerator(contextDocument);
 
-  const generator = document.querySelector<HTMLMetaElement>('meta[name="generator"]')?.content || '';
-  if (/\bSphinx\b/i.test(generator) || document.querySelector([
-    'html[data-content_root]',
-    'html[data-content-root]',
-    'script[src*="/_static/documentation_options.js"]',
-    'script[src$="documentation_options.js"]',
-    'script#documentation_options',
-  ].join(', '))) return 'Sphinx';
+  if (hasDocumentationRoot(contextDocument, 'Read the Docs') && (
+    /\.readthedocs\.(?:io|org)$/i.test(getHostname(contextDocument))
+    || /\bRead the Docs\b/i.test(generator)
+    || hasAny(contextDocument, [
+      'meta[name="readthedocs-project-slug"]',
+      'script[src*="readthedocs"]',
+      'readthedocs-flyout',
+      '[data-readthedocs-flyout]',
+    ])
+  )) return 'Read the Docs';
+
+  if (hasDocumentationRoot(contextDocument, 'Mintlify') && (
+    /\bMintlify\b/i.test(generator)
+    || Boolean(contextDocument.querySelector('[data-page-title][data-page-href]'))
+    || hasAny(contextDocument, [
+      '[data-mintlify]',
+      'script[src*="mintlify"]',
+      'link[href*="mintlify"]',
+    ])
+  )) return 'Mintlify';
+
+  if (hasDocumentationRoot(contextDocument, 'Docusaurus') && (
+    /\bDocusaurus\b/i.test(generator)
+    || Boolean(contextDocument.querySelector('#__docusaurus .theme-doc-markdown'))
+  )) return 'Docusaurus';
+
+  if (hasDocumentationRoot(contextDocument, 'GitBook') && (
+    /\bGitBook\b/i.test(generator)
+    || Boolean(contextDocument.querySelector('[data-content-ref-root]'))
+    || hasAny(contextDocument, [
+      'script[src*="gitbook"]',
+      'link[href*="gitbook"]',
+    ])
+  )) return 'GitBook';
+
+  if (hasDocumentationRoot(contextDocument, 'MkDocs') && (
+    /\bMkDocs\b/i.test(generator)
+    || Boolean(contextDocument.querySelector('.md-content [data-md-component], [data-md-component] .md-content'))
+    || Boolean(contextDocument.querySelector('article.md-content__inner.md-typeset'))
+    || Boolean(
+      contextDocument.querySelector('#mkdocs_search_modal')
+      && contextDocument.querySelector('#mkdocs-search-query')
+      && contextDocument.querySelector('[role="main"]'),
+    )
+  )) return 'MkDocs';
+
+  if (hasDocumentationRoot(contextDocument, 'VitePress') && (
+    /\bVitePress\b/i.test(generator)
+    || Boolean(contextDocument.querySelector('.VPDoc .vp-doc'))
+  )) return 'VitePress';
+
+  if (hasDocumentationRoot(contextDocument, 'Nextra') && (
+    /\bNextra\b/i.test(generator)
+    || Boolean(
+      contextDocument.querySelector('main[data-pagefind-body]')
+      && contextDocument.querySelector('.nextra-navbar, #nextra-skip-nav'),
+    )
+  )) return 'Nextra';
+
+  if (hasDocumentationRoot(contextDocument, 'Sphinx') && (
+    /\bSphinx\b/i.test(generator)
+    || hasAny(contextDocument, [
+      'html[data-content_root]',
+      'html[data-content-root]',
+      'script[src*="/_static/documentation_options.js"]',
+      'script[src$="documentation_options.js"]',
+      'script#documentation_options',
+    ])
+  )) return 'Sphinx';
+
   return null;
 }
 
-function findDocumentationRoot(): HTMLElement | null {
-  const selectors = [
-    '[itemprop="articleBody"]',
-    '.document .body[role="main"]',
-    'article.bd-article',
-    'main#furo-main-content',
-    '.wy-nav-content .rst-content [role="main"]',
-    '[role="main"].document',
-    '.document .body',
-    '.rst-content .document',
-    '.wy-nav-content .rst-content',
-    '.rst-content',
-    '.document',
-    'main article',
-    'main[role="main"]',
-    'main',
-  ];
-  for (const selector of selectors) {
-    const element = document.querySelector<HTMLElement>(selector);
-    if (element) return element;
+function unwrapStructuralFigureCaptions(root: HTMLElement): void {
+  root.querySelectorAll<HTMLElement>('figcaption').forEach((caption) => {
+    if (!caption.querySelector('h1, h2, h3, h4, h5, h6')) return;
+    const container = caption.ownerDocument.createElement('div');
+    while (caption.firstChild) container.append(caption.firstChild);
+    caption.replaceWith(container);
+  });
+}
+
+function getGenerator(contextDocument: Document): string {
+  return contextDocument.querySelector<HTMLMetaElement>('meta[name="generator"]')?.content || '';
+}
+
+function getHostname(contextDocument: Document): string {
+  return contextDocument.location?.hostname || '';
+}
+
+function hasAny(contextDocument: Document, selectors: readonly string[]): boolean {
+  return selectors.some((selector) => Boolean(contextDocument.querySelector(selector)));
+}
+
+function hasDocumentationRoot(
+  contextDocument: Document,
+  framework: DocumentationFramework,
+): boolean {
+  return Boolean(findDocumentationRoot(contextDocument, framework));
+}
+
+function findDocumentationRoot(
+  contextDocument: Document,
+  framework: DocumentationFramework,
+): HTMLElement | null {
+  if (framework === 'MkDocs') {
+    const sections = selectDocumentationElements(contextDocument, '.md-content__inner')
+      .filter((element) => isPopulatedDocumentationRoot(element) && isVisibleDocumentationRoot(element))
+      .filter((element, _index, candidates) => !candidates.some(
+        (candidate) => candidate !== element && candidate.contains(element),
+      ));
+    if (sections.length > 1 && typeof contextDocument.createElement === 'function') {
+      const aggregate = contextDocument.createElement('main');
+      sections.forEach((section) => aggregate.append(cloneCompleteDocumentationSection(section)));
+      return aggregate;
+    }
   }
-  return null;
+
+  const selectors = [...ROOT_SELECTORS[framework], ...FALLBACK_ROOT_SELECTORS];
+  let emptyCandidate: HTMLElement | null = null;
+  const seen = new Set<HTMLElement>();
+  for (const selector of selectors) {
+    for (const element of selectDocumentationElements(contextDocument, selector)) {
+      if (seen.has(element)) continue;
+      seen.add(element);
+      emptyCandidate ||= element;
+      if (isPopulatedDocumentationRoot(element)) return element;
+    }
+  }
+  return emptyCandidate;
+}
+
+function cloneCompleteDocumentationSection(section: HTMLElement): HTMLElement {
+  const clone = section.cloneNode(true) as HTMLElement;
+  for (const element of [clone, ...Array.from(clone.querySelectorAll<HTMLElement>('[hidden], [aria-hidden="true"]'))]) {
+    element.hidden = false;
+    element.removeAttribute('hidden');
+    element.removeAttribute('aria-hidden');
+  }
+  return clone;
+}
+
+function selectDocumentationElements(
+  contextDocument: Document,
+  selector: string,
+): HTMLElement[] {
+  return typeof contextDocument.querySelectorAll === 'function'
+    ? Array.from(contextDocument.querySelectorAll<HTMLElement>(selector))
+    : [contextDocument.querySelector<HTMLElement>(selector)].filter(
+      (element): element is HTMLElement => Boolean(element),
+    );
+}
+
+function isPopulatedDocumentationRoot(element: HTMLElement): boolean {
+  if (Markdown.normalizeWhitespace(element.textContent || '')) return true;
+  return Boolean(element.querySelector('img[alt], picture, video, audio, table, pre, code'));
+}
+
+function isVisibleDocumentationRoot(element: HTMLElement): boolean {
+  let current: HTMLElement | null = element;
+  while (current) {
+    if (current.hidden || current.getAttribute('aria-hidden') === 'true') return false;
+    const view: Window | null | undefined = current.ownerDocument?.defaultView;
+    const style = view?.getComputedStyle(current);
+    if (style?.display === 'none' || style?.visibility === 'hidden') return false;
+    current = current.parentElement;
+  }
+  return true;
 }
 
 function getTitle(root: HTMLElement | null): string {
   const heading = Markdown.normalizeWhitespace(root?.querySelector('h1')?.textContent || '');
-  if (heading) return heading.replace(/[¶#]+$/g, '').trim();
+  if (heading) return cleanHeadingTitle(heading);
   return Utils.getPageTitle()
     .replace(/\s+(?:—|\||-)\s+.+?(?:documentation|docs)\s*$/i, '')
     .trim() || 'Documentation';
+}
+
+function cleanHeadingTitle(value: string): string {
+  return value.replace(/[¶#]+$/g, '').trim();
+}
+
+function ensureTitle(markdown: string, title: string, hasDomHeading = false): string {
+  const clean = stripSourceFrontmatter(markdown).trim();
+  if (hasDomHeading || /^#\s+/m.test(clean)) return clean;
+  return `# ${title}\n\n${clean}`.trim();
+}
+
+function stripSourceFrontmatter(markdown: string): string {
+  return markdown.replace(/^\uFEFF?---\s*\r?\n[\s\S]*?\r?\n---\s*(?:\r?\n|$)/, '');
+}
+
+function findSamePageMarkdownUrl(
+  contextDocument: Document,
+  href: string,
+): URL | null {
+  const current = new URL(href);
+  if (!/^https?:$/.test(current.protocol)) return null;
+
+  const candidates = contextDocument.querySelectorAll<HTMLLinkElement | HTMLAnchorElement>([
+    'link[rel~="alternate"][type="text/markdown"][href]',
+    'link[rel~="alternate"][type="text/x-markdown"][href]',
+    'a[data-testid="view-as-markdown"][href]',
+    'a[data-copy-page-action="view-markdown"][href]',
+    'a[aria-label="View as Markdown"][href]',
+  ].join(', '));
+
+  for (const candidate of candidates) {
+    const value = candidate.getAttribute('href');
+    if (!value) continue;
+    try {
+      const url = new URL(value, current);
+      if (isSamePublicMarkdownPage(url, current)) return url;
+    } catch {
+      // Ignore malformed page-provided URLs.
+    }
+  }
+  return null;
+}
+
+function isSamePublicMarkdownPage(markdownUrl: URL, pageUrl: URL): boolean {
+  if (!/^https?:$/.test(markdownUrl.protocol)) return false;
+  if (markdownUrl.origin !== pageUrl.origin) return false;
+  if (markdownUrl.username || markdownUrl.password) return false;
+  if (markdownUrl.search) return false;
+  return normalizeDocumentationPath(markdownUrl.pathname)
+    === normalizeDocumentationPath(pageUrl.pathname);
+}
+
+function normalizeDocumentationPath(pathname: string): string {
+  let path = pathname.replace(/\/{2,}/g, '/').replace(/\/+$/, '');
+  path = path.replace(/\/(?:index)?\.(?:md|markdown|html?)$/i, '');
+  path = path.replace(/\.(?:md|markdown|html?)$/i, '');
+  return path || '/';
+}
+
+async function fetchPublicMarkdown(markdownUrl: URL, pageHref: string): Promise<string> {
+  const pageUrl = new URL(pageHref);
+  if (!isSamePublicMarkdownPage(markdownUrl, pageUrl)) {
+    throw new Error('Documentation Markdown URL does not describe current public page');
+  }
+
+  const response = await fetch(markdownUrl.toString(), {
+    credentials: 'omit',
+    redirect: 'error',
+    referrerPolicy: 'no-referrer',
+    headers: { Accept: 'text/markdown, text/x-markdown;q=0.9, text/plain;q=0.8' },
+  });
+  if (!response.ok) {
+    throw new Error(`Documentation Markdown request returned ${response.status}`);
+  }
+  if (response.url && !isSamePublicMarkdownPage(new URL(response.url), pageUrl)) {
+    throw new Error('Documentation Markdown response does not describe current public page');
+  }
+
+  const contentType = response.headers.get('content-type') || '';
+  if (!/^text\/(?:markdown|x-markdown|plain)\b/i.test(contentType)) {
+    throw new Error(`Documentation Markdown request returned unsupported content type: ${contentType || 'missing'}`);
+  }
+
+  const text = await response.text();
+  if (!text.trim()) throw new Error('Documentation Markdown request returned an empty response');
+  if (/^\s*(?:<!doctype\s+html|<html\b)/i.test(text)) {
+    throw new Error('Documentation Markdown request did not return Markdown');
+  }
+  return text;
 }
 
 function removeDocumentationNoise(root: HTMLElement): void {
@@ -114,7 +420,12 @@ function removeDocumentationNoise(root: HTMLElement): void {
     ...Utils.NOISE_SELECTORS,
     'button',
     'a.headerlink',
+    'a.header-anchor',
+    'a.hash-link',
     'a.anchor-link',
+    'a.subheading-anchor',
+    'a[aria-label^="Direct link to heading"]',
+    'a[aria-label^="Permalink to"]',
     '.copybtn',
     '.edit-this-page',
     '.show-source',
@@ -131,22 +442,79 @@ function removeDocumentationNoise(root: HTMLElement): void {
     '.bd-header',
     '.bd-sidebar',
     '.bd-footer',
+    '.theme-doc-breadcrumbs',
+    '.theme-doc-toc-mobile',
+    '.theme-doc-footer',
+    '.theme-edit-this-page',
+    '.pagination-nav',
+    '.table-of-contents',
+    '.md-content__button',
+    '.md-source-file',
+    '.md-headerlink',
+    '.VPDocFooter',
+    '.VPDocAside',
+    '.nextra-breadcrumb',
+    '.nextra-toc',
+    '.nextra-feedback',
+    '.nextra-navigation-links',
+    '[data-testid="page-footer"]',
+    '[data-testid="page-feedback"]',
+    '[data-testid="ai-chat"]',
+    '[data-testid^="ai-chat-"]',
+    '[data-page-feedback]',
+    '[data-gitbook-assistant]',
+    '[class~="group/ask-ai"]',
+    '[class~="group/input"]',
+    '[aria-label="Ask AI"]',
+    '[aria-label^="Ask GitBook"]',
+    '[data-nosnippet]',
     'readthedocs-flyout',
     '[data-readthedocs-flyout]',
   ].join(', ')).forEach((element) => element.remove());
 }
 
 function annotateCodeLanguages(root: HTMLElement): void {
-  root.querySelectorAll<HTMLElement>('div[class*="highlight-"] pre').forEach((pre) => {
-    if (pre.querySelector(':scope > code')) return;
-    const container = pre.closest<HTMLElement>('div[class*="highlight-"]');
-    const language = Array.from(container?.classList || [])
-      .map((name) => name.match(/^highlight-([\w.+-]+)$/)?.[1] || '')
+  root.querySelectorAll<HTMLElement>('pre').forEach((pre) => {
+    const existingCode = pre.querySelector<HTMLElement>(':scope > code');
+    const existingLanguage = Array.from(existingCode?.classList || [])
+      .map((name) => name.match(/^language-([\w.+-]+)$/)?.[1] || '')
       .find((name) => name && !/^(?:default|none|text)$/i.test(name));
+    if (existingLanguage) {
+      return;
+    }
+
+    const container = pre.closest<HTMLElement>([
+      '[language]',
+      '[data-language]',
+      '[class*="highlight-"]',
+      '[class*="language-"]',
+    ].join(', '));
+    const attributeLanguage = existingCode?.getAttribute('language')
+      || pre.getAttribute('language')
+      || container?.getAttribute('language')
+      || '';
+    const dataLanguage = container?.dataset.language || pre.dataset.language || '';
+    const classLanguage = Array.from(container?.classList || [])
+      .map((name) => name.match(/^(?:highlight|language)-([\w.+-]+)$/)?.[1] || '')
+      .find((name) => name && !/^(?:default|none|text)$/i.test(name));
+    const language = normalizeCodeLanguage(attributeLanguage)
+      || normalizeCodeLanguage(dataLanguage)
+      || classLanguage;
     if (!language) return;
+
+    if (existingCode) {
+      existingCode.classList.remove('language-default', 'language-none', 'language-text');
+      existingCode.classList.add(`language-${language}`);
+      return;
+    }
     const code = document.createElement('code');
     code.className = `language-${language}`;
     code.textContent = pre.textContent || '';
     pre.replaceChildren(code);
   });
+}
+
+function normalizeCodeLanguage(value: string): string {
+  const language = value.trim().replace(/^language-/i, '');
+  return /^[\w.+-]+$/.test(language) ? language : '';
 }
