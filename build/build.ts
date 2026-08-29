@@ -105,6 +105,7 @@ function buildLibraryEsm(outDir: string): void {
       core: path.join(SRC, 'library', 'index.ts'),
       'extractors/confluence': path.join(SRC, 'extractors', 'confluence.ts'),
       'extractors/github': path.join(SRC, 'extractors', 'github.ts'),
+      'extractors/hugging-face': path.join(SRC, 'extractors', 'hugging-face.ts'),
       'extractors/google-docs': path.join(SRC, 'extractors', 'google-docs.ts'),
       'extractors/jira': path.join(SRC, 'extractors', 'jira.ts'),
       'extractors/linear': path.join(SRC, 'extractors', 'linear.ts'),

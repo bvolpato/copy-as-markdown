@@ -166,6 +166,7 @@ const REQUESTED_FIRST_CLASS_SITES = new Map([
   ['Fox News', 'News (Generic)'],
   ['BBC', 'News (Generic)'],
   ['Discord', 'Discord'],
+  ['Hugging Face', 'Hugging Face'],
   ['Linear', 'Linear'],
   ['GitHub', 'GitHub'],
   ['Brave Search', 'Brave Search'],
@@ -2518,6 +2519,44 @@ async function runExpandedPlatformChecks(browser, scriptContent) {
       html: `<main><h1 data-testid="page-title">Operations Runbook</h1>
         <div data-testid="renderer-container"><div class="ak-renderer-document"><p>Confluence fixture body.</p></div></div></main>`,
       expected: ['Operations Runbook', 'Confluence fixture body.'],
+    },
+    {
+      name: 'Hugging Face',
+      extractor: 'Hugging Face',
+      url: 'https://huggingface.co/google/gemma-3-270m',
+      html: `<main><header data-target="ModelHeader" data-props='${JSON.stringify({
+        model: {
+          id: 'google/gemma-3-270m', author: 'google', downloads: 42000, likes: 123,
+          tags: ['text-generation', 'gemma'],
+          cardData: { license: 'gemma', language: ['en'] },
+        },
+      })}'></header><article class="model-card-content"><h1>Gemma 3 270M</h1>
+        <p>Compact model card fixture.</p><pre><code class="language-python">from transformers import pipeline</code></pre>
+      </article></main>`,
+      expected: [
+        '# google/gemma-3-270m', '## Repository Metadata', 'Downloads', '42000',
+        '## Tags', 'text-generation', '## Model Card', 'Compact model card fixture.',
+        '```python\nfrom transformers import pipeline\n```',
+      ],
+    },
+    {
+      name: 'Hugging Face tree',
+      extractor: 'Hugging Face',
+      url: 'https://huggingface.co/datasets/HuggingFaceFW/fineweb/tree/main',
+      html: `<main><div data-target="ViewerIndexTreeList" data-props='${JSON.stringify({
+        entries: [
+          { path: 'data', type: 'directory', lastCommit: { date: '2026-08-20' } },
+          { path: 'README.md', type: 'file', size: 2048, lastCommit: { date: '2026-08-21' } },
+          { path: 'notes\\unsafe|name.md', type: 'file', size: 8 },
+        ],
+      })}'></div></main>`,
+      expected: [
+        '# HuggingFaceFW/fineweb: Files', '**Revision:** `main`', '## Visible Files',
+        '[data](https://huggingface.co/datasets/HuggingFaceFW/fineweb/tree/main/data)',
+        '[README.md](https://huggingface.co/datasets/HuggingFaceFW/fineweb/blob/main/README.md)',
+        '[notes\\\\unsafe\\|name.md](https://huggingface.co/datasets/HuggingFaceFW/fineweb/blob/main/notes%5Cunsafe%7Cname.md)',
+        '2.05 kB', 'Listing includes current directory entries exposed by rendered page',
+      ],
     },
     {
       name: 'Artificial Analysis',

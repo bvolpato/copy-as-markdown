@@ -25,6 +25,10 @@
       "types": "./dist/library/types/extractors/github.d.ts",
       "import": "./dist/library/extractors/github.js"
     },
+    "./extractors/hugging-face": {
+      "types": "./dist/library/types/extractors/hugging-face.d.ts",
+      "import": "./dist/library/extractors/hugging-face.js"
+    },
     "./extractors/google-docs": {
       "types": "./dist/library/types/extractors/google-docs.d.ts",
       "import": "./dist/library/extractors/google-docs.js"

@@ -234,6 +234,7 @@ Useful APIs:
 | **Datadog Documentation** | Authored `.md` source when available; cleaned rendered documentation DOM otherwise |
 | **Weights & Biases** | Run metadata, configuration, numeric metric summaries, sparklines, and sampled history tables through W&B GraphQL |
 | **MLflow** | Self-hosted run metadata plus chart-mode comparisons for visible runs and loaded metrics, with paginated metric-history tables through same-origin APIs |
+| **Hugging Face** | Model, dataset, and Space repository metadata and tags, rendered model/dataset cards, Space descriptions, and visible file listings |
 | **GitHub** | Issues and PRs, repository/directory listings with READMEs, full code-file contents, and canonical patches with commit/file metadata |
 | **GitLab** | Repositories, trees, code files, issues, merge requests, comments, and visible diffs |
 | **Bitbucket** | Repositories, source files, pull requests, issues, comments, and visible diffs |
@@ -377,7 +378,7 @@ dist/
     ├── index.js                        ← Browser-safe ESM package entry
     ├── browser.js                      ← CopyAsMarkdown browser global
     ├── chunks/                         ← Lazy site extractor chunks
-    ├── extractors/                     ← Fixed Jira, Confluence, GitHub, Google Docs entries
+    ├── extractors/                     ← Fixed Jira, Confluence, GitHub, Hugging Face, Google Docs entries
     └── types/                          ← TypeScript declarations
 ```
 
