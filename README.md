@@ -400,7 +400,9 @@ Validate exact package contents without publishing:
 pnpm pack:library
 ```
 
-Releases are driven by signed `vMAJOR.MINOR.PATCH` tags on `main`. The release workflow validates the tag, tests and packages every target, publishes the npm package when that version does not already exist, then creates the GitHub release and browser artifacts.
+Releases are driven by signed `vMAJOR.MINOR.PATCH` tags on `main`. The release workflow validates the tag, tests and packages every target, then creates the GitHub release and browser artifacts. Tag pushes do not publish to npm.
+
+To publish the npm package explicitly, manually run the Release workflow on the signed tag and enable its `publish_npm` input. The input defaults to `false`.
 
 npm trusted publishing requires one-time package configuration by an npm owner:
 
@@ -412,7 +414,7 @@ pnpm dlx npm@12.0.2 trust github @bvolpato/copy-as-markdown \
   --yes
 ```
 
-After this one-time setup, the workflow uses npm OIDC trusted publishing and provenance without a long-lived token. Existing package versions are detected and skipped, allowing the GitHub artifacts for an already-published npm version to be completed safely. `prepack` rebuilds standalone library without touching extension or userscript artifacts. `files` allowlist publishes only standalone library, declarations, README, license, and package manifest.
+After this one-time setup, an explicitly enabled npm job uses OIDC trusted publishing and provenance without a long-lived token. Existing package versions are detected and skipped. `prepack` rebuilds standalone library without touching extension or userscript artifacts. `files` allowlist publishes only standalone library, declarations, README, license, and package manifest.
 
 ### Tech Stack
 
