@@ -114,9 +114,15 @@ GitHub Actions builds and publishes browser releases. Do not create releases or 
    git push origin "v$version"
    ```
 
-The release workflow accepts only signed strict semantic-version tags from an allowed signer. Tag version must match `package.json`, and tagged commit must be reachable from `main`. Workflow runs typechecking, browser regression tests, packaging, and manifest/archive verification before its isolated publish job receives write permission.
+The release workflow accepts only signed strict semantic-version tags from an allowed signer. Tag version must match `package.json`, and tagged commit must be reachable from `main`. Workflow runs typechecking, browser regression tests, packaging, and manifest/archive verification before publishing GitHub and browser artifacts.
 
-Scoped npm package uses same version. Run `pnpm pack:library` before release. Publishing `@bvolpato/copy-as-markdown` requires npm scope access and `pnpm publish --access public`. Configure npm trusted publishing before automating later publications.
+Tag pushes do not publish to npm. To publish the scoped package explicitly, manually dispatch the Release workflow on the signed tag with `publish_npm=true`:
+
+```bash
+gh workflow run release.yml --ref "v$version" -f publish_npm=true
+```
+
+Run `pnpm pack:library` before publishing. npm trusted publishing must be configured for `release.yml`; the opt-in job uses OIDC provenance and publishes the same version as the signed tag.
 
 ## Reporting Issues
 
