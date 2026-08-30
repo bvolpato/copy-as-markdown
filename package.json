@@ -1,6 +1,6 @@
 {
   "name": "@bvolpato/copy-as-markdown",
-  "version": "1.3.4",
+  "version": "1.4.0",
   "description": "Copy page content as clean, structured Markdown",
   "type": "module",
   "main": "./dist/library/index.js",
