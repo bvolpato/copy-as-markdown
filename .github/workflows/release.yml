@@ -211,7 +211,7 @@ jobs:
         env:
           NPM_CONFIG_PROVENANCE: 'true'
         run: |
-          tarball="$(find npm-package -maxdepth 1 -name '*.tgz' -print -quit)"
+          tarball="$(find "$GITHUB_WORKSPACE/npm-package" -maxdepth 1 -name '*.tgz' -print -quit)"
           if [[ -z "$tarball" ]]; then
             echo "npm package tarball not found" >&2
             exit 1
