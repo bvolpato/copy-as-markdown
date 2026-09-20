@@ -137,11 +137,27 @@ function decodePart(value: string | undefined): string {
 function getRepositoryData(kind: RepositoryKind): JsonRecord | null {
   const payload = getHeaderData(kind);
   const repository = asRecord(payload?.[REPOSITORY_KEYS[kind]]);
-  if (repository || kind !== 'model') return repository;
+  if (kind !== 'model') return repository;
 
   const evaluation = parseDataProps(document.querySelector('[data-target="ModelEvalResults"]'));
   const inference = parseDataProps(document.querySelector('[data-target="InferenceWidget"]'));
-  return asRecord(evaluation?.model) || asRecord(asRecord(inference?.widgetData)?.model);
+  return mergeModelRecords([
+    asRecord(asRecord(inference?.widgetData)?.model),
+    asRecord(evaluation?.model),
+    repository,
+  ]);
+}
+
+function mergeModelRecords(records: Array<JsonRecord | null>): JsonRecord | null {
+  if (records.every((record) => !record)) return null;
+  const merged: JsonRecord = {};
+  for (const record of records) {
+    for (const [key, value] of Object.entries(record || {})) {
+      const child = asRecord(value);
+      merged[key] = child ? mergeModelRecords([asRecord(merged[key]), child]) : value;
+    }
+  }
+  return merged;
 }
 
 function getHeaderData(kind: RepositoryKind): JsonRecord | null {

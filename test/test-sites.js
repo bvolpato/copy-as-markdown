@@ -2827,6 +2827,19 @@ async function runExpandedPlatformChecks(browser, scriptContent) {
         'HF_UNRELATED_NOISE', 'HF_FOOTER_NOISE', 'HF_SPACE_CONTROL_NOISE', 'HF_ACCOUNT_NOISE', 'canWriteRepoContent'],
     },
     {
+      name: 'Hugging Face complementary model metadata',
+      url: 'https://huggingface.co/acme/complementary-model',
+      extractor: 'Hugging Face',
+      html: `<main>
+        <div data-target="ModelHeader" data-props='${JSON.stringify({ model: { id: 'acme/complementary-model', likes: 0, config: { model_type: 'header-model' } } })}'></div>
+        <div data-target="ModelEvalResults" data-props='${JSON.stringify({ model: { pipeline_tag: 'text-generation', config: { hidden_size: 4096 } } })}'></div>
+        <div data-target="InferenceWidget" data-props='${JSON.stringify({ widgetData: { model: { config: { model_type: 'fallback-model', vocab_size: 32000 }, availableInferenceProviders: [{ name: 'hf-inference', status: 'live' }] } } })}'></div>
+        <div class="prose"><h1>Complementary model</h1><p>Complete card body.</p></div>
+      </main>`,
+      expected: ['header-model', '4096', '32000', 'text-generation', 'hf-inference', 'live', '| Likes | 0 |'],
+      excluded: ['fallback-model'],
+    },
+    {
       name: 'Hugging Face missing header metadata',
       extractor: 'Hugging Face',
       url: 'https://huggingface.co/fixture/model',
@@ -2835,10 +2848,13 @@ async function runExpandedPlatformChecks(browser, scriptContent) {
         <div data-target="ModelEvalResults" data-props='${JSON.stringify({ model: {
           id: 'fixture/model', pipeline_tag: 'text-generation',
           config: { model_type: 'fixture', tokenizer_config: { eos_token: '<eos>' } },
-        } })}'></div></main>`,
+        } })}'></div>
+        <div data-target="InferenceWidget" data-props='${JSON.stringify({ widgetData: { model: {
+          config: { vocab_size: 32000 }, availableInferenceProviders: [{ name: 'hf-inference', status: 'live' }],
+        } } })}'></div></main>`,
       expected: ['# fixture/model', 'The model card still loads.', '| Pipeline tag | text-generation |',
-        '## Model Configuration', '| tokenizer_config.eos_token | <eos> |'],
-      excluded: ['invalid-json', '## Inference Providers'],
+        '## Model Configuration', '| tokenizer_config.eos_token | <eos> |', '32000', 'hf-inference'],
+      excluded: ['invalid-json'],
     },
     {
       name: 'Hugging Face dataset card',
