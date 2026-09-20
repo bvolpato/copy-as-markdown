@@ -235,7 +235,7 @@ Useful APIs:
 | **Datadog Documentation** | Authored `.md` source when available; cleaned rendered documentation DOM otherwise |
 | **Weights & Biases** | Run metadata, configuration, numeric metric summaries, sparklines, and sampled history tables through W&B GraphQL |
 | **MLflow** | Self-hosted run metadata plus chart-mode comparisons for visible runs and loaded metrics, with paginated metric-history tables through same-origin APIs |
-| **Hugging Face** | Model, dataset, and Space repository metadata and tags, rendered model/dataset cards, Space descriptions, and visible file listings |
+| **Hugging Face** | Model, dataset, and Space repository metadata and tags, full rendered cards, nested card metadata, model configuration, tensor details, evaluation results, inference providers, model lineage, related collections/Spaces/papers, Space descriptions, and visible file listings |
 | **GitHub** | Issues and PRs, repository/directory listings with READMEs, full code-file contents, and canonical patches with commit/file metadata |
 | **GitLab** | Repositories, trees, code files, issues, merge requests, comments, and visible diffs |
 | **Bitbucket** | Repositories, source files, pull requests, issues, comments, and visible diffs |
@@ -519,6 +519,17 @@ Extractors enable anchored placement only after their site selector and SPA life
 4. If you want to prepare an inline placement for later, add an `anchor` config but do not set `buttonPlacement: 'anchor'` yet
 5. Import the new file in `src/main.ts`
 6. Run `pnpm build` — the new patterns propagate to all targets
+
+### Browser Tests
+
+Browser tests and fixture tools use Puppeteer's `headless: 'shell'` mode with `chrome-headless-shell`, which runs without visible windows.
+
+```bash
+pnpm exec puppeteer browsers install chrome-headless-shell
+pnpm test:regression
+```
+
+To use an existing headless shell installation, set `PUPPETEER_EXECUTABLE_PATH` to its executable path. Unset this variable if it points to regular Chrome. Tests launch their own browser and close it when finished.
 
 ### Captured Public-Site Fixtures
 

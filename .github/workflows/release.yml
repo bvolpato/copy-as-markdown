@@ -76,8 +76,8 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Install Chrome for browser tests
-        run: pnpm exec puppeteer browsers install chrome
+      - name: Install headless Chrome for browser tests
+        run: pnpm exec puppeteer browsers install chrome-headless-shell
 
       - name: Typecheck
         run: pnpm typecheck

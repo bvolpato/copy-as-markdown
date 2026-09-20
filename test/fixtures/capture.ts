@@ -31,7 +31,7 @@ async function main(): Promise<void> {
   const { site, fixtureCase } = findCatalogCase(catalog, siteId, caseId);
   const scriptContent = readBuiltUserscript();
   const browser = await puppeteer.launch({
-    headless: true,
+    headless: 'shell',
     args: ['--no-sandbox', '--disable-setuid-sandbox'],
   });
   try {

@@ -19,7 +19,7 @@ async function main(): Promise<void> {
   const catalog = loadCatalog();
   const scriptContent = readBuiltUserscript();
   const browser = await puppeteer.launch({
-    headless: true,
+    headless: 'shell',
     args: ['--no-sandbox', '--disable-setuid-sandbox'],
   });
   let verifiedCount = 0;

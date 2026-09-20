@@ -7,7 +7,7 @@ import { AI_CHAT_CASES } from './fixtures/ai-chat-cases.js';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const browserCode = fs.readFileSync(path.join(ROOT, 'dist', 'library', 'browser.js'), 'utf8');
-const browser = await puppeteer.launch({ headless: true, args: ['--no-sandbox'] });
+const browser = await puppeteer.launch({ headless: 'shell', args: ['--no-sandbox'] });
 
 try {
   for (const fixture of AI_CHAT_CASES) {
