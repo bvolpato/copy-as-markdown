@@ -303,6 +303,7 @@ export function nodeToMarkdown(
   const el = node as HTMLElement;
   const tag = el.tagName;
 
+  if (el.hasAttribute('data-cam-instance')) return '';
   if (el.hidden || el.getAttribute('aria-hidden') === 'true') return '';
   const style = el.style;
   if (

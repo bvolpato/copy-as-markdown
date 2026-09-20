@@ -55,6 +55,9 @@ const ROOT_SELECTORS: Record<DocumentationFramework, readonly string[]> = {
   ],
   'Read the Docs': [
     '[itemprop="articleBody"]',
+    '.document .body[role="main"]',
+    'article.bd-article',
+    'main#furo-main-content',
     '.wy-nav-content .rst-content [role="main"]',
     '.rst-content .document',
     '.wy-nav-content .rst-content',

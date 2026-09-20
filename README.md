@@ -539,8 +539,11 @@ Public extractors can be checked against browser-rendered pages without committi
 
 ```bash
 # Capture current public page in a clean headless browser.
-# If live capture fails, use an exact Wayback CDX capture.
+# If live capture fails, try a Wayback snapshot.
 pnpm fixtures:capture -- --site mdn
+
+# Capture every curated public case, reporting failures without stopping early.
+pnpm fixtures:capture -- --all
 
 # Force one source while debugging.
 pnpm fixtures:capture -- --site mdn --source live
@@ -550,7 +553,11 @@ pnpm fixtures:capture -- --site mdn --source wayback
 pnpm fixtures:verify
 ```
 
-Catalog lives at `test/sites/catalog.yaml`. Capture writes raw reference screenshots only under gitignored `.fixture-work/`. A failed live attempt writes `live-failure.png` before Wayback fallback. Committed fixtures contain synthetic text, normalized links, no scripts or media, a screenshot of sanitized DOM, expected Markdown, and source provenance. Wayback provenance includes exact capture timestamp and digest. Set `wayback: true` to discover a capture through CDX, then pin accepted timestamp and digest in catalog for stable replay.
+The [catalog](test/sites/catalog.yaml) contains 30 captures across 25 extractor families, including four Hugging Face model, dataset, and file-tree pages. The [coverage inventory](test/sites/coverage.json) records public probes and gaps across the full extractor catalog. Capture checks the original copy button, extractor identity, placement, clipboard output, and `contentRequired` strings or `contentSelectors` before anonymizing the DOM. Bot challenges, login screens, and error pages fail capture.
+
+Raw reference screenshots stay under gitignored `.fixture-work/`. Committed fixtures contain synthetic text, normalized links, no scripts or media, a screenshot of sanitized DOM, expected Markdown, and source provenance. `linkPrefixes` can retain curated public route prefixes for path-aware file extractors; link suffixes are still replaced.
+
+A failed live attempt writes `live-failure.png` before Wayback fallback. Archive discovery tries CDX, then direct replay if CDX is unavailable. Accepted snapshots record the exact timestamp, digest, and downloaded-response SHA-256. Pin the accepted timestamp and digest in the catalog; set `digestAlgorithm: sha256` when pinning the response hash. Archived DOM is checked at the original URL with site scripts removed and outgoing requests blocked. An archive verifies historical content and markup; it does not prove current site placement or access.
 
 Capture refuses credentials, localhost, private IP addresses, and non-HTTP protocols. Use only curated public URLs. Authenticated pages require synthetic fixtures and must never use this capture path.
 

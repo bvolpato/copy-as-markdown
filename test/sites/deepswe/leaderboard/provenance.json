@@ -1,6 +1,8 @@
 {
   "source": "live",
   "originalUrl": "https://deepswe.datacurve.ai/",
-  "capturedAt": "2026-08-16T16:13:03.989Z",
-  "sanitizerVersion": 2
+  "capturedAt": "2026-09-20T05:22:46.743Z",
+  "sanitizerVersion": 2,
+  "liveMarkdownChars": 23836,
+  "livePlacement": "floating"
 }

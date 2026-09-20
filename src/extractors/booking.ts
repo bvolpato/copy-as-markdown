@@ -105,13 +105,13 @@ register({
         '[data-testid="property-facilities"] li',
         '[data-testid="facility-list"] li',
         '[data-testid*="facility"] li',
-      ], 60);
+      ]);
       if (amenities.length) parts.push('## Amenities', '', ...amenities.map((item) => `- ${item}`), '');
       const rooms = extractRows([
         '[data-testid="room-list"] [data-testid*="room"]',
         '[data-testid="rooms-table"] tr',
         '[data-testid*="room"]',
-      ], 30);
+      ]);
       if (rooms.length) parts.push('## Rooms', '', ...rooms.map((room) => `- ${room}`), '');
     }
 
@@ -130,16 +130,15 @@ function firstText(selectors: string[]): string {
   return '';
 }
 
-function extractRows(selectors: string[], limit: number): string[] {
+function extractRows(selectors: string[]): string[] {
   const result: string[] = [];
   const seen = new Set<string>();
   for (const selector of selectors) {
     for (const element of document.querySelectorAll(selector)) {
       const text = (element.textContent || '').replace(/\s+/g, ' ').trim();
-      if (!text || text.length > 1_000 || seen.has(text)) continue;
+      if (!text || seen.has(text)) continue;
       seen.add(text);
       result.push(text);
-      if (result.length >= limit) return result;
     }
   }
   return result;
