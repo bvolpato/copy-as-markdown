@@ -17,7 +17,7 @@ register({
   ],
   // Keep the inline button off settings, login, and unrelated application
   // routes. Feed, profile, search, and status pages expose extractable posts.
-  pathnameRegex: /^\/(?:[^/]+\/status\/\d+|i\/(?:web\/)?status\/\d+|(?!(?:settings|messages|notifications|compose|login|logout|i)(?:\/|$))[^/]+(?:\/(?:with_replies|media|likes|highlights))?\/?|search(?:\/|$)|home\/?|explore\/?)/,
+  pathnameRegex: /^\/(?:[^/]+\/status\/\d+(?:\/(?:photo|video)\/\d+)?|i\/(?:web\/)?status\/\d+(?:\/(?:photo|video)\/\d+)?|(?!(?:settings|messages|notifications|compose|login|logout|i)(?:\/|$))[^/]+(?:\/(?:with_replies|media|likes|highlights))?)\/?$/,
   buttonPlacement: 'anchor',
   anchor: {
     // Profile: after the More (•••) button in the action bar
@@ -78,11 +78,12 @@ function extractSinglePost(): string[] {
 
   if (articles.length > 1) {
     parts.push('## Replies\n');
-    for (let i = 1; i < Math.min(articles.length, 25); i++) {
+    for (let i = 1; i < articles.length; i++) {
       const r = parseTweetArticle(articles[i]);
       parts.push(`**${r.author}** (@${r.handle})${r.date ? ` · ${r.date}` : ''}:\n`);
       parts.push(`> ${r.text}\n`);
       if (r.stats) parts.push(`> ${r.stats}\n`);
+      if (r.media.length) parts.push(`**Media:** ${r.media.join(', ')}\n`);
     }
   }
   return parts;
@@ -108,7 +109,6 @@ function extractTimeline(): string[] {
   if (tweets.length > 0) {
     parts.push('## Posts\n');
     tweets.forEach((tweet, i) => {
-      if (i >= 25) return;
       const d = parseTweetArticle(tweet);
       parts.push(`### ${i + 1}. ${d.author} (@${d.handle})${d.date ? ` · ${d.date}` : ''}\n`);
       parts.push(d.text);
@@ -128,8 +128,8 @@ function extractSearch(): string[] {
     parts.push('*No loaded posts found. Scroll search results, then try again.*');
     return parts;
   }
-  parts.push(`**Posts loaded:** ${Math.min(tweets.length, 25)}\n`);
-  Array.from(tweets).slice(0, 25).forEach((tweet, index) => {
+  parts.push(`**Posts loaded:** ${tweets.length}\n`);
+  Array.from(tweets).forEach((tweet, index) => {
     const data = parseTweetArticle(tweet);
     parts.push(`## ${index + 1}. ${data.author || 'Unknown author'}${data.handle ? ` (@${data.handle})` : ''}`);
     if (data.date) parts.push(`**Date:** ${data.date}`);
@@ -204,7 +204,7 @@ function extractTweetMedia(article: Element): string[] {
     const value = src ? `[X video](${src})` : 'X video';
     if (!media.includes(value)) media.push(value);
   });
-  return media.slice(0, 20);
+  return media;
 }
 
 function isProfilePath(pathname: string): boolean {

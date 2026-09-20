@@ -131,22 +131,12 @@ function isNonCharacter(codePoint: number): boolean {
  * Recursively converts cell contents to preserve links and formatting.
  */
 export function tableToMarkdown(tableEl: Element): string {
-  // Collect all rows (from thead + tbody, or directly from table)
-  const trElements: Element[] = [];
-  const thead = tableEl.querySelector('thead');
-  const tbodies = tableEl.querySelectorAll('tbody');
-
-  if (thead) {
-    thead.querySelectorAll(':scope > tr').forEach((tr) => trElements.push(tr));
-  }
-  if (tbodies.length > 0) {
-    tbodies.forEach((tbody) =>
-      tbody.querySelectorAll(':scope > tr').forEach((tr) => trElements.push(tr)),
-    );
-  }
-  if (trElements.length === 0) {
-    tableEl.querySelectorAll(':scope > tr').forEach((tr) => trElements.push(tr));
-  }
+  // Keep headers, every body row, and footers without collecting nested tables.
+  const trElements = [
+    ...tableEl.querySelectorAll(':scope > thead > tr'),
+    ...tableEl.querySelectorAll(':scope > tr, :scope > tbody > tr'),
+    ...tableEl.querySelectorAll(':scope > tfoot > tr'),
+  ];
 
   if (trElements.length === 0) return '';
 
@@ -178,10 +168,6 @@ export function tableToMarkdown(tableEl: Element): string {
   lines.push('| ' + allRowCells[0].map(() => '---').join(' | ') + ' |');
 
   for (let i = 1; i < allRowCells.length; i++) {
-    // Skip rows that are exact duplicates of the header (Wikipedia renders headers twice)
-    if (allRowCells[i].join('|') === allRowCells[0].join('|')) continue;
-    // Skip completely empty rows
-    if (allRowCells[i].every((c) => !c)) continue;
     lines.push('| ' + allRowCells[i].join(' | ') + ' |');
   }
 
@@ -220,7 +206,7 @@ function cellToMarkdown(cell: Element): string {
         const text = normalizeWhitespace(el.textContent || '');
         if (text) parts.push(`*${text}*`);
       } else if (tag === 'IMG') {
-        // skip images in tables
+        parts.push(elementToMarkdown(el).trim());
       } else if (tag === 'UL' || tag === 'OL') {
         // Flatten list items inline
         const items = Array.from(el.querySelectorAll('li'));
@@ -306,6 +292,7 @@ export function nodeToMarkdown(
   const el = node as HTMLElement;
   const tag = el.tagName;
 
+  if (el.hasAttribute('data-cam-instance')) return '';
   if (el.hidden || el.getAttribute('aria-hidden') === 'true') return '';
   const style = el.style;
   if (

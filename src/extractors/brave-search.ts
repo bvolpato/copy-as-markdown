@@ -7,9 +7,6 @@ import { register } from '../core/registry';
 import * as Markdown from '../core/markdown';
 import * as Utils from '../core/utils';
 
-const MAX_RESULTS = 25;
-const MAX_RELATED = 15;
-
 register({
   name: 'Brave Search',
   matches: [
@@ -64,7 +61,6 @@ register({
     if (results.length) {
       parts.push('## Search Results\n');
       results.forEach((result) => {
-        if (resultCount >= MAX_RESULTS) return;
         const title = cleanText(result.querySelector(
           'h3 a, h2 a, [data-testid="result-title"], [data-testid="result-title"] a',
         )?.textContent || '');
@@ -89,8 +85,7 @@ register({
       '[data-testid="related-searches"] a[href], .related-searches a[href], a[href*="/search?q="]',
     ))
       .map((link) => cleanText(link.textContent || ''))
-      .filter(Boolean)
-      .slice(0, MAX_RELATED);
+      .filter(Boolean);
     if (related.length) {
       parts.push('## Related Searches\n');
       related.forEach((item) => parts.push(`- ${escapeMarkdownText(item)}`));
@@ -119,7 +114,7 @@ function safeHttpUrl(value: string): string {
 }
 
 function cleanText(value: string): string {
-  return Utils.truncate(value.replace(/\s+/g, ' ').trim(), 600);
+  return value.replace(/\s+/g, ' ').trim();
 }
 
 function escapeMarkdownText(value: string): string {

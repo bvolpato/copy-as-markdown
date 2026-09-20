@@ -12,11 +12,11 @@ register({
 
   async extract() {
     const url = Utils.getCanonicalUrl();
-    const titleEl = document.querySelector('.package-header__name, h1.package-header__name');
+    const titleEl = document.querySelector('.project-header__name, .package-header__name');
     const titleText = titleEl?.textContent?.trim() || Utils.getPageTitle();
     const packageName = titleText.replace(/\s+\d+\.\d+.*$/, '').trim();
     const version = titleText.replace(packageName, '').trim();
-    const descEl = document.querySelector('.package-description__summary');
+    const descEl = document.querySelector('.project-header__summary, .package-description__summary');
     const description = descEl?.textContent?.trim() || '';
 
     const metadata: Record<string, string> = { source: 'PyPI', package: packageName, url };

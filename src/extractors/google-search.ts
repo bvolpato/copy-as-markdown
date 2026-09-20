@@ -7,9 +7,6 @@ import { register } from '../core/registry';
 import * as Markdown from '../core/markdown';
 import * as Utils from '../core/utils';
 
-const MAX_RESULTS = 25;
-const MAX_RELATED = 15;
-
 register({
   name: 'Google Search',
   matches: [
@@ -96,7 +93,6 @@ register({
     if (results.length > 0) {
       parts.push('## Search Results\n');
       results.forEach((result) => {
-        if (resultCount >= MAX_RESULTS) return;
         const title = cleanText(result.querySelector('h3')?.textContent || '');
         const link = firstSafeLink(result.querySelectorAll<HTMLAnchorElement>('a[href]'));
         const snippet = cleanText(result.querySelector(
@@ -119,7 +115,6 @@ register({
       parts.push('## People Also Ask\n');
       let count = 0;
       paaItems.forEach((item) => {
-        if (count >= 10) return;
         const q = item.querySelector('[data-q]')?.getAttribute('data-q') ||
           item.querySelector('.dnXCYb')?.textContent?.trim() ||
           item.textContent?.trim();
@@ -136,8 +131,7 @@ register({
       '.s75CSd a[href], .y6Uyqe a[href], [data-testid="related-searches"] a[href]',
     ))
       .map((link) => cleanText(link.textContent || ''))
-      .filter(Boolean)
-      .slice(0, MAX_RELATED);
+      .filter(Boolean);
     if (related.length) {
       parts.push('## Related Searches\n');
       related.forEach((item) => parts.push(`- ${escapeMarkdownText(item)}`));
@@ -181,7 +175,7 @@ function safeHttpUrl(value: string): string {
 }
 
 function cleanText(value: string): string {
-  return Utils.truncate(value.replace(/\s+/g, ' ').trim(), 600);
+  return value.replace(/\s+/g, ' ').trim();
 }
 
 function escapeMarkdownText(value: string): string {

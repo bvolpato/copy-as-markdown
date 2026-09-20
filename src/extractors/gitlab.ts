@@ -121,13 +121,11 @@ function extractBlob(metadata: PageMetadata, route: Route, title: string): strin
   const code = document.querySelector(
     '[data-testid="blob-content"] pre, .blob-content pre, .file-content pre, .blob-viewer pre, table.code',
   );
-  let content = code?.textContent?.replace(/^\n/, '').replace(/\n$/, '') || '';
+  const content = code?.textContent?.replace(/^\n/, '').replace(/\n$/, '') || '';
   const pageTruncated = Boolean(document.querySelector(
     '[data-testid*="truncated"], .file-content .too-long, .blob-viewer[data-truncated="true"], .js-load-blob',
   ));
-  const originalLength = content.length;
-  if (content.length > MAX_CHARS) content = content.slice(0, MAX_CHARS);
-  const truncated = pageTruncated || originalLength > content.length;
+  const truncated = pageTruncated;
   const fileName = route.refAndPath?.split('/').pop() || title;
   metadata.line_count = String(content ? content.split('\n').length : 0);
   metadata.character_count = String(content.length);

@@ -76,7 +76,7 @@ function extractRenderedDocumentation(): string {
     '.feedback-section',
     '.js-feedback',
     '[data-nosnippet]',
-    '.code-toolbar',
+    '.code-toolbar > .toolbar',
     '.copy-button',
   ]);
   const body = Markdown.elementToMarkdown(cleaned).trim();

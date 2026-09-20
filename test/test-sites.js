@@ -3771,13 +3771,13 @@ async function runSearchAndLinkedInChecks(browser, scriptContent) {
     }
     assertCheck(!markdown.includes('javascript:'), 'DuckDuckGo emitted unsafe javascript URL');
     assertCheck(!markdown.includes('data:text/html'), 'DuckDuckGo emitted unsafe non-HTTP URL');
-    assertCheck(!markdown.includes('### 26.'), 'DuckDuckGo exceeded 25-result cap');
+    assertCheck((markdown.match(/^### \d+\./gm) || []).length === 27, 'DuckDuckGo omitted loaded results after the old 25-result cap');
     assertCheck(
       (markdown.match(/### \d+\. Safe redirected result/g) || []).length === 1,
       'DuckDuckGo did not deduplicate repeated result links',
     );
     assertCompactMetadata(markdown, 'DuckDuckGo HTML output');
-    log('✅', 'DuckDuckGo HTML route includes answer panels, safe redirects, related searches, and bounded deduplicated results');
+    log('✅', 'DuckDuckGo HTML route includes answer panels, safe redirects, related searches, and all loaded deduplicated results');
   } finally {
     await duckduckgoPage.close();
   }

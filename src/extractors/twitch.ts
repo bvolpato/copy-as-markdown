@@ -89,14 +89,14 @@ register({
     if (duration) parts.push(`**Duration:** ${duration}`);
     if (views) parts.push(`**Views:** ${views}`);
     parts.push('');
-    if (description) parts.push('## Description', '', Utils.truncate(description, 20_000), '');
+    if (description) parts.push('## Description', '', description, '');
 
     if (route === 'channel') {
       const about = extractRows([
         '[data-a-target="channel-about-panel"]',
         '[data-test-selector="about-panel"]',
         '[data-a-target="channel-panels"] [data-a-target="panel-content"]',
-      ], 20);
+      ]);
       if (about.length) parts.push('## About', '', ...about.map((line) => `- ${line}`), '');
     }
 
@@ -104,7 +104,7 @@ register({
       '[data-a-target="video-tags"] a',
       '[data-a-target="stream-tags"] a',
       '[data-a-target="tag-card"]',
-    ], 30);
+    ]);
     if (tags.length) parts.push('## Tags', '', ...tags.map((tag) => `- ${tag}`), '');
 
     return Markdown.buildPageMarkdown(metadata, parts.join('\n'));
@@ -132,16 +132,15 @@ function firstText(selectors: string[], attributeMode = false): string {
   return '';
 }
 
-function extractRows(selectors: string[], limit: number): string[] {
+function extractRows(selectors: string[]): string[] {
   const result: string[] = [];
   const seen = new Set<string>();
   for (const selector of selectors) {
     for (const element of document.querySelectorAll(selector)) {
       const text = (element.textContent || '').replace(/\s+/g, ' ').trim();
-      if (!text || text.length > 1_000 || seen.has(text)) continue;
+      if (!text || seen.has(text)) continue;
       seen.add(text);
       result.push(text);
-      if (result.length >= limit) return result;
     }
   }
   return result;

@@ -23,12 +23,18 @@ export interface FixtureCase {
   minChars: number;
   maxChars: number;
   required?: string[];
+  /** Content checked in the original clipboard output before anonymizing the DOM. */
+  contentRequired?: string[];
+  contentSelectors?: string[];
+  /** Curated public route prefixes needed by path-aware DOM extractors. */
+  linkPrefixes?: string[];
   forbidden?: string[];
   excludedSelectors?: string[];
   optionId?: string;
   wayback?: boolean | {
     timestamp: string;
     digest: string;
+    digestAlgorithm?: 'sha256';
   };
 }
 
@@ -49,7 +55,12 @@ export interface FixtureProvenance {
   capturedAt: string;
   captureTimestamp?: string;
   captureDigest?: string;
+  captureDigestAlgorithm?: 'sha256';
+  captureResponseSha256?: string;
   sanitizerVersion: number;
+  liveMarkdownChars?: number;
+  livePlacement?: Placement;
+  archiveMarkdownChars?: number;
 }
 
 function assertIdentifier(value: unknown, context: string): asserts value is string {
@@ -101,9 +112,18 @@ export function loadCatalog(): FixtureCatalog {
       if (fixtureCase.excludedSelectors?.some((selector) => !selector.trim())) {
         throw new Error(`${site.id}/${fixtureCase.id} has an empty excluded selector`);
       }
+      for (const prefix of fixtureCase.linkPrefixes || []) {
+        const parsed = new URL(prefix);
+        if (parsed.origin !== new URL(fixtureCase.url).origin || parsed.search || parsed.hash
+          || parsed.username || parsed.password || !parsed.pathname.endsWith('/')) {
+          throw new Error(`${site.id}/${fixtureCase.id} has an invalid public link prefix`);
+        }
+      }
       if (typeof fixtureCase.wayback === 'object'
         && (!/^\d{14}$/.test(fixtureCase.wayback.timestamp)
-          || !/^[A-Z2-7]+$/.test(fixtureCase.wayback.digest))) {
+          || !(fixtureCase.wayback.digestAlgorithm === 'sha256'
+            ? /^[a-f\d]{64}$/.test(fixtureCase.wayback.digest)
+            : /^[A-Z2-7]+$/.test(fixtureCase.wayback.digest)))) {
         throw new Error(`${site.id}/${fixtureCase.id} has invalid Wayback pin`);
       }
     }

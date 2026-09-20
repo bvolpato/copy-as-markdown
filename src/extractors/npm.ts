@@ -26,8 +26,11 @@ register({
     const titleEl = document.querySelector('#top h1, h1 span[title]');
     const packageName = titleEl?.textContent?.trim() || Utils.getPageTitle();
 
-    const versionEl = document.querySelector('#top span[title]:not(h1 span), .f2874b88');
-    const version = versionEl?.textContent?.trim() || '';
+    const version = Array.from(document.querySelectorAll(
+      '#top h1 ~ span, #top span[title]:not(h1 span), p.f2874b88',
+    )).filter((element) => !element.closest('[data-cam-instance]'))
+      .map((element) => element.textContent?.trim().match(/^\d+\.\d+\.\d+(?:[-+][\w.+-]+)?/)?.[0])
+      .find(Boolean) || '';
 
     const descEl = document.querySelector('#top p, .package-description-redundant, p.f2874b88');
     const description = descEl?.textContent?.trim() || '';
@@ -66,6 +69,15 @@ register({
     if (lastPublish) meta.push(`**Last Published:** ${lastPublish}`);
     if (repoUrl) meta.push(`**Repository:** ${repoUrl}`);
     if (meta.length) parts.push(meta.join(' · ') + '\n');
+
+    // Keep the full rendered sidebar, including fields without stable selectors.
+    const sidebar = document.querySelector('.fdbf4038, [class*="sidebar"]');
+    if (sidebar) {
+      parts.push('## Package Details\n');
+      parts.push(Markdown.elementToMarkdown(Utils.removeNoise(sidebar, [
+        'script', 'style', 'svg', 'canvas', 'button', 'form', '[data-cam-instance]',
+      ])));
+    }
 
     // README
     const readmeEl = document.querySelector('#readme, [id*="readme"] .markdown');

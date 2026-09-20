@@ -18,10 +18,10 @@ register({
   pathnameRegex: /^\/(?:watch|title)\/\d+(?:\/[^/?#]*)?\/?$/,
   buttonPlacement: 'anchor',
   anchor: {
-    selector: '[data-uia="video-title"], [data-uia="title-info"], h1',
+    selector: '[data-uia="metadata"] h2, [data-uia="video-title"], [data-uia="title-info"], h1',
     position: 'after',
     style: 'pill',
-    css: { marginTop: '8px' },
+    css: { marginTop: '8px', width: 'fit-content' },
   },
 
   async extract() {
@@ -36,6 +36,7 @@ register({
     const description = firstText([
       '[data-uia="video-description"]',
       '[data-uia="title-info-synopsis"]',
+      '[data-uia="title-info-synopsis-talent"]',
       '.title-info-synopsis',
     ]) || stringValue(payload?.description) || Utils.getMeta('description');
     const year = firstText([
@@ -79,27 +80,54 @@ register({
     if (creator) parts.push(`**Cast / creator:** ${creator}`);
     if (rating) parts.push(`**Score:** ${rating}`);
     parts.push('');
-    if (description) parts.push('## Synopsis', '', Utils.truncate(description, 20_000), '');
+    if (description) parts.push('## Synopsis', '', description, '');
 
-    const episode = firstText([
+    const titleInfo = document.querySelector('[data-uia="metadata"]');
+    if (titleInfo) {
+      const clone = cleanTitleContent(titleInfo);
+      clone.querySelectorAll('h1, h2').forEach((heading) => {
+        if (heading.textContent?.trim() === title) heading.remove();
+      });
+      parts.push('## Title Information', '', Markdown.elementToMarkdown(clone), '');
+    }
+
+    const episode = window.location.pathname.startsWith('/watch/') ? firstText([
       '[data-uia="video-episode-title"]',
       '[data-uia="episode-title"]',
       '.episode-title',
-    ]);
+    ]) : '';
     if (episode && episode !== title) {
       parts.push('## Current Episode', '', episode, '');
     }
 
     const details = Array.from(document.querySelectorAll(
       '[data-uia="video-details"] li, [data-uia="title-info"] li, .title-info-talent li',
-    )).map((item) => item.textContent?.trim() || '').filter(Boolean).slice(0, 30);
+    )).map((item) => item.textContent?.trim() || '').filter(Boolean);
     if (details.length) parts.push('## Details', '', ...details.map((item) => `- ${item}`), '');
+
+    for (const [label, selector] of [
+      ['Episodes', '[data-uia="episodes"] [data-uia="episode-card"]'],
+      ['Trailers', '[data-uia="trailers"] [data-uia="video-card-container"]'],
+      ['More Details', '[data-uia="more-details"]'],
+    ]) {
+      const items = Array.from(document.querySelectorAll(selector));
+      if (items.length) {
+        parts.push(`## ${label}`, '', ...items.map((item) =>
+          Markdown.elementToMarkdown(cleanTitleContent(item))), '');
+      }
+    }
 
     return Markdown.buildPageMarkdown(metadata, parts.join('\n'));
   },
 });
 
 type JsonRecord = Record<string, unknown>;
+
+function cleanTitleContent(element: Element): Element {
+  return Utils.removeNoise(element, [
+    'script', 'style', 'svg', 'video', 'audio', 'iframe', 'form', '[data-cam-instance]',
+  ]);
+}
 
 function firstText(selectors: string[], attributeMode = false): string {
   for (const selector of selectors) {

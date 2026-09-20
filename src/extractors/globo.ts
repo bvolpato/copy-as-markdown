@@ -35,14 +35,13 @@ register({
     const published = text('time, .content-publication-data__updated')
       || stringValue(schema?.datePublished);
     const description = Utils.getMeta('description') || stringValue(schema?.description);
-    const content = document.querySelector([
+    const content = [
+      'article[itemprop="articleBody"]',
       'article .mc-article-body',
-      'article [data-block-type="unstyled"]',
       '.mc-article-body',
-      '.content-text',
       'article',
       'main',
-    ].join(', '));
+    ].map((selector) => document.querySelector(selector)).find(Boolean);
 
     const metadata: Record<string, string> = { source: 'Globo', title, url };
     if (author) metadata.author = author;
@@ -56,8 +55,9 @@ register({
       const cleaned = Utils.removeNoise(content, [
         ...Utils.NOISE_SELECTORS,
         '.content-ads',
-        '.mc-column',
         '.shadow-video-flow-overlay',
+        'bs-player',
+        '.clappr-player',
         '[data-testid*="recommend"]',
       ]);
       const body = Markdown.elementToMarkdown(cleaned);

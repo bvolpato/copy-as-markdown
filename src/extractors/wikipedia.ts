@@ -57,12 +57,11 @@ register({
       return Markdown.buildPageMarkdown(metadata, '*No content found.*');
 
     const cleaned = Utils.removeNoise(content, [
-      '.mw-editsection', '.reference', '.reflist', '.refbegin',
+      '.mw-editsection',
       '.navbox', '.sistersitebox', '.mw-authority-control',
       '.noprint', '.mw-empty-elt', '.mw-jump-link',
       '.sidebar', '.hatnote', '.portalbox',
-      '.mw-references-wrap', '#coordinates',
-      'sup.reference', '.toc', '#toc',
+      '.toc', '#toc',
       '.ambox', '.tmbox', '.ombox', '.cmbox', '.fmbox',
       'style', 'script',
     ]);

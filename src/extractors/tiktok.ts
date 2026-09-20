@@ -196,7 +196,7 @@ function extractDomItem(scope: Element | null, routeId: string): TikTokItem {
       const src = safeHttpUrl(image.currentSrc || image.src || image.getAttribute('data-src') || '');
       return src ? `[${escapeLabel(alt)}](${src})` : alt;
     })
-    .filter(Boolean)).slice(0, 20);
+    .filter(Boolean));
   return item;
 }
 

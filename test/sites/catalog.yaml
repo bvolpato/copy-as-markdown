@@ -7,18 +7,21 @@ sites:
         url: https://developer.mozilla.org/en-US/docs/Web/JavaScript/Guide
         readySelector: "#content"
         placement: anchor
-        anchorSelector: ".reference-layout__header > h1"
+        anchorSelector: .reference-layout__header > h1
         anchorPosition: after
         minChars: 300
         maxChars: 120000
+        contentRequired:
+          - JavaScript Guide
+          - Internationalization
         required:
-          - "FIXTURE_H1_"
+          - FIXTURE_H1_
         forbidden:
-          - "Copy as Markdown"
+          - Copy as Markdown
         excludedSelectors:
-          - ".reference-layout__toc"
-          - "mdn-placement-sidebar"
-          - "mdn-survey"
+          - .reference-layout__toc
+          - mdn-placement-sidebar
+          - mdn-survey
         wayback:
           timestamp: "20260810224420"
           digest: Z73LB34TYPEICKR34H3QSDKHSHFSDAL3
@@ -27,27 +30,33 @@ sites:
     cases:
       - id: gpt-5-1
         url: https://openrouter.ai/openai/gpt-5.1
-        readySelector: "main h1"
+        readySelector: main h1
         placement: floating
         minChars: 100
         maxChars: 120000
+        contentRequired:
+          - "## Model Definition"
+          - "## Provider Endpoints"
         required:
-          - "FIXTURE_H1_"
+          - FIXTURE_H1_
         forbidden:
-          - "Copy as Markdown"
+          - Copy as Markdown
   - id: artificial-analysis
     extractor: Artificial Analysis
     cases:
       - id: gpt-5-1
         url: https://artificialanalysis.ai/models/gpt-5-1
-        readySelector: "main h1"
+        readySelector: main h1
         placement: floating
         minChars: 100
         maxChars: 120000
+        contentRequired:
+          - "## Model Overview"
+          - "## Frequently Asked Questions"
         required:
-          - "FIXTURE_H1_"
+          - FIXTURE_H1_
         forbidden:
-          - "Copy as Markdown"
+          - Copy as Markdown
   - id: deepswe
     extractor: DeepSWE
     cases:
@@ -57,7 +66,475 @@ sites:
         placement: floating
         minChars: 100
         maxChars: 120000
+        contentRequired:
+          - "## Leaderboard"
+          - "All Published Configurations"
         required:
-          - "FIXTURE_H1_"
+          - FIXTURE_H1_
         forbidden:
-          - "Copy as Markdown"
+          - Copy as Markdown
+  - id: grokipedia
+    extractor: Grokipedia
+    cases:
+      - id: markdown
+        url: https://grokipedia.com/page/Markdown
+        readySelector: main
+        placement: anchor
+        anchorSelector: "#edits-history-btn"
+        anchorPosition: after
+        minChars: 100
+        maxChars: 3000000
+        contentRequired:
+          - "## References"
+        required:
+          - FIXTURE_H1_
+        forbidden:
+          - Copy as Markdown
+  - id: bing
+    extractor: Bing Search
+    cases:
+      - id: markdown
+        url: https://www.bing.com/search?q=markdown
+        readySelector: "#b_results .b_algo"
+        placement: anchor
+        anchorSelector: "#b_header .b_scopebar ul"
+        anchorPosition: append
+        minChars: 100
+        maxChars: 3000000
+        contentRequired:
+          - "## Search Results"
+          - Markdown Guide
+        required:
+          - "## Search Results"
+        forbidden:
+          - Copy as Markdown
+  - id: gitlab
+    extractor: GitLab
+    cases:
+      - id: repository
+        url: https://gitlab.com/gitlab-org/gitlab
+        readySelector: .readme-holder .md
+        placement: floating
+        minChars: 100
+        maxChars: 3000000
+        contentRequired:
+          - "## Files"
+          - "## README"
+          - Canonical source
+        required:
+          - "## Files"
+          - "## README"
+        forbidden:
+          - Copy as Markdown
+  - id: hugging-face
+    extractor: Hugging Face
+    cases:
+      - id: splash-model
+        url: https://huggingface.co/incoai/Qwen3.8-27B-Splash
+        readySelector: .prose
+        placement: floating
+        minChars: 100
+        maxChars: 3000000
+        contentRequired:
+          - "## Model Card"
+          - "## Card Metadata"
+          - "## Inference Providers"
+          - "## Citation"
+        required:
+          - "## Model Card"
+        forbidden:
+          - Copy as Markdown
+      - id: imdb-dataset
+        url: https://huggingface.co/datasets/stanfordnlp/imdb
+        readySelector: .prose
+        placement: floating
+        minChars: 100
+        maxChars: 3000000
+        contentRequired:
+          - "## Dataset Card"
+          - "## Card Metadata"
+          - "### Data Splits"
+        required:
+          - "## Dataset Card"
+        forbidden:
+          - Copy as Markdown
+      - id: model-files
+        url: https://huggingface.co/Qwen/Qwen3-8B/tree/main
+        readySelector: a[href*="/blob/"]
+        placement: floating
+        minChars: 100
+        maxChars: 3000000
+        linkPrefixes:
+          - https://huggingface.co/Qwen/Qwen3-8B/blob/main/
+          - https://huggingface.co/Qwen/Qwen3-8B/tree/main/
+        contentRequired:
+          - "## Visible Files"
+          - config.json
+        required:
+          - "## Visible Files"
+        forbidden:
+          - Copy as Markdown
+      - id: space-files
+        url: https://huggingface.co/spaces/gradio/hello_world/tree/main
+        readySelector: a[href*="/blob/"]
+        placement: floating
+        minChars: 100
+        maxChars: 3000000
+        linkPrefixes:
+          - https://huggingface.co/spaces/gradio/hello_world/blob/main/
+          - https://huggingface.co/spaces/gradio/hello_world/tree/main/
+        contentRequired:
+          - "## Visible Files"
+          - app.py
+        required:
+          - "## Visible Files"
+        forbidden:
+          - Copy as Markdown
+  - id: pypi
+    extractor: PyPI
+    cases:
+      - id: requests
+        url: https://pypi.org/project/requests/
+        readySelector: .project-header__name
+        placement: floating
+        minChars: 100
+        maxChars: 3000000
+        contentRequired:
+          - "## License"
+          - "## Requires"
+        contentSelectors:
+          - .project-header__name
+          - .project-header__summary
+        required:
+          - "## Description"
+        forbidden:
+          - Copy as Markdown
+  - id: leetllm
+    extractor: LeetLLM
+    cases:
+      - id: learn
+        url: https://leetllm.com/learn
+        readySelector: main
+        placement: floating
+        minChars: 100
+        maxChars: 3000000
+        contentRequired:
+          - Learn LLM Engineering
+          - Deep Dive - PyTorch
+        required:
+          - FIXTURE_H3_
+        forbidden:
+          - Copy as Markdown
+  - id: npm
+    extractor: NPM
+    cases:
+      - id: tsx
+        url: https://www.npmjs.com/package/tsx
+        readySelector: "#readme"
+        placement: anchor
+        anchorSelector: "#top h1"
+        anchorPosition: after
+        minChars: 100
+        maxChars: 3000000
+        contentRequired:
+          - "**Version:** 4.7.0"
+          - 394 kB
+          - MIT
+          - "## README"
+        required:
+          - "## README"
+          - "## Package Details"
+        forbidden:
+          - Copy as Markdown
+        wayback:
+          timestamp: "20240110194327"
+          digest: FDT7ZJMQ2SKUHAIKKTUZFTO6PIU4PPO4
+  - id: github
+    extractor: GitHub
+    cases:
+      - id: repository
+        url: https://github.com/bvolpato/copy-as-markdown
+        readySelector: article.markdown-body
+        placement: floating
+        minChars: 100
+        maxChars: 3000000
+        contentRequired:
+          - "## README"
+          - Copy as Markdown
+        required:
+          - "## README"
+        forbidden:
+          - Copy as Markdown
+  - id: arxiv
+    extractor: arXiv
+    cases:
+      - id: attention
+        url: https://arxiv.org/abs/1706.03762
+        readySelector: blockquote.abstract
+        placement: anchor
+        anchorSelector: .submission-history
+        anchorPosition: prepend
+        minChars: 100
+        maxChars: 3000000
+        contentRequired:
+          - Attention Is All You Need
+          - "## Abstract"
+          - "## Links"
+        required:
+          - "## Abstract"
+          - FIXTURE_SPAN_
+        forbidden:
+          - Copy as Markdown
+  - id: substack
+    extractor: Substack
+    cases:
+      - id: year-in-llms
+        url: https://simonw.substack.com/p/2025-the-year-in-llms
+        readySelector: .body.markup
+        placement: floating
+        minChars: 100
+        maxChars: 3000000
+        contentRequired:
+          - Introducing gisthost.github.io
+        required:
+          - FIXTURE_H3_
+        forbidden:
+          - Copy as Markdown
+  - id: youtube
+    extractor: YouTube
+    cases:
+      - id: me-at-the-zoo
+        url: https://www.youtube.com/watch?v=jNQXAC9IVRw
+        readySelector: ytd-watch-metadata
+        placement: anchor
+        anchorSelector: "#top-level-buttons-computed"
+        anchorPosition: overlay
+        minChars: 100
+        maxChars: 3000000
+        contentRequired:
+          - Me at the zoo
+          - "## Description"
+        required:
+          - "## Description"
+        forbidden:
+          - Copy as Markdown
+  - id: netflix
+    extractor: Netflix
+    cases:
+      - id: stranger-things
+        url: https://www.netflix.com/title/80057281
+        readySelector: '[data-uia="episode-card"]'
+        placement: anchor
+        anchorSelector: '[data-uia="metadata"] h2'
+        anchorPosition: after
+        minChars: 100
+        maxChars: 3000000
+        contentRequired:
+          - The Duffer Brothers
+          - Chapter One
+          - "## Episodes"
+          - "## More Details"
+          - "## Trailers"
+        required:
+          - "## Episodes"
+          - "## More Details"
+          - "## Trailers"
+        forbidden:
+          - Copy as Markdown
+  - id: wikipedia
+    extractor: Wikipedia
+    cases:
+      - id: markdown
+        url: https://en.wikipedia.org/wiki/Markdown
+        readySelector: "#mw-content-text"
+        placement: anchor
+        anchorSelector: "#p-views ul"
+        anchorPosition: append
+        minChars: 100
+        maxChars: 3000000
+        contentRequired:
+          - "## References"
+          - John Gruber
+        required:
+          - FIXTURE_SPAN_
+          - FIXTURE_A_
+        forbidden:
+          - Copy as Markdown
+  - id: documentation
+    extractor: Sphinx / Read the Docs
+    cases:
+      - id: requests
+        url: https://requests.readthedocs.io/en/latest/
+        readySelector: .document
+        placement: floating
+        minChars: 100
+        maxChars: 3000000
+        contentRequired:
+          - Requests
+          - The User Guide
+        required:
+          - FIXTURE_H1_
+          - FIXTURE_P_
+        forbidden:
+          - Copy as Markdown
+  - id: news
+    extractor: News (Generic)
+    cases:
+      - id: fox-webb
+        url: https://www.foxnews.com/science/neil-degrasse-tyson-james-webb-space-telescope-window-universe
+        readySelector: article
+        placement: anchor
+        anchorSelector: .article-header
+        anchorPosition: after
+        minChars: 100
+        maxChars: 3000000
+        contentRequired:
+          - James Webb
+          - RGB coding
+        required:
+          - "## Article"
+        forbidden:
+          - Copy as Markdown
+      - id: guardian-webb
+        url: https://www.theguardian.com/commentisfree/2022/jul/15/the-guardian-view-on-the-james-webb-telescope-a-window-on-the-unknown
+        readySelector: article
+        placement: anchor
+        anchorSelector: h1
+        anchorPosition: after
+        minChars: 100
+        maxChars: 3000000
+        contentRequired:
+          - study of the brain
+        required:
+          - "## Article"
+          - FIXTURE_P_
+        forbidden:
+          - Copy as Markdown
+      - id: bbc-article
+        url: https://www.bbc.com/news/articles/cm780ll1de18o
+        readySelector: article
+        placement: anchor
+        anchorSelector: h1
+        anchorPosition: after
+        minChars: 100
+        maxChars: 3000000
+        contentRequired:
+          - Ed Sheeran
+          - Philadelphia
+        required:
+          - "## Article"
+          - FIXTURE_P_
+        forbidden:
+          - Copy as Markdown
+  - id: stackoverflow
+    extractor: Stack Overflow
+    cases:
+      - id: sorted-array
+        url: https://stackoverflow.com/questions/11227809/why-is-processing-a-sorted-array-faster-than-processing-an-unsorted-array
+        readySelector: "#question .s-prose"
+        placement: anchor
+        anchorSelector: "#question-header + .d-flex"
+        anchorPosition: append
+        minChars: 100
+        maxChars: 3000000
+        contentRequired:
+          - sorted array
+          - "## Answers"
+        required:
+          - "## Answers"
+        forbidden:
+          - Copy as Markdown
+        wayback:
+          timestamp: "20240416155638"
+          digest: a429f012ed3eb484988650e492f50f9e8e3c6663c7c2569b86fa325b68595bc4
+          digestAlgorithm: sha256
+  - id: devto
+    extractor: Dev.to
+    cases:
+      - id: markdown-cheat-sheet
+        url: https://dev.to/ganesh-tyjo/markdown-cheat-sheet-1mh0
+        readySelector: .crayons-article__body
+        placement: anchor
+        anchorSelector: .crayons-article__header__meta
+        anchorPosition: after
+        minChars: 100
+        maxChars: 3000000
+        contentRequired:
+          - Custom CSS
+          - "## Tables"
+        required:
+          - FIXTURE_H2_
+          - "```"
+        forbidden:
+          - Copy as Markdown
+  - id: notion
+    extractor: Notion
+    cases:
+      - id: open-source-ai
+        url: https://nathanshipley.notion.site/
+        readySelector: .notion-page-content
+        placement: floating
+        minChars: 100
+        maxChars: 3000000
+        contentRequired:
+          - Knowledge Bases
+          - ComfyUI
+        required:
+          - FIXTURE_
+        forbidden:
+          - Copy as Markdown
+  - id: globo
+    extractor: Globo
+    cases:
+      - id: corruption-proposals
+        url: https://g1.globo.com/politica/eleicoes/2026/noticia/2026/09/20/propostas-dos-presidenciaveis-contra-a-corrupcao.ghtml
+        readySelector: article[itemprop="articleBody"]
+        placement: anchor
+        anchorSelector: .content-head
+        anchorPosition: after
+        minChars: 100
+        maxChars: 3000000
+        contentRequired:
+          - O plano de Lula
+          - mandatos revogáveis
+        required:
+          - "## Content"
+          - FIXTURE_P_
+        forbidden:
+          - Copy as Markdown
+          - data:image/gif
+  - id: wandb
+    extractor: Weights & Biases
+    cases:
+      - id: public-run
+        url: https://wandb.ai/wandb/examples/runs/273nzisp
+        readySelector: main
+        placement: floating
+        minChars: 100
+        maxChars: 3000000
+        contentRequired:
+          - vocal-forest-3
+          - "## Configuration"
+          - "## Metrics Summary"
+        required:
+          - FIXTURE_
+        forbidden:
+          - Copy as Markdown
+  - id: datadog-docs
+    extractor: Datadog Documentation
+    cases:
+      - id: agent
+        url: https://docs.datadoghq.com/agent/
+        readySelector: "#mainContent"
+        placement: anchor
+        anchorSelector: "#pagetitle"
+        anchorPosition: after
+        minChars: 100
+        maxChars: 3000000
+        contentRequired:
+          - "## Overview"
+          - Managing the Agent
+        required:
+          - FIXTURE_
+        forbidden:
+          - Copy as Markdown

@@ -10,7 +10,6 @@ import { register } from '../core/registry';
 import * as Utils from '../core/utils';
 
 const COMMENT_LIMIT = 30;
-const MEDIA_LIMIT = 20;
 
 interface VkPost {
   id: string;
@@ -236,7 +235,7 @@ function extractMedia(scope: ParentNode): string[] {
     const src = safeHttpUrl(video.currentSrc || video.src || video.poster || '');
     if (src && !media.includes(src)) media.push(`[VK video](${src})`);
   });
-  return media.slice(0, MEDIA_LIMIT);
+  return media;
 }
 
 function findEmbeddedPost(id: string): VkPost | null {
@@ -305,7 +304,7 @@ function mergePosts(primary: VkPost | null, fallback: VkPost): VkPost {
     comments: primary.comments || fallback.comments,
     shares: primary.shares || fallback.shares,
     views: primary.views || fallback.views,
-    media: unique([...primary.media, ...fallback.media]).slice(0, MEDIA_LIMIT),
+    media: unique([...primary.media, ...fallback.media]),
   };
 }
 
