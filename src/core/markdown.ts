@@ -131,23 +131,12 @@ function isNonCharacter(codePoint: number): boolean {
  * Recursively converts cell contents to preserve links and formatting.
  */
 export function tableToMarkdown(tableEl: Element): string {
-  // Collect all rows (from thead + tbody, or directly from table)
-  const trElements: Element[] = [];
-  const thead = tableEl.querySelector('thead');
-  const tbodies = tableEl.querySelectorAll('tbody');
-
-  if (thead) {
-    thead.querySelectorAll(':scope > tr').forEach((tr) => trElements.push(tr));
-  }
-  if (tbodies.length > 0) {
-    tbodies.forEach((tbody) =>
-      tbody.querySelectorAll(':scope > tr').forEach((tr) => trElements.push(tr)),
-    );
-  }
-  tableEl.querySelectorAll(':scope > tfoot > tr').forEach((tr) => trElements.push(tr));
-  if (trElements.length === 0) {
-    tableEl.querySelectorAll(':scope > tr').forEach((tr) => trElements.push(tr));
-  }
+  // Keep headers, every body row, and footers without collecting nested tables.
+  const trElements = [
+    ...tableEl.querySelectorAll(':scope > thead > tr'),
+    ...tableEl.querySelectorAll(':scope > tr, :scope > tbody > tr'),
+    ...tableEl.querySelectorAll(':scope > tfoot > tr'),
+  ];
 
   if (trElements.length === 0) return '';
 

@@ -212,6 +212,24 @@ try {
     name: 'GitLab', url: 'https://gitlab.com/team/project', html: '<main><div id="readme"><table><thead><tr><th>Label</th></tr></thead><tbody><tr><td>Label</td></tr><tr><td>Label</td></tr><tr><td><img alt="Diagram" src="https://media.example/diagram.png"></td></tr></tbody><tfoot><tr><td>Footnote</td></tr></tfoot></table></div></main>',
     expected: ['Diagram', 'https://media.example/diagram.png', 'Footnote', '| Label |\n| Label |'],
   }));
+  await check('Markdown tables preserve direct rows alongside a footer', () => fixture({
+    name: 'GitLab', url: 'https://gitlab.com/team/project', html: '<main><div id="readme"></div></main>',
+    afterLoad: page => page.evaluate(() => {
+      const table = document.createElement('table');
+      for (const text of ['Header', 'Body']) {
+        const row = document.createElement('tr');
+        const cell = document.createElement('td');
+        cell.textContent = text;
+        row.append(cell);
+        table.append(row);
+      }
+      const footer = document.createElement('tfoot');
+      footer.innerHTML = '<tr><td>Footer</td></tr>';
+      table.append(footer);
+      document.querySelector('#readme').append(table);
+    }),
+    expected: ['| Header |\n| --- |\n| Body |\n| Footer |'],
+  }));
   await check('Placement skips hidden anchors and uses a visible alternate', () => fixture({
     name: 'Google Search', url: 'https://www.google.com/search?q=audit', html: '<div hidden><button id="hdtb-tls">Hidden Tools</button></div><div class="yeKjxb" style="width:100px;height:40px">Visible Tools</div>', ui: true,
     afterLoad: async page => {
