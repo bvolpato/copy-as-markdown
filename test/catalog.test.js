@@ -142,11 +142,17 @@ try {
     expected: ['# requests 2.34.2', 'Python HTTP for Humans.', 'Package README'],
   }));
   await check('npm reads the version rather than a repository link and retains sidebar fields', () => fixture({
-    name: 'NPM', url: 'https://www.npmjs.com/package/tsx', html: '<main id="top"><h1><span>tsx</span></h1><span>4.7.0 • </span><div class="fdbf4038"><a class="f2874b88" aria-labelledby="repository" href="https://github.com/privatenumber/tsx">Git repository</a><h3>License</h3><p class="f2874b88">MIT</p><h3>Total Files</h3><p>35</p></div><div id="readme"><p>Package README</p></div></main>',
+    name: 'NPM', url: 'https://www.npmjs.com/package/tsx', html: '<main id="top"><h1 class="flex"><span>tsx</span></h1><span>4.7.0 • </span><div class="fdbf4038"><a class="f2874b88" aria-labelledby="repository" href="https://github.com/privatenumber/tsx">Git repository</a><h3>License</h3><p class="f2874b88">MIT</p><h3>Total Files</h3><p class="f2874b88">35</p></div><div id="readme"><p>Package README</p></div></main>', ui: true,
+    afterLoad: page => page.waitForSelector('#cam-copy-btn'),
     expected: ['**Version:** 4.7.0', 'MIT', 'Total Files', '35', 'Package README'], excluded: ['**Version:** Git repository'],
   }));
   await check('Netflix retains public title metadata, every loaded episode, and trailer details', () => fixture({
-    name: 'Netflix', url: 'https://www.netflix.com/title/80057281', html: '<h1>Stranger Things</h1><div data-uia="metadata"><h2>Stranger Things</h2><span>5 Seasons</span><div data-uia="title-info-synopsis-talent">A small town uncovers a mystery.</div><div data-uia="info-creators">Creators: The Duffer Brothers</div></div><div data-uia="episodes"><li data-uia="episode-card"><p data-uia="episode-title">Chapter One</p><p>First episode description</p></li><li data-uia="episode-card"><p data-uia="episode-title">Chapter Two</p><p>Second episode description</p></li></div><div data-uia="trailers"><button data-uia="video-card-container"><p>2m 15s</p><p>Franchise Trailer</p></button></div><div data-uia="more-details"><p>Available to download</p></div><div data-uia="more-like-this">Recommendation noise</div>',
+    name: 'Netflix', url: 'https://www.netflix.com/title/80057281', html: '<style>button { width: 100%; } [data-uia="metadata"] { display: flex; flex-direction: column; }</style><h1>Stranger Things</h1><div data-uia="metadata"><h2>Stranger Things</h2><span>5 Seasons</span><div data-uia="title-info-synopsis-talent">A small town uncovers a mystery.</div><div data-uia="info-creators">Creators: The Duffer Brothers</div></div><div data-uia="episodes"><li data-uia="episode-card"><p data-uia="episode-title">Chapter One</p><p>First episode description</p></li><li data-uia="episode-card"><p data-uia="episode-title">Chapter Two</p><p>Second episode description</p></li></div><div data-uia="trailers"><button data-uia="video-card-container"><p>2m 15s</p><p>Franchise Trailer</p></button></div><div data-uia="more-details"><p>Available to download</p></div><div data-uia="more-like-this">Recommendation noise</div>', ui: true,
+    afterLoad: async page => {
+      await page.waitForSelector('#cam-copy-btn', { visible: true });
+      const width = await page.$eval('#cam-copy-btn', button => button.getBoundingClientRect().width);
+      assert.ok(width < 240, `Copy pill stretched to ${width}px`);
+    },
     expected: ['5 Seasons', 'The Duffer Brothers', 'First episode description', 'Second episode description', 'Franchise Trailer', '2m 15s', 'Available to download'], excluded: ['Current Episode', 'Recommendation noise'],
   }));
   await check('Amazon preserves full descriptions and every loaded review', () => fixture({

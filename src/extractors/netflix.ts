@@ -21,7 +21,7 @@ register({
     selector: '[data-uia="metadata"] h2, [data-uia="video-title"], [data-uia="title-info"], h1',
     position: 'after',
     style: 'pill',
-    css: { marginTop: '8px' },
+    css: { marginTop: '8px', width: 'fit-content' },
   },
 
   async extract() {
