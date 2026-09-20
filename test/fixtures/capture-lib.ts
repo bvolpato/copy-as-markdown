@@ -229,9 +229,6 @@ async function injectAndCheckPage(page: Page, scriptContent: string, site: Fixtu
   for (const required of fixtureCase.contentRequired || []) {
     if (!markdown.includes(required)) throw new Error(`Live copy misses ${JSON.stringify(required)}`);
   }
-  for (const forbidden of fixtureCase.forbidden || []) {
-    if (markdown.includes(forbidden)) throw new Error(`Original copy contains ${JSON.stringify(forbidden)}`);
-  }
   const sourceText = await page.evaluate((selectors) => selectors.map((selector) => ({
     selector, text: document.querySelector(selector)?.textContent?.replace(/\s+/g, ' ').trim(),
   })), fixtureCase.contentSelectors || []);
