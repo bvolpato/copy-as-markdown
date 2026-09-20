@@ -578,8 +578,12 @@ function findAnchorTarget(selector: string): Element | null {
   const selectors = selector.split(',').map((s) => s.trim());
   for (const sel of selectors) {
     try {
-      const el = document.querySelector(sel);
-      if (el) return el;
+      for (const el of document.querySelectorAll(sel)) {
+        if (el.closest('[hidden], [inert], [aria-hidden="true"], [data-cam-instance]')) continue;
+        const style = getComputedStyle(el);
+        if (style.display === 'none' || style.visibility === 'hidden' || style.visibility === 'collapse') continue;
+        if (el.getClientRects().length > 0) return el;
+      }
     } catch {
       // invalid selector — skip silently
     }
@@ -915,9 +919,19 @@ function attachToAnchor(
       const buttonOffsetLeft = buttonRect.left - overlayRect.left;
       const buttonOffsetTop = buttonRect.top - overlayRect.top;
       const gap = 8;
-      // Position to the left of the target element
-      overlay.style.top = `${targetRect.top + (targetRect.height - buttonRect.height) / 2 - buttonOffsetTop}px`;
-      overlay.style.left = `${targetRect.left - buttonRect.width - gap - buttonOffsetLeft}px`;
+      let left = targetRect.left - buttonRect.width - gap;
+      let top = targetRect.top + (targetRect.height - buttonRect.height) / 2;
+      if (left < gap) {
+        left = targetRect.right + gap;
+        if (left + buttonRect.width > window.innerWidth - gap) {
+          left = targetRect.left;
+          top = targetRect.bottom + gap;
+        }
+      }
+      left = Math.max(gap, Math.min(left, window.innerWidth - buttonRect.width - gap));
+      top = Math.max(gap, Math.min(top, window.innerHeight - buttonRect.height - gap));
+      overlay.style.top = `${top - buttonOffsetTop}px`;
+      overlay.style.left = `${left - buttonOffsetLeft}px`;
     };
 
     updatePosition();

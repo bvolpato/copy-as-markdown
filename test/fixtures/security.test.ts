@@ -1,6 +1,6 @@
 #!/usr/bin/env tsx
 
-import { assertPublicUrl, auditSanitizedFixture } from './capture-lib';
+import { assertContentPage, assertPublicUrl, auditSanitizedFixture } from './capture-lib';
 
 function expectFailure(action: () => unknown, expected: string): void {
   try {
@@ -14,6 +14,11 @@ function expectFailure(action: () => unknown, expected: string): void {
 }
 
 async function main(): Promise<void> {
+  assertContentPage('Markdown - Wikipedia', false);
+  assertContentPage('Understanding CAPTCHA systems', false);
+  expectFailure(() => assertContentPage('Just a moment...', false), 'Blocked or error page');
+  expectFailure(() => assertContentPage('Sign in - Google Accounts', false), 'Blocked or error page');
+  expectFailure(() => assertContentPage('requests · PyPI', true), 'Blocked or error page');
   auditSanitizedFixture('<!doctype html><html><body><main>FIXTURE_MAIN_0001</main></body></html>');
   auditSanitizedFixture('<html><body><p>FIXTURE_P_0001FIXTURE_SPAN_0002 FIXTURE_P_0003</p></body></html>');
   expectFailure(

@@ -6,9 +6,6 @@ import { register } from '../core/registry';
 import * as Markdown from '../core/markdown';
 import * as Utils from '../core/utils';
 
-const MAX_RESULTS = 25;
-const MAX_RELATED = 15;
-
 register({
   name: 'Bing Search',
   matches: [
@@ -43,7 +40,6 @@ register({
       let count = 0;
       const seen = new Set<string>();
       results.forEach((result) => {
-        if (count >= MAX_RESULTS) return;
         const titleEl = result.querySelector('h2 a, h2') as HTMLAnchorElement | HTMLElement | null;
         const link = firstSafeLink(result.querySelectorAll<HTMLAnchorElement>('h2 a[href], a[href]'));
         const snippet = cleanText(result.querySelector('.b_caption p, .b_lineclamp2, .b_paractl')?.textContent || '');
@@ -71,8 +67,7 @@ register({
 
     const related = Array.from(document.querySelectorAll<HTMLAnchorElement>('.b_rs a[href], #brs a[href]'))
       .map((a) => cleanText(a.textContent || ''))
-      .filter(Boolean)
-      .slice(0, MAX_RELATED);
+      .filter(Boolean);
     if (related.length > 0) {
       parts.push('## Related Searches\n');
       related.forEach((item) => parts.push(`- ${escapeMarkdownText(item)}`));
@@ -120,7 +115,7 @@ function decodeBingUrl(value: string): string {
 }
 
 function cleanText(value: string): string {
-  return Utils.truncate(value.replace(/\s+/g, ' ').trim(), 600);
+  return value.replace(/\s+/g, ' ').trim();
 }
 
 function escapeMarkdownText(value: string): string {

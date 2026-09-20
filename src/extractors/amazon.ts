@@ -106,9 +106,9 @@ register({
     }
 
     // Product description
-    const descEl = document.querySelector('#productDescription p, #productDescription .a-spacing-small, #productDescription_feature_div');
+    const descEl = document.querySelector('#productDescription, #productDescription_feature_div');
     if (descEl) {
-      const descText = descEl.textContent?.trim();
+      const descText = Markdown.elementToMarkdown(Utils.removeNoise(descEl, Utils.NOISE_SELECTORS));
       if (descText && descText.length > 20) {
         parts.push('## Description\n');
         parts.push(descText);
@@ -133,8 +133,7 @@ register({
     const reviewEls = document.querySelectorAll('[data-hook="review"]');
     if (reviewEls.length > 0) {
       parts.push(`## Top Reviews (${reviewEls.length})\n`);
-      reviewEls.forEach((review, i) => {
-        if (i >= 10) return;
+      reviewEls.forEach((review) => {
         const reviewer = review.querySelector('.a-profile-name')?.textContent?.trim() || '';
         const stars = review.querySelector('[data-hook="review-star-rating"] .a-icon-alt, .a-icon-star span')?.textContent?.trim() || '';
         const reviewTitle = review.querySelector('[data-hook="review-title"] span:last-child, .review-title')?.textContent?.trim() || '';

@@ -163,12 +163,12 @@ function extractDomPost(article: Element | null, shortcode: string): InstagramPo
   post.views = engagementFromDom(article, /views?|plays?/i, ['span', 'div']);
   post.media = unique(Array.from(article.querySelectorAll<HTMLImageElement>('img[alt]'))
     .map((image) => clean(image.alt))
-    .filter((alt) => alt && !/profile picture|avatar|emoji/i.test(alt))).slice(0, 20);
+    .filter((alt) => alt && !/profile picture|avatar|emoji/i.test(alt)));
   article.querySelectorAll('figcaption').forEach((caption) => {
     const value = clean(caption.textContent || '');
     if (value) post.media.push(value);
   });
-  post.media = unique(post.media).slice(0, 20);
+  post.media = unique(post.media);
   return post;
 }
 
@@ -225,7 +225,7 @@ function mapMediaRecord(record: Record<string, unknown>, shortcode: string): Ins
     const alt = stringValue(entry.accessibility_caption || entry.accessibilityCaption || entry.alt);
     if (alt) post.media.push(alt);
   });
-  post.media = unique(post.media).slice(0, 20);
+  post.media = unique(post.media);
   return post;
 }
 

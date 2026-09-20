@@ -1,0 +1,1056 @@
+{
+  "version": 1,
+  "auditedAt": "2026-09-20T05:25:21.428Z",
+  "scope": "Catalog-wide code and contract review. Public probes record observed results at their timestamps; capturedCases link to independently verified, anonymized real-page fixtures and source provenance. Failed probes may precede fixes documented by later captures. These checks do not establish live coverage of every route or authenticated application.",
+  "registeredExtractorCount": 76,
+  "urlPatternCount": 320,
+  "extractors": [
+    {
+      "id": "amazon",
+      "name": "Amazon",
+      "registeredConfigurations": 1,
+      "capturedCases": [],
+      "publicProbes": [
+        {
+          "url": "https://www.amazon.com/dp/B08F7PTF53",
+          "checkedAt": "2026-09-20T04:56:23.934Z",
+          "httpStatus": 200,
+          "result": "not_verified",
+          "reason": "Waiting for selector `#productTitle` failed"
+        }
+      ]
+    },
+    {
+      "id": "artificial-analysis",
+      "name": "Artificial Analysis",
+      "registeredConfigurations": 1,
+      "capturedCases": [
+        "artificial-analysis/gpt-5-1"
+      ],
+      "publicProbes": [
+        {
+          "url": "https://artificialanalysis.ai/models/gpt-5-1",
+          "checkedAt": "2026-09-20T04:55:52.621Z",
+          "httpStatus": 200,
+          "result": "passed",
+          "markdownChars": 6539
+        }
+      ]
+    },
+    {
+      "id": "arxiv",
+      "name": "arXiv",
+      "registeredConfigurations": 1,
+      "capturedCases": [
+        "arxiv/attention"
+      ],
+      "publicProbes": [
+        {
+          "url": "https://arxiv.org/abs/1706.03762",
+          "checkedAt": "2026-09-20T04:55:40.070Z",
+          "httpStatus": 200,
+          "result": "passed",
+          "markdownChars": 1767
+        }
+      ]
+    },
+    {
+      "id": "baidu-search",
+      "name": "Baidu Search",
+      "registeredConfigurations": 1,
+      "capturedCases": [],
+      "publicProbes": [
+        {
+          "url": "https://www.baidu.com/s?wd=markdown",
+          "checkedAt": "2026-09-20T04:55:00.541Z",
+          "httpStatus": 200,
+          "result": "not_verified",
+          "reason": "Waiting for selector `#content_left .result, #content_left .c-container` failed"
+        }
+      ]
+    },
+    {
+      "id": "bing",
+      "name": "Bing Search",
+      "registeredConfigurations": 1,
+      "capturedCases": [
+        "bing/markdown"
+      ],
+      "publicProbes": [
+        {
+          "url": "https://www.bing.com/search?q=markdown",
+          "checkedAt": "2026-09-20T04:54:48.149Z",
+          "httpStatus": 200,
+          "result": "passed",
+          "markdownChars": 2235
+        }
+      ]
+    },
+    {
+      "id": "bitbucket",
+      "name": "Bitbucket",
+      "registeredConfigurations": 1,
+      "capturedCases": [],
+      "publicProbes": [
+        {
+          "url": "https://bitbucket.org/pypy/pypy/src/branch/default/",
+          "checkedAt": "2026-09-20T04:55:19.132Z",
+          "httpStatus": 404,
+          "result": "not_verified",
+          "reason": "HTTP 404"
+        },
+        {
+          "url": "https://bitbucket.org/pypy/pypy",
+          "checkedAt": "2026-09-20T05:08:45.390Z",
+          "httpStatus": 404,
+          "result": "not_verified",
+          "reason": "HTTP 404"
+        }
+      ]
+    },
+    {
+      "id": "booking",
+      "name": "Booking.com",
+      "registeredConfigurations": 1,
+      "capturedCases": [],
+      "publicProbes": [
+        {
+          "url": "https://www.booking.com/hotel/nl/nhgrandkrasnapolsky.html",
+          "checkedAt": "2026-09-20T04:56:36.390Z",
+          "httpStatus": 202,
+          "result": "not_verified",
+          "reason": "Waiting for selector `[data-testid=\"property-header\"], #hp_hotel_name` failed"
+        }
+      ]
+    },
+    {
+      "id": "brave-search",
+      "name": "Brave Search",
+      "registeredConfigurations": 1,
+      "capturedCases": [],
+      "publicProbes": [
+        {
+          "url": "https://search.brave.com/search?q=markdown",
+          "checkedAt": "2026-09-20T04:55:00.543Z",
+          "httpStatus": 429,
+          "result": "not_verified",
+          "reason": "HTTP 429"
+        }
+      ]
+    },
+    {
+      "id": "chatgpt",
+      "name": "ChatGPT",
+      "registeredConfigurations": 1,
+      "capturedCases": [],
+      "publicProbes": []
+    },
+    {
+      "id": "claude",
+      "name": "Claude",
+      "registeredConfigurations": 1,
+      "capturedCases": [],
+      "publicProbes": []
+    },
+    {
+      "id": "confluence",
+      "name": "Confluence",
+      "registeredConfigurations": 1,
+      "capturedCases": [],
+      "publicProbes": []
+    },
+    {
+      "id": "datadog-dashboard",
+      "name": "Datadog Dashboard",
+      "registeredConfigurations": 1,
+      "capturedCases": [],
+      "publicProbes": []
+    },
+    {
+      "id": "datadog-docs",
+      "name": "Datadog Documentation",
+      "registeredConfigurations": 1,
+      "capturedCases": [
+        "datadog-docs/agent"
+      ],
+      "publicProbes": [
+        {
+          "url": "https://docs.datadoghq.com/agent/basic_agent_usage/",
+          "checkedAt": "2026-09-20T04:55:41.777Z",
+          "httpStatus": 200,
+          "result": "passed",
+          "markdownChars": 12820
+        }
+      ]
+    },
+    {
+      "id": "datadog-notebook",
+      "name": "Datadog Notebook",
+      "registeredConfigurations": 1,
+      "capturedCases": [],
+      "publicProbes": []
+    },
+    {
+      "id": "deepswe",
+      "name": "DeepSWE",
+      "registeredConfigurations": 1,
+      "capturedCases": [
+        "deepswe/leaderboard"
+      ],
+      "publicProbes": [
+        {
+          "url": "https://deepswe.datacurve.ai/",
+          "checkedAt": "2026-09-20T04:55:47.396Z",
+          "httpStatus": 200,
+          "result": "passed",
+          "markdownChars": 23836
+        }
+      ]
+    },
+    {
+      "id": "deepseek",
+      "name": "DeepSeek",
+      "registeredConfigurations": 1,
+      "capturedCases": [],
+      "publicProbes": []
+    },
+    {
+      "id": "devto",
+      "name": "Dev.to",
+      "registeredConfigurations": 1,
+      "capturedCases": [
+        "devto/markdown-cheat-sheet"
+      ],
+      "publicProbes": [
+        {
+          "url": "https://dev.to/ganesh-tyjo/markdown-cheat-sheet-1mh0",
+          "checkedAt": "2026-09-20T05:08:03.340Z",
+          "httpStatus": 200,
+          "result": "passed",
+          "markdownChars": 9136
+        }
+      ]
+    },
+    {
+      "id": "discord",
+      "name": "Discord",
+      "registeredConfigurations": 1,
+      "capturedCases": [],
+      "publicProbes": []
+    },
+    {
+      "id": "documentation",
+      "name": "Sphinx / Read the Docs",
+      "registeredConfigurations": 1,
+      "capturedCases": [
+        "documentation/requests"
+      ],
+      "publicProbes": [
+        {
+          "url": "https://requests.readthedocs.io/en/latest/",
+          "checkedAt": "2026-09-20T04:55:41.781Z",
+          "httpStatus": 200,
+          "result": "passed",
+          "markdownChars": 13416
+        }
+      ]
+    },
+    {
+      "id": "duckduckgo",
+      "name": "DuckDuckGo Search",
+      "registeredConfigurations": 1,
+      "capturedCases": [],
+      "publicProbes": [
+        {
+          "url": "https://duckduckgo.com/?q=markdown",
+          "checkedAt": "2026-09-20T04:54:47.896Z",
+          "httpStatus": 202,
+          "result": "not_verified",
+          "reason": "Waiting for selector `[data-testid=\"result\"], .result` failed"
+        }
+      ]
+    },
+    {
+      "id": "facebook",
+      "name": "Facebook",
+      "registeredConfigurations": 1,
+      "capturedCases": [],
+      "publicProbes": [
+        {
+          "url": "https://www.facebook.com/NASA/",
+          "checkedAt": "2026-09-20T04:55:57.697Z",
+          "httpStatus": 200,
+          "result": "not_verified",
+          "reason": "Wrong extractor: Fallback"
+        }
+      ]
+    },
+    {
+      "id": "fox",
+      "name": "FOX",
+      "registeredConfigurations": 1,
+      "capturedCases": [],
+      "publicProbes": [
+        {
+          "url": "https://www.fox.com/shows/the-simpsons/",
+          "checkedAt": "2026-09-20T04:56:36.394Z",
+          "httpStatus": 404,
+          "result": "not_verified",
+          "reason": "HTTP 404"
+        },
+        {
+          "url": "https://www.fox.com/",
+          "checkedAt": "2026-09-20T05:08:26.371Z",
+          "result": "not_verified",
+          "reason": "No public content link discovered (HTTP 200)"
+        }
+      ]
+    },
+    {
+      "id": "gemini",
+      "name": "Gemini",
+      "registeredConfigurations": 1,
+      "capturedCases": [],
+      "publicProbes": []
+    },
+    {
+      "id": "gemini-notebook",
+      "name": "Gemini Notebook",
+      "registeredConfigurations": 1,
+      "capturedCases": [],
+      "publicProbes": [
+        {
+          "url": "https://notebooklm.google.com/notebook/ced773ad-f4f6-440d-8aa7-2e81877142d6",
+          "checkedAt": "2026-09-20T05:08:03.880Z",
+          "httpStatus": 200,
+          "result": "not_verified",
+          "reason": "Blocked/error page: Sign in - Google Accounts"
+        }
+      ]
+    },
+    {
+      "id": "github",
+      "name": "GitHub",
+      "registeredConfigurations": 1,
+      "capturedCases": [
+        "github/repository"
+      ],
+      "publicProbes": [
+        {
+          "url": "https://github.com/bvolpato/copy-as-markdown",
+          "checkedAt": "2026-09-20T04:55:18.633Z",
+          "httpStatus": 200,
+          "result": "passed",
+          "markdownChars": 30989
+        }
+      ]
+    },
+    {
+      "id": "hugging-face",
+      "name": "Hugging Face",
+      "registeredConfigurations": 1,
+      "capturedCases": [
+        "hugging-face/splash-model",
+        "hugging-face/imdb-dataset",
+        "hugging-face/model-files",
+        "hugging-face/space-files"
+      ],
+      "publicProbes": [
+        {
+          "url": "https://huggingface.co/incoai/Qwen3.8-27B-Splash",
+          "checkedAt": "2026-09-20T04:55:32.335Z",
+          "httpStatus": 200,
+          "result": "passed",
+          "markdownChars": 7275
+        },
+        {
+          "url": "https://huggingface.co/datasets/stanfordnlp/imdb",
+          "checkedAt": "2026-09-20T04:55:32.588Z",
+          "httpStatus": 200,
+          "result": "passed",
+          "markdownChars": 9851
+        },
+        {
+          "url": "https://huggingface.co/spaces/gradio/hello_world",
+          "checkedAt": "2026-09-20T04:55:33.098Z",
+          "httpStatus": 200,
+          "result": "passed",
+          "markdownChars": 1008
+        },
+        {
+          "url": "https://huggingface.co/Qwen/Qwen3-8B/tree/main",
+          "checkedAt": "2026-09-20T04:55:36.537Z",
+          "httpStatus": 200,
+          "result": "passed",
+          "markdownChars": 3050
+        }
+      ]
+    },
+    {
+      "id": "gitlab",
+      "name": "GitLab",
+      "registeredConfigurations": 1,
+      "capturedCases": [
+        "gitlab/repository"
+      ],
+      "publicProbes": [
+        {
+          "url": "https://gitlab.com/gitlab-org/gitlab",
+          "checkedAt": "2026-09-20T04:55:18.879Z",
+          "httpStatus": 200,
+          "result": "not_verified",
+          "reason": "Waiting for selector `[data-testid=\"tree-item\"]` failed"
+        }
+      ]
+    },
+    {
+      "id": "globo",
+      "name": "Globo",
+      "registeredConfigurations": 1,
+      "capturedCases": [
+        "globo/corruption-proposals"
+      ],
+      "publicProbes": [
+        {
+          "url": "https://g1.globo.com/politica/eleicoes/2026/noticia/2026/09/20/propostas-dos-presidenciaveis-contra-a-corrupcao.ghtml",
+          "checkedAt": "2026-09-20T05:08:10.772Z",
+          "httpStatus": 200,
+          "result": "not_verified",
+          "reason": "Missing \"Eleições 2026De inteligência artificial contra corrupção a c\""
+        }
+      ]
+    },
+    {
+      "id": "gmail",
+      "name": "Gmail",
+      "registeredConfigurations": 1,
+      "capturedCases": [],
+      "publicProbes": []
+    },
+    {
+      "id": "google-docs",
+      "name": "Google Docs",
+      "registeredConfigurations": 1,
+      "capturedCases": [],
+      "publicProbes": []
+    },
+    {
+      "id": "google-ai-studio",
+      "name": "Google AI Studio",
+      "registeredConfigurations": 1,
+      "capturedCases": [],
+      "publicProbes": []
+    },
+    {
+      "id": "google-search",
+      "name": "Google Search",
+      "registeredConfigurations": 1,
+      "capturedCases": [],
+      "publicProbes": [
+        {
+          "url": "https://www.google.com/search?q=markdown",
+          "checkedAt": "2026-09-20T04:54:23.464Z",
+          "httpStatus": 429,
+          "result": "not_verified",
+          "reason": "HTTP 429"
+        }
+      ]
+    },
+    {
+      "id": "google-sheets",
+      "name": "Google Sheets",
+      "registeredConfigurations": 1,
+      "capturedCases": [],
+      "publicProbes": []
+    },
+    {
+      "id": "google-slides",
+      "name": "Google Slides",
+      "registeredConfigurations": 1,
+      "capturedCases": [],
+      "publicProbes": []
+    },
+    {
+      "id": "grok",
+      "name": "Grok",
+      "registeredConfigurations": 1,
+      "capturedCases": [],
+      "publicProbes": []
+    },
+    {
+      "id": "grokipedia",
+      "name": "Grokipedia",
+      "registeredConfigurations": 1,
+      "capturedCases": [
+        "grokipedia/markdown"
+      ],
+      "publicProbes": [
+        {
+          "url": "https://grokipedia.com/page/Markdown",
+          "checkedAt": "2026-09-20T04:54:23.664Z",
+          "httpStatus": 200,
+          "result": "passed",
+          "markdownChars": 76705
+        }
+      ]
+    },
+    {
+      "id": "hackernews",
+      "name": "Hacker News",
+      "registeredConfigurations": 1,
+      "capturedCases": [],
+      "publicProbes": [
+        {
+          "url": "https://news.ycombinator.com/item?id=27814234",
+          "checkedAt": "2026-09-20T04:55:36.545Z",
+          "httpStatus": 200,
+          "result": "passed",
+          "markdownChars": 7773
+        }
+      ]
+    },
+    {
+      "id": "instagram",
+      "name": "Instagram",
+      "registeredConfigurations": 1,
+      "capturedCases": [],
+      "publicProbes": [
+        {
+          "url": "https://www.instagram.com/nasa/",
+          "checkedAt": "2026-09-20T04:56:10.094Z",
+          "httpStatus": 200,
+          "result": "not_verified",
+          "reason": "Waiting for selector `article` failed"
+        }
+      ]
+    },
+    {
+      "id": "jira",
+      "name": "Jira",
+      "registeredConfigurations": 1,
+      "capturedCases": [],
+      "publicProbes": []
+    },
+    {
+      "id": "leetllm",
+      "name": "LeetLLM",
+      "registeredConfigurations": 1,
+      "capturedCases": [
+        "leetllm/learn"
+      ],
+      "publicProbes": [
+        {
+          "url": "https://leetllm.com/learn",
+          "checkedAt": "2026-09-20T04:55:47.393Z",
+          "httpStatus": 200,
+          "result": "passed",
+          "markdownChars": 59481
+        }
+      ]
+    },
+    {
+      "id": "linear",
+      "name": "Linear",
+      "registeredConfigurations": 1,
+      "capturedCases": [],
+      "publicProbes": []
+    },
+    {
+      "id": "linkedin",
+      "name": "LinkedIn",
+      "registeredConfigurations": 1,
+      "capturedCases": [],
+      "publicProbes": [
+        {
+          "url": "https://www.linkedin.com/in/simonwillison/",
+          "checkedAt": "2026-09-20T04:56:10.601Z",
+          "httpStatus": 200,
+          "result": "passed",
+          "markdownChars": 342
+        }
+      ]
+    },
+    {
+      "id": "mdn",
+      "name": "MDN Web Docs",
+      "registeredConfigurations": 1,
+      "capturedCases": [
+        "mdn/javascript-guide"
+      ],
+      "publicProbes": [
+        {
+          "url": "https://developer.mozilla.org/en-US/docs/Web/JavaScript/Guide",
+          "checkedAt": "2026-09-20T04:55:41.774Z",
+          "httpStatus": 200,
+          "result": "passed",
+          "markdownChars": 15106
+        }
+      ]
+    },
+    {
+      "id": "medium",
+      "name": "Medium",
+      "registeredConfigurations": 1,
+      "capturedCases": [],
+      "publicProbes": []
+    },
+    {
+      "id": "meta-ai",
+      "name": "Meta AI",
+      "registeredConfigurations": 1,
+      "capturedCases": [],
+      "publicProbes": []
+    },
+    {
+      "id": "microsoft-copilot",
+      "name": "Microsoft Copilot",
+      "registeredConfigurations": 1,
+      "capturedCases": [],
+      "publicProbes": []
+    },
+    {
+      "id": "microsoft-office",
+      "name": "Microsoft 365",
+      "registeredConfigurations": 1,
+      "capturedCases": [],
+      "publicProbes": []
+    },
+    {
+      "id": "microsoft-teams",
+      "name": "Microsoft Teams",
+      "registeredConfigurations": 1,
+      "capturedCases": [],
+      "publicProbes": []
+    },
+    {
+      "id": "mlflow",
+      "name": "MLflow",
+      "registeredConfigurations": 1,
+      "capturedCases": [],
+      "publicProbes": []
+    },
+    {
+      "id": "mistral-vibe",
+      "name": "Mistral Vibe",
+      "registeredConfigurations": 1,
+      "capturedCases": [],
+      "publicProbes": []
+    },
+    {
+      "id": "netflix",
+      "name": "Netflix",
+      "registeredConfigurations": 1,
+      "capturedCases": [
+        "netflix/stranger-things"
+      ],
+      "publicProbes": [
+        {
+          "url": "https://www.netflix.com/title/80057281",
+          "checkedAt": "2026-09-20T04:56:36.392Z",
+          "httpStatus": 200,
+          "result": "not_verified",
+          "reason": "Waiting failed: 25000ms exceeded"
+        }
+      ]
+    },
+    {
+      "id": "news",
+      "name": "News (Generic)",
+      "registeredConfigurations": 1,
+      "capturedCases": [
+        "news/fox-webb",
+        "news/guardian-webb",
+        "news/bbc-article"
+      ],
+      "publicProbes": [
+        {
+          "url": "https://www.foxnews.com/science/neil-degrasse-tyson-james-webb-space-telescope-window-universe",
+          "checkedAt": "2026-09-20T04:57:04.380Z",
+          "httpStatus": 200,
+          "result": "passed",
+          "markdownChars": 6900
+        },
+        {
+          "url": "https://www.theguardian.com/science/2022/jul/12/james-webb-telescope-nasa-releases-more-spectacular-images",
+          "checkedAt": "2026-09-20T04:57:17.055Z",
+          "httpStatus": 404,
+          "result": "not_verified",
+          "reason": "HTTP 404"
+        },
+        {
+          "url": "https://www.nytimes.com/2022/07/12/science/webb-telescope-photos.html",
+          "checkedAt": "2026-09-20T04:57:17.058Z",
+          "httpStatus": 403,
+          "result": "not_verified",
+          "reason": "HTTP 403"
+        },
+        {
+          "url": "https://www.bbc.com/news/science-environment-62307352",
+          "checkedAt": "2026-09-20T04:57:17.055Z",
+          "httpStatus": 404,
+          "result": "not_verified",
+          "reason": "HTTP 404"
+        },
+        {
+          "url": "https://www.theguardian.com/commentisfree/2022/jul/15/the-guardian-view-on-the-james-webb-telescope-a-window-on-the-unknown",
+          "checkedAt": "2026-09-20T05:08:10.751Z",
+          "httpStatus": 200,
+          "result": "passed",
+          "markdownChars": 7382
+        },
+        {
+          "url": "https://www.bbc.com/news/articles/cm780ll1de18o",
+          "checkedAt": "2026-09-20T05:08:10.766Z",
+          "httpStatus": 200,
+          "result": "passed",
+          "markdownChars": 7823
+        }
+      ]
+    },
+    {
+      "id": "notion",
+      "name": "Notion",
+      "registeredConfigurations": 2,
+      "capturedCases": [
+        "notion/open-source-ai"
+      ],
+      "publicProbes": [
+        {
+          "url": "https://nathanshipley.notion.site/",
+          "checkedAt": "2026-09-20T05:08:03.586Z",
+          "httpStatus": 200,
+          "result": "passed",
+          "markdownChars": 4914
+        }
+      ]
+    },
+    {
+      "id": "npm",
+      "name": "NPM",
+      "registeredConfigurations": 1,
+      "capturedCases": [
+        "npm/tsx"
+      ],
+      "publicProbes": [
+        {
+          "url": "https://www.npmjs.com/package/tsx",
+          "checkedAt": "2026-09-20T04:55:40.061Z",
+          "httpStatus": 403,
+          "result": "not_verified",
+          "reason": "HTTP 403"
+        }
+      ]
+    },
+    {
+      "id": "openrouter",
+      "name": "OpenRouter",
+      "registeredConfigurations": 1,
+      "capturedCases": [
+        "openrouter/gpt-5-1"
+      ],
+      "publicProbes": [
+        {
+          "url": "https://openrouter.ai/openai/gpt-5.1",
+          "checkedAt": "2026-09-20T04:55:52.613Z",
+          "httpStatus": 200,
+          "result": "passed",
+          "markdownChars": 12627
+        }
+      ]
+    },
+    {
+      "id": "perplexity",
+      "name": "Perplexity",
+      "registeredConfigurations": 1,
+      "capturedCases": [],
+      "publicProbes": []
+    },
+    {
+      "id": "pinterest",
+      "name": "Pinterest",
+      "registeredConfigurations": 1,
+      "capturedCases": [],
+      "publicProbes": [
+        {
+          "url": "https://www.pinterest.com/nasa/",
+          "checkedAt": "2026-09-20T04:56:23.427Z",
+          "httpStatus": 200,
+          "result": "not_verified",
+          "reason": "Waiting for selector `[data-test-id=\"pin\"], [data-test-id=\"pinWrapper\"]` failed"
+        }
+      ]
+    },
+    {
+      "id": "polymarket",
+      "name": "Polymarket",
+      "registeredConfigurations": 1,
+      "capturedCases": [],
+      "publicProbes": [
+        {
+          "url": "https://polymarket.com/event/trump-x-greenland-deal-signed-by-december-31",
+          "checkedAt": "2026-09-20T05:08:26.359Z",
+          "httpStatus": 200,
+          "result": "passed",
+          "markdownChars": 2422
+        }
+      ]
+    },
+    {
+      "id": "pypi",
+      "name": "PyPI",
+      "registeredConfigurations": 1,
+      "capturedCases": [
+        "pypi/requests"
+      ],
+      "publicProbes": [
+        {
+          "url": "https://pypi.org/project/requests/",
+          "checkedAt": "2026-09-20T04:55:40.067Z",
+          "httpStatus": 200,
+          "result": "passed",
+          "markdownChars": 8494
+        }
+      ]
+    },
+    {
+      "id": "reddit",
+      "name": "Reddit",
+      "registeredConfigurations": 1,
+      "capturedCases": [],
+      "publicProbes": [
+        {
+          "url": "https://www.reddit.com/r/learnprogramming/comments/4qzyj4/what_is_markdown/",
+          "checkedAt": "2026-09-20T04:55:57.695Z",
+          "httpStatus": 200,
+          "result": "not_verified",
+          "reason": "Waiting for selector `shreddit-post, .thing.link` failed"
+        }
+      ]
+    },
+    {
+      "id": "slack",
+      "name": "Slack",
+      "registeredConfigurations": 1,
+      "capturedCases": [],
+      "publicProbes": []
+    },
+    {
+      "id": "stackoverflow",
+      "name": "Stack Overflow",
+      "registeredConfigurations": 1,
+      "capturedCases": [
+        "stackoverflow/sorted-array"
+      ],
+      "publicProbes": [
+        {
+          "url": "https://stackoverflow.com/questions/11227809/why-is-processing-a-sorted-array-faster-than-processing-an-unsorted-array",
+          "checkedAt": "2026-09-20T04:55:36.541Z",
+          "httpStatus": 403,
+          "result": "not_verified",
+          "reason": "HTTP 403"
+        }
+      ]
+    },
+    {
+      "id": "substack",
+      "name": "Substack",
+      "registeredConfigurations": 1,
+      "capturedCases": [
+        "substack/year-in-llms"
+      ],
+      "publicProbes": [
+        {
+          "url": "https://simonw.substack.com/p/2025-the-year-in-llms",
+          "checkedAt": "2026-09-20T04:55:47.393Z",
+          "httpStatus": 200,
+          "result": "passed",
+          "markdownChars": 27652
+        }
+      ]
+    },
+    {
+      "id": "temu",
+      "name": "Temu",
+      "registeredConfigurations": 1,
+      "capturedCases": [],
+      "publicProbes": [
+        {
+          "url": "https://www.temu.com/4pcs-bamboo-fiber-sheet-set-2200---sheet-set-suitable-for-heat-sensitive-individuals--and-breathable-16-18-inch-deep-pocket-sheets-suitable-for-hotels--schools-dormitories-local--g-606134907825411.html",
+          "checkedAt": "2026-09-20T05:08:26.366Z",
+          "httpStatus": 200,
+          "result": "not_verified",
+          "reason": "Waiting for selector `article, main h1` failed"
+        }
+      ]
+    },
+    {
+      "id": "tiktok",
+      "name": "TikTok",
+      "registeredConfigurations": 1,
+      "capturedCases": [],
+      "publicProbes": [
+        {
+          "url": "https://www.tiktok.com/@nasa",
+          "checkedAt": "2026-09-20T04:56:10.346Z",
+          "result": "not_verified",
+          "reason": "net::ERR_INVALID_HANDLE at https://www.tiktok.com/@nasa"
+        }
+      ]
+    },
+    {
+      "id": "twitch",
+      "name": "Twitch",
+      "registeredConfigurations": 1,
+      "capturedCases": [],
+      "publicProbes": [
+        {
+          "url": "https://www.twitch.tv/nasa",
+          "checkedAt": "2026-09-20T04:57:04.379Z",
+          "httpStatus": 200,
+          "result": "not_verified",
+          "reason": "Output under 300 chars"
+        }
+      ]
+    },
+    {
+      "id": "vk",
+      "name": "VK",
+      "registeredConfigurations": 1,
+      "capturedCases": [],
+      "publicProbes": [
+        {
+          "url": "https://vk.com/nasa",
+          "checkedAt": "2026-09-20T04:56:23.681Z",
+          "httpStatus": 404,
+          "result": "not_verified",
+          "reason": "HTTP 404"
+        }
+      ]
+    },
+    {
+      "id": "wandb",
+      "name": "Weights & Biases",
+      "registeredConfigurations": 1,
+      "capturedCases": [
+        "wandb/public-run"
+      ],
+      "publicProbes": [
+        {
+          "url": "https://wandb.ai/wandb/examples/runs/273nzisp",
+          "checkedAt": "2026-09-20T05:08:45.646Z",
+          "httpStatus": 200,
+          "result": "not_verified",
+          "reason": "Missing \"vocal-forest-3vocal-forest-3\""
+        }
+      ]
+    },
+    {
+      "id": "weather",
+      "name": "Weather.com",
+      "registeredConfigurations": 1,
+      "capturedCases": [],
+      "publicProbes": [
+        {
+          "url": "https://weather.com/weather/today/l/USNY0996:1:US",
+          "checkedAt": "2026-09-20T04:57:04.379Z",
+          "httpStatus": 200,
+          "result": "not_verified",
+          "reason": "Waiting for selector `[data-testid=\"CurrentConditions\"], [data-testid*=\"CurrentConditions\"]` failed"
+        },
+        {
+          "url": "https://weather.com/us/new-york/new-york/today",
+          "checkedAt": "2026-09-20T05:08:45.900Z",
+          "httpStatus": 404,
+          "result": "not_verified",
+          "reason": "HTTP 404"
+        }
+      ]
+    },
+    {
+      "id": "whatsapp",
+      "name": "WhatsApp",
+      "registeredConfigurations": 1,
+      "capturedCases": [],
+      "publicProbes": []
+    },
+    {
+      "id": "wikipedia",
+      "name": "Wikipedia",
+      "registeredConfigurations": 1,
+      "capturedCases": [
+        "wikipedia/markdown"
+      ],
+      "publicProbes": [
+        {
+          "url": "https://en.wikipedia.org/wiki/Markdown",
+          "checkedAt": "2026-09-20T04:54:22.914Z",
+          "httpStatus": 200,
+          "result": "passed",
+          "markdownChars": 35931
+        }
+      ]
+    },
+    {
+      "id": "x-twitter",
+      "name": "X (Twitter)",
+      "registeredConfigurations": 1,
+      "capturedCases": [],
+      "publicProbes": [
+        {
+          "url": "https://x.com/NASA",
+          "checkedAt": "2026-09-20T04:55:57.695Z",
+          "httpStatus": 403,
+          "result": "not_verified",
+          "reason": "HTTP 403"
+        }
+      ]
+    },
+    {
+      "id": "yahoo-search",
+      "name": "Yahoo Search",
+      "registeredConfigurations": 1,
+      "capturedCases": [],
+      "publicProbes": [
+        {
+          "url": "https://search.yahoo.com/search?p=markdown",
+          "checkedAt": "2026-09-20T04:54:48.404Z",
+          "httpStatus": 500,
+          "result": "not_verified",
+          "reason": "HTTP 500"
+        }
+      ]
+    },
+    {
+      "id": "yandex-search",
+      "name": "Yandex Search",
+      "registeredConfigurations": 1,
+      "capturedCases": [],
+      "publicProbes": [
+        {
+          "url": "https://yandex.com/search/?text=markdown",
+          "checkedAt": "2026-09-20T04:55:00.539Z",
+          "httpStatus": 200,
+          "result": "not_verified",
+          "reason": "Waiting for selector `.serp-item, .Organic` failed"
+        }
+      ]
+    },
+    {
+      "id": "youtube",
+      "name": "YouTube",
+      "registeredConfigurations": 1,
+      "capturedCases": [
+        "youtube/me-at-the-zoo"
+      ],
+      "publicProbes": [
+        {
+          "url": "https://www.youtube.com/watch?v=jNQXAC9IVRw",
+          "checkedAt": "2026-09-20T04:55:52.616Z",
+          "httpStatus": 200,
+          "result": "passed",
+          "markdownChars": 1150
+        }
+      ]
+    }
+  ]
+}

@@ -294,20 +294,19 @@ function formatJiraField(value: unknown): string {
   if (value === null || value === undefined) return '';
   if (typeof value === 'string') {
     const markdown = /<\/?[a-z][\s\S]*>/i.test(value) ? htmlToMarkdown(value) : normalizeText(value);
-    return markdown.slice(0, 4_000);
+    return markdown;
   }
   if (typeof value === 'number' || typeof value === 'boolean') return String(value);
   if (Array.isArray(value)) {
-    return value.map(formatJiraField).filter(Boolean).join(', ').slice(0, 4_000);
+    return value.map(formatJiraField).filter(Boolean).join(', ');
   }
 
   const object = asObject(value);
   if (!object) return '';
-  if (object.type === 'doc') return adfToMarkdown(object).slice(0, 4_000);
+  if (object.type === 'doc') return adfToMarkdown(object);
   return [object.displayName, object.name, object.value, object.key]
     .map(stringValue)
-    .find(Boolean)
-    ?.slice(0, 4_000) || '';
+    .find(Boolean) || '';
 }
 
 function extractApiComments(
@@ -439,7 +438,7 @@ function extractFields(): NamedValue[] {
 
 function addField(fields: Map<string, NamedValue>, rawName: string, rawValue: string): void {
   const name = normalizeFieldName(rawName);
-  const value = normalizeText(rawValue).slice(0, 4_000);
+  const value = normalizeText(rawValue);
   if (!name || !value || value === '-' || /^(description|summary|comments?|activity)$/i.test(name)) return;
   const key = name.toLowerCase();
   const existing = fields.get(key);

@@ -1,4 +1,5 @@
 import dns from 'node:dns/promises';
+import { createHash } from 'node:crypto';
 import fs from 'node:fs';
 import net from 'node:net';
 import path from 'node:path';
@@ -21,13 +22,16 @@ const FIXTURE_TIMEOUT_MS = 12_000;
 interface WaybackCapture {
   timestamp: string;
   original: string;
-  digest: string;
+  digest?: string;
+  digestAlgorithm?: 'sha256';
 }
 
 interface CapturedPage {
   html: string;
   provenance: FixtureProvenance;
   rawScreenshot: string;
+  liveVerification?: { markdownChars: number; placement: 'anchor' | 'floating' };
+  archiveMarkdownChars?: number;
 }
 
 export interface VerificationResult {
@@ -183,41 +187,84 @@ async function settlePage(page: Page, readySelector: string): Promise<void> {
   await page.waitForNetworkIdle({ idleTime: 750, timeout: 8_000 }).catch(() => undefined);
 }
 
-async function injectAndCheckLivePage(page: Page, scriptContent: string, expectedExtractor: string): Promise<void> {
-  await page.addScriptTag({ content: scriptContent });
-  await page.waitForSelector('#cam-copy-btn', { timeout: FIXTURE_TIMEOUT_MS });
-  const extractor = await page.$eval('#cam-copy-btn', (button) =>
-    (button as HTMLElement).dataset.camExtractor || '');
-  if (extractor !== expectedExtractor) {
-    throw new Error(`Live page routed to ${JSON.stringify(extractor)} instead of ${JSON.stringify(expectedExtractor)}`);
+export function assertContentPage(title: string, challengePresent: boolean): void {
+  if (challengePresent || /^(?:just a moment|access denied|robot check|are you not a robot|security check|captcha|verify you are human|page not found|404(?:\s|$)|unusual traffic)(?:\b|\.\.\.)|^(?:sign in|sign up|log in)(?:\s*[-|·]|$)|^百度安全验证/i.test(title.trim())) {
+    throw new Error(`Blocked or error page: ${title}`);
   }
 }
 
-async function sanitizeRenderedPage(page: Page, excludedSelectors: string[]): Promise<string> {
-  return page.evaluate((selectors) => {
-    document.querySelectorAll([
+async function checkContentPage(page: Page): Promise<void> {
+  const state = await page.evaluate(() => ({
+    title: document.title,
+    challengePresent: !!document.querySelector('#challenge-form, #cf-challenge-running, #challenge-running'),
+  }));
+  assertContentPage(state.title, state.challengePresent);
+}
+
+async function injectAndCheckPage(page: Page, scriptContent: string, site: FixtureSite, fixtureCase: FixtureCase) {
+  await page.evaluate(scriptContent);
+  await page.waitForSelector('#cam-copy-btn', { timeout: FIXTURE_TIMEOUT_MS });
+  const extractor = await page.$eval('#cam-copy-btn', (button) =>
+    (button as HTMLElement).dataset.camExtractor || '');
+  if (extractor !== site.extractor) {
+    throw new Error(`Live page routed to ${JSON.stringify(extractor)} instead of ${JSON.stringify(site.extractor)}`);
+  }
+  await page.$eval('#cam-copy-btn', (button) => button.scrollIntoView({ block: 'center', inline: 'center' }));
+  await page.evaluate(() => new Promise<void>((resolve) => requestAnimationFrame(() => resolve())));
+  const placement = await page.$eval('#cam-copy-btn', (button) => {
+    const rect = button.getBoundingClientRect();
+    if (rect.width <= 0 || rect.height <= 0 || rect.left < 0 || rect.top < 0
+      || rect.right > innerWidth || rect.bottom > innerHeight) {
+      throw new Error('Live copy button is outside the viewport or hidden');
+    }
+    return button.classList.contains('cam-floating') ? 'floating' as const : 'anchor' as const;
+  });
+  if (placement !== fixtureCase.placement) {
+    throw new Error(`Original page used ${placement} placement instead of ${fixtureCase.placement}`);
+  }
+  const markdown = await captureMarkdown(page, fixtureCase.optionId);
+  if (markdown.length < fixtureCase.minChars || markdown.length > fixtureCase.maxChars) {
+    throw new Error(`Live copy produced ${markdown.length} chars outside ${fixtureCase.minChars}-${fixtureCase.maxChars}`);
+  }
+  for (const required of fixtureCase.contentRequired || []) {
+    if (!markdown.includes(required)) throw new Error(`Live copy misses ${JSON.stringify(required)}`);
+  }
+  const sourceText = await page.evaluate((selectors) => selectors.map((selector) => ({
+    selector, text: document.querySelector(selector)?.textContent?.replace(/\s+/g, ' ').trim(),
+  })), fixtureCase.contentSelectors || []);
+  for (const { selector, text } of sourceText) {
+    if (!text || !markdown.includes(text)) throw new Error(`Original copy misses content from ${selector}`);
+  }
+  return { markdownChars: markdown.length, placement };
+}
+
+async function sanitizeRenderedPage(page: Page, excludedSelectors: string[], linkPrefixes: string[]): Promise<string> {
+  return page.evaluate((selectors, prefixes) => {
+    // Work in an inert document. Removing live custom elements can invoke site
+    // lifecycle callbacks and corrupt the page while it is being captured.
+    const snapshot = document.implementation.createHTMLDocument('');
+    snapshot.replaceChild(snapshot.importNode(document.documentElement, true), snapshot.documentElement);
+    const originals = Array.from(document.querySelectorAll<HTMLElement>('*'));
+    const copies = Array.from(snapshot.querySelectorAll<HTMLElement>('*'));
+    for (let index = 0; index < originals.length; index += 1) {
+      const element = originals[index];
+      const copy = copies[index];
+      if (element.shadowRoot) {
+        const wrapper = snapshot.createElement('div');
+        wrapper.setAttribute('data-fixture-shadow-root', 'open');
+        wrapper.append(...Array.from(element.shadowRoot.childNodes).map((node) => snapshot.importNode(node, true)));
+        copy.append(wrapper);
+      }
+      const style = getComputedStyle(element);
+      if (element.hidden || element.getAttribute('aria-hidden') === 'true'
+        || style.display === 'none' || style.visibility === 'hidden') copy.remove();
+    }
+    snapshot.querySelectorAll([
       '#wm-ipp', '#wm-ipp-base', '#wm-ipp-print', '#donato',
       '[data-cam-instance]', '#cam-styles', '#cam-toast-styles', '#cam-toast', '#cam-option-dialog',
     ].join(',')).forEach((element) => element.remove());
 
-    for (const element of Array.from(document.querySelectorAll('*'))) {
-      const shadow = (element as HTMLElement).shadowRoot;
-      if (!shadow) continue;
-      const wrapper = document.createElement('div');
-      wrapper.setAttribute('data-fixture-shadow-root', 'open');
-      wrapper.append(...Array.from(shadow.childNodes).map((node) => node.cloneNode(true)));
-      element.append(wrapper);
-    }
-
-    for (const element of Array.from(document.querySelectorAll<HTMLElement>('*'))) {
-      const style = getComputedStyle(element);
-      if (element.hidden || element.getAttribute('aria-hidden') === 'true'
-        || style.display === 'none' || style.visibility === 'hidden') {
-        element.remove();
-      }
-    }
-
-    document.querySelectorAll([
+    snapshot.querySelectorAll([
       'script', 'style', 'link', 'base', 'iframe', 'object', 'embed', 'canvas', 'svg',
       'video', 'audio', 'source', 'picture', 'img', 'noscript', 'template', 'form',
     ].join(',')).forEach((element) => element.remove());
@@ -229,6 +276,7 @@ async function sanitizeRenderedPage(page: Page, excludedSelectors: string[]): Pr
       'aria-selected', 'aria-current', 'data-testid', 'data-test-id', 'data-e2e', 'data-uia',
       'data-qa', 'data-a-target', 'data-component-name', 'data-block-id', 'data-post-id',
       'data-turn', 'data-message-author-role', 'data-fixture-shadow-root',
+      'data-target',
     ]);
     const identifierAttributes = new Set(['id', 'class', 'aria-labelledby', 'aria-describedby']);
     const textAttributes = new Set(['title', 'alt', 'aria-label']);
@@ -242,7 +290,7 @@ async function sanitizeRenderedPage(page: Page, excludedSelectors: string[]): Pr
       return true;
     }).join(' ');
 
-    for (const element of Array.from(document.querySelectorAll('*'))) {
+    for (const element of Array.from(snapshot.querySelectorAll('*'))) {
       for (const attribute of Array.from(element.attributes)) {
         const name = attribute.name.toLowerCase();
         if (!allowed.has(name)) {
@@ -260,39 +308,45 @@ async function sanitizeRenderedPage(page: Page, excludedSelectors: string[]): Pr
           element.setAttribute(name, '2026-01-01T00:00:00Z');
         } else if (name === 'href') {
           linkToken += 1;
-          element.setAttribute(name, `https://example.invalid/fixture-link-${String(linkToken).padStart(4, '0')}`);
+          let resolved = '';
+          try { resolved = new URL(attribute.value, document.baseURI).href; } catch { /* Normalize malformed links too. */ }
+          const prefix = prefixes.find((candidate) => resolved.startsWith(candidate));
+          element.setAttribute(name, `${prefix || 'https://example.invalid/'}fixture-link-${String(linkToken).padStart(4, '0')}`);
         }
       }
     }
 
-    const comments = document.createTreeWalker(document, NodeFilter.SHOW_COMMENT);
+    const comments = snapshot.createTreeWalker(snapshot, NodeFilter.SHOW_COMMENT);
     const commentsToRemove: Node[] = [];
     while (comments.nextNode()) commentsToRemove.push(comments.currentNode);
     commentsToRemove.forEach((node) => node.parentNode?.removeChild(node));
 
-    const textWalker = document.createTreeWalker(document.documentElement, NodeFilter.SHOW_TEXT);
+    const textWalker = snapshot.createTreeWalker(snapshot.documentElement, NodeFilter.SHOW_TEXT);
     const textNodes: Text[] = [];
     while (textWalker.nextNode()) textNodes.push(textWalker.currentNode as Text);
     let textToken = 0;
     for (const node of textNodes) {
-      if (!node.data.trim()) continue;
+      if (!node.data.trim()) {
+        node.data = node.data.replace(/\u00a0/g, ' ');
+        continue;
+      }
       textToken += 1;
       const tag = node.parentElement?.tagName.toUpperCase().replace(/[^A-Z0-9]/g, '') || 'TEXT';
       node.data = `FIXTURE_${tag}_${String(textToken).padStart(4, '0')}`;
     }
 
     selectors.forEach((selector, index) => {
-      const elements = document.querySelectorAll(selector);
+      const elements = snapshot.querySelectorAll(selector);
       if (elements.length === 0) throw new Error(`Excluded selector not found: ${selector}`);
       const marker = `FIXTURE_EXCLUDED_${String(index + 1).padStart(4, '0')}`;
-      elements.forEach((element) => element.prepend(document.createTextNode(marker)));
+      elements.forEach((element) => element.prepend(snapshot.createTextNode(marker)));
     });
 
-    if (document.querySelectorAll('*').length > 30_000) {
+    if (snapshot.querySelectorAll('*').length > 30_000) {
       throw new Error('Sanitized page exceeds 30,000 elements');
     }
-    return '<!doctype html>\n' + document.documentElement.outerHTML;
-  }, excludedSelectors);
+    return ('<!doctype html>\n' + snapshot.documentElement.outerHTML).replace(/[\t ]+$/gm, '');
+  }, excludedSelectors, linkPrefixes);
 }
 
 async function captureCandidate(
@@ -303,7 +357,8 @@ async function captureCandidate(
   source: FixtureSource,
   scriptContent: string,
   workDirectory: string,
-): Promise<{ html: string; rawScreenshot: string }> {
+  archive?: WaybackCapture,
+): Promise<{ html: string; rawScreenshot: string; liveVerification?: CapturedPage['liveVerification']; archiveMarkdownChars?: number; captureTimestamp?: string; responseSha256?: string }> {
   const context = await browser.createBrowserContext();
   const page = await context.newPage();
   fs.mkdirSync(workDirectory, { recursive: true });
@@ -313,13 +368,43 @@ async function captureCandidate(
     if (!response || response.status() >= 400) {
       throw new Error(`${source} navigation returned HTTP ${response?.status() ?? 'unknown'}`);
     }
+    const captureTimestamp = source === 'wayback'
+      ? new URL(response.url()).pathname.match(/^\/web\/(\d{14})(?:id_)?\//)?.[1] : undefined;
+    if (source === 'wayback' && !captureTimestamp) throw new Error('Wayback did not return an exact snapshot URL');
+    if (archive?.digest && captureTimestamp !== archive.timestamp) {
+      throw new Error(`Wayback redirected pinned snapshot ${archive.timestamp} to ${captureTimestamp}`);
+    }
+    const responseSha256 = source === 'wayback'
+      ? createHash('sha256').update(await response.buffer()).digest('hex') : undefined;
+    if (archive?.digestAlgorithm === 'sha256' && archive.digest !== responseSha256) {
+      throw new Error('Wayback snapshot response does not match its pinned SHA-256 digest');
+    }
+    await checkContentPage(page);
     await settlePage(page, fixtureCase.readySelector);
-    if (source === 'live') await injectAndCheckLivePage(page, scriptContent, site.extractor);
+    await checkContentPage(page);
+    const liveVerification = source === 'live'
+      ? await injectAndCheckPage(page, scriptContent, site, fixtureCase) : undefined;
+    let archiveMarkdownChars: number | undefined;
+    if (source === 'wayback') {
+      // Check the archived rendered DOM at its original URL before anonymizing it.
+      // Site scripts are removed and replay makes no outgoing network requests.
+      const originalHtml = await page.evaluate(() => {
+        const clone = document.documentElement.cloneNode(true) as HTMLElement;
+        clone.querySelectorAll('script, iframe, object, embed, #wm-ipp, #wm-ipp-base, #donato').forEach((node) => node.remove());
+        return '<!doctype html>\n' + clone.outerHTML;
+      });
+      const originalPage = await openFixturePage(browser, originalHtml, fixtureCase.url);
+      try {
+        archiveMarkdownChars = (await injectAndCheckPage(originalPage, scriptContent, site, fixtureCase)).markdownChars;
+      } finally {
+        await originalPage.close();
+      }
+    }
 
     const rawScreenshot = path.join(workDirectory, `${source}.png`);
     await page.screenshot({ path: rawScreenshot, fullPage: false });
-    const html = await sanitizeRenderedPage(page, fixtureCase.excludedSelectors || []);
-    return { html, rawScreenshot };
+    const html = await sanitizeRenderedPage(page, fixtureCase.excludedSelectors || [], fixtureCase.linkPrefixes || []);
+    return { html, rawScreenshot, liveVerification, archiveMarkdownChars, captureTimestamp, responseSha256 };
   } catch (error) {
     const failureScreenshot = path.join(workDirectory, `${source}-failure.png`);
     await page.screenshot({ path: failureScreenshot, fullPage: false }).catch(() => undefined);
@@ -352,6 +437,8 @@ export async function capturePublicFixture(
           originalUrl: fixtureCase.url,
           capturedAt: new Date().toISOString(),
           sanitizerVersion: SANITIZER_VERSION,
+          liveMarkdownChars: captured.liveVerification?.markdownChars,
+          livePlacement: captured.liveVerification?.placement,
         },
       };
     } catch (error) {
@@ -361,16 +448,21 @@ export async function capturePublicFixture(
   }
 
   try {
-    const archive = typeof fixtureCase.wayback === 'object'
+    const archive: WaybackCapture = typeof fixtureCase.wayback === 'object'
       ? {
           timestamp: fixtureCase.wayback.timestamp,
           original: fixtureCase.url,
           digest: fixtureCase.wayback.digest,
+          digestAlgorithm: fixtureCase.wayback.digestAlgorithm,
         }
-      : await discoverWaybackCapture(fixtureCase.url);
-    const archiveUrl = `https://web.archive.org/web/${archive.timestamp}/${archive.original}`;
+      : await discoverWaybackCapture(fixtureCase.url).catch(() => ({
+          // Replay can discover an exact snapshot even when CDX is unavailable.
+          timestamp: new Date().toISOString().replace(/\D/g, '').slice(0, 14),
+          original: fixtureCase.url,
+        }));
+    const archiveUrl = `https://web.archive.org/web/${archive.timestamp}id_/${archive.original}`;
     const captured = await captureCandidate(
-      browser, site, fixtureCase, archiveUrl, 'wayback', scriptContent, workDirectory,
+      browser, site, fixtureCase, archiveUrl, 'wayback', scriptContent, workDirectory, archive,
     );
     return {
       ...captured,
@@ -378,8 +470,11 @@ export async function capturePublicFixture(
         source: 'wayback',
         originalUrl: fixtureCase.url,
         capturedAt: new Date().toISOString(),
-        captureTimestamp: archive.timestamp,
-        captureDigest: archive.digest,
+        captureTimestamp: captured.captureTimestamp,
+        captureDigest: archive.digest || captured.responseSha256,
+        captureDigestAlgorithm: archive.digestAlgorithm || (archive.digest ? undefined : 'sha256'),
+        captureResponseSha256: captured.responseSha256,
+        archiveMarkdownChars: captured.archiveMarkdownChars,
         sanitizerVersion: SANITIZER_VERSION,
       },
     };
@@ -424,23 +519,27 @@ async function openFixturePage(
   browser: Browser,
   html: string,
   url: string,
-  scriptContent: string,
+  scriptContent?: string,
 ): Promise<Page> {
   const page = await browser.newPage();
   await page.evaluateOnNewDocument('globalThis.__name = globalThis.__name || ((value) => value);');
   await page.setViewport({ width: 1440, height: 900, deviceScaleFactor: 1 });
+  await page.emulateTimezone('UTC');
   await page.setBypassCSP(true);
   await page.setRequestInterception(true);
   page.on('request', (request) => {
-    if (request.isNavigationRequest() && request.resourceType() === 'document') {
+    if (request.isNavigationRequest() && request.resourceType() === 'document'
+      && request.frame() === page.mainFrame()) {
       request.respond({ status: 200, contentType: 'text/html; charset=utf-8', body: html });
     } else {
       request.abort('blockedbyclient');
     }
   });
   await page.goto(url, { waitUntil: 'domcontentloaded', timeout: PAGE_TIMEOUT_MS });
-  await page.addScriptTag({ content: scriptContent });
-  await page.waitForSelector('#cam-copy-btn', { timeout: FIXTURE_TIMEOUT_MS });
+  if (scriptContent) {
+    await page.evaluate(scriptContent);
+    await page.waitForSelector('#cam-copy-btn', { timeout: FIXTURE_TIMEOUT_MS });
+  }
   return page;
 }
 

@@ -23,7 +23,6 @@ type ExtractionResult = {
 };
 
 const MAX_ROWS = 200;
-const MAX_COLUMNS = 50;
 const MAX_SLIDES = 200;
 
 register({
@@ -141,7 +140,6 @@ function extractExcelGrid(title: string): ExtractionResult | null {
     const rows = Array.from(grid.querySelectorAll('tr'));
     const limited = limitCollection(rows, MAX_ROWS);
     const clone = grid.cloneNode(true) as HTMLTableElement;
-    Array.from(clone.querySelectorAll('tr')).slice(MAX_ROWS).forEach((row) => row.remove());
     const table = Markdown.tableToMarkdown(clone);
     if (!table) return null;
     const bounded = limitMarkdown(`# ${title}\n\n## Visible worksheet\n\n${table}`);
@@ -182,7 +180,7 @@ function excelRowsToMarkdown(rows: HTMLElement[]): string {
     const indexed = new Map<number, string>();
     cells.forEach((cell, cellIndex) => {
       const column = positiveInteger(cell.getAttribute('aria-colindex')) || cellIndex + 1;
-      if (column <= MAX_COLUMNS) indexed.set(column, escapeTableCell(accessibleText(cell)));
+      indexed.set(column, escapeTableCell(accessibleText(cell)));
     });
     return {
       row: positiveInteger(row.getAttribute('aria-rowindex')) || rowIndex + 1,
@@ -191,17 +189,14 @@ function excelRowsToMarkdown(rows: HTMLElement[]): string {
   }).filter(({ cells }) => cells.size > 0);
   if (cellsByRow.length === 0) return '';
 
-  const width = Math.min(
-    MAX_COLUMNS,
-    Math.max(...cellsByRow.flatMap(({ cells }) => Array.from(cells.keys()))),
-  );
-  const header = ['Row', ...Array.from({ length: width }, (_, index) => columnName(index + 1))];
+  const columns = [...new Set(cellsByRow.flatMap(({ cells }) => Array.from(cells.keys())))].sort((a, b) => a - b);
+  const header = ['Row', ...columns.map(columnName)];
   const lines = [
     `| ${header.join(' | ')} |`,
     `| ${header.map(() => '---').join(' | ')} |`,
   ];
   cellsByRow.forEach(({ row, cells }) => {
-    const values = Array.from({ length: width }, (_, index) => cells.get(index + 1) || '');
+    const values = columns.map((column) => cells.get(column) || '');
     if (values.some(Boolean)) lines.push(`| ${row} | ${values.join(' | ')} |`);
   });
   return lines.join('\n');

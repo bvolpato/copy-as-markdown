@@ -10,7 +10,7 @@ if (!fs.existsSync(outDir)) {
 
 async function run() {
   const browser = await puppeteer.launch({ 
-    headless: true,
+    headless: 'shell',
     args: ['--no-sandbox', '--disable-setuid-sandbox']
   });
 

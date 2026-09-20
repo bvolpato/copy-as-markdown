@@ -252,7 +252,7 @@ function mapEmbeddedRecord(record: Record<string, unknown>, id: string): Faceboo
   post.comments = nestedCount(feedback, ['comment_count', 'total_count'], ['comment_count'], ['total_comment_count']);
   post.shares = nestedCount(feedback, ['share_count', 'count'], ['share_count']);
   post.views = nestedCount(record, ['view_count'], ['play_count']);
-  post.media = collectAccessibilityText(record).slice(0, 20);
+  post.media = collectAccessibilityText(record);
   return post;
 }
 
@@ -328,7 +328,7 @@ function extractMedia(scope: ParentNode): string[] {
     const src = safeHttpUrl(video.getAttribute('src') || video.getAttribute('poster') || '');
     if (value || src) media.push(src ? `[${escapeLabel(value || 'Facebook video')}](${src})` : value);
   });
-  return unique(media).slice(0, 20);
+  return unique(media);
 }
 
 function appendComment(parts: string[], comment: FacebookComment): void {
@@ -384,7 +384,7 @@ function collectAccessibilityText(root: unknown): string[] {
   const result: string[] = [];
   const stack: Array<{ value: unknown; depth: number }> = [{ value: root, depth: 0 }];
   let visited = 0;
-  while (stack.length && visited++ < 5_000 && result.length < 20) {
+  while (stack.length && visited++ < 5_000) {
     const current = stack.pop()!;
     if (isRecord(current.value)) {
       for (const key of ['accessibility_caption', 'accessibilityCaption', 'alt_text', 'alt']) {

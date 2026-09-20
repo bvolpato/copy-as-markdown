@@ -233,7 +233,7 @@ register({
       const commentCount = discussionData.commentCount || discussionData.comment.length;
       parts.push(`## Comments (${commentCount})\n`);
 
-      const comments: any[] = discussionData.comment.slice(0, 15);
+      const comments: any[] = discussionData.comment;
       comments.forEach((c: any) => {
         const author = c.author?.name || 'Anonymous';
         const date = c.datePublished

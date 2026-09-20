@@ -10,7 +10,6 @@ import { register } from '../core/registry';
 import * as Utils from '../core/utils';
 
 const COMMENT_LIMIT = 30;
-const MEDIA_LIMIT = 20;
 
 interface RedditPost {
   id: string;
@@ -250,7 +249,7 @@ function extractMedia(scope: ParentNode): string[] {
     const src = safeHttpUrl(video.currentSrc || video.src || video.poster || '');
     if (src && !media.includes(src)) media.push(`[Reddit video](${src})`);
   });
-  return media.slice(0, MEDIA_LIMIT);
+  return media;
 }
 
 function findEmbeddedPost(id: string): RedditPost | null {
@@ -319,7 +318,7 @@ function mergePosts(primary: RedditPost | null, fallback: RedditPost): RedditPos
     timestamp: primary.timestamp || fallback.timestamp,
     score: primary.score || fallback.score,
     comments: primary.comments || fallback.comments,
-    media: [...new Set([...primary.media, ...fallback.media])].slice(0, MEDIA_LIMIT),
+    media: [...new Set([...primary.media, ...fallback.media])],
   };
 }
 

@@ -76,7 +76,7 @@ register({
       ...Array.from(document.querySelectorAll<HTMLImageElement>('main img[alt], [data-testid="gallery"] img'))
         .map((image) => image.currentSrc || image.src),
       ...listValue(payload?.image),
-    ]).slice(0, 12);
+    ]);
 
     const metadata: Record<string, string> = {
       source: 'Temu', title, url, price: price && currency && !price.includes(currency) ? `${price} ${currency}` : price,
@@ -88,11 +88,11 @@ register({
     if (availability) parts.push(`**Availability:** ${availability}`);
     if (seller) parts.push(`**Seller:** ${seller}`);
     parts.push('');
-    if (description) parts.push('## Description', '', Utils.truncate(description, 20_000), '');
+    if (description) parts.push('## Description', '', description, '');
 
     const specs = Array.from(document.querySelectorAll(
       '[data-testid="specifications"] tr, [data-testid="product-details"] li, [class*="Specification"] li, [class*="specification"] li',
-    )).map((row) => row.textContent?.trim() || '').filter(Boolean).slice(0, 80);
+    )).map((row) => row.textContent?.trim() || '').filter(Boolean);
     if (specs.length) parts.push('## Product Details', '', ...specs.map((spec) => `- ${spec}`), '');
     if (images.length) parts.push('## Images', '', ...images.map((image) => `- ${image}`), '');
 

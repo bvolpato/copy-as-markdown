@@ -2751,7 +2751,13 @@ async function runExpandedPlatformChecks(browser, scriptContent) {
         model: {
           id: 'google/gemma-3-270m', author: 'google', downloads: 42000, likes: 123,
           tags: ['text-generation', 'gemma'],
-          cardData: { license: 'gemma', language: ['en'] },
+          cardData: { license: 'gemma', language: ['en'], metrics: ['accuracy'],
+            eval_results: [{ dataset: 'fixture|benchmark', score: 0 }] },
+          config: { architectures: ['Gemma3ForCausalLM'], tokenizer_config: { use_default_system_prompt: false } },
+          safetensors: { parameters: { BF16: 268098176 }, total: 268098176, sharded: false },
+          'model-index': [{ name: 'Gemma evaluation', results: [{ metrics: [{ type: 'accuracy', value: 0.8 }] }] }],
+          availableInferenceProviders: [{ provider: 'fixture-provider', modelStatus: 'live',
+            features: { toolCalling: true }, pricingOutput: 0 }],
         },
       })}'></header><article class="model-card-content"><h1>Gemma 3 270M</h1>
         <p>Compact model card fixture.</p><pre><code class="language-python">from transformers import pipeline</code></pre>
@@ -2760,7 +2766,107 @@ async function runExpandedPlatformChecks(browser, scriptContent) {
         '# google/gemma-3-270m', '## Repository Metadata', 'Downloads', '42000',
         '## Tags', 'text-generation', '## Model Card', 'Compact model card fixture.',
         '```python\nfrom transformers import pipeline\n```',
+        '## Card Metadata', '| metrics | accuracy |', '| eval_results [0].dataset | fixture\\|benchmark |',
+        '| eval_results [0].score | 0 |', '## Model Configuration', 'Gemma3ForCausalLM',
+        '| tokenizer_config.use_default_system_prompt | false |', '## Safetensors',
+        '| parameters.BF16 | 268098176 |', '## Evaluation Results', '| [0].name | Gemma evaluation |',
+        '0.8', '## Inference Providers',
+        '| [0].provider | fixture-provider |', '| [0].features.toolCalling | true |', '| [0].pricingOutput | 0 |',
       ],
+    },
+    {
+      name: 'Hugging Face Splash',
+      extractor: 'Hugging Face',
+      url: 'https://huggingface.co/incoai/Qwen3.8-27B-Splash',
+      html: `<nav>HF_NAV_NOISE</nav><main><header data-target="ModelHeader" data-props='${JSON.stringify({
+        author: { name: 'incoai', fullname: 'Inco AI' },
+        discussionsStats: { open: 3, closed: 0, total: 3 },
+        canWriteRepoContent: true, inferenceContextData: { billableEntities: ['HF_ACCOUNT_NOISE'] },
+        model: {
+          id: 'incoai/Qwen3.8-27B-Splash', author: 'incoai', likes: 25,
+          downloads: 0, downloadsAllTime: 0, trackDownloads: false, isQuantized: true, region: 'us',
+          tags: ['splash', '4-bit'], availableInferenceProviders: [],
+          cardData: { license: 'apache-2.0', library_name: 'splash', pipeline_tag: 'text-generation',
+            base_model: ['mlx-community/Qwen3.8-27B-4bit', 'incoai/Qwen3.8-27B-DFlash2'],
+            base_model_relation: 'quantized', inference: false },
+        },
+      })}'></header><article class="model-card-content"><h1>Qwen3.8-27B-Splash</h1>
+        <h2>Quick start</h2><div class="repo-copy-code"><button>HF_COPY_NOISE</button>
+          <pre><code class="language-bash">splash serve --model incoai/Qwen3.8-27B-Splash</code></pre></div>
+        <h2>Performance</h2><table><tr><th>Metric</th><th>Speed</th></tr><tr><td>Decode</td><td>74 tok/s</td></tr></table>
+        <h2>Citation</h2><pre><code class="language-bibtex">@misc{fixture2026splash}</code></pre>
+      </article><section><h2>Model tree for incoai/Qwen3.8-27B-Splash</h2>
+        <div><p>Base model <a href="/Qwen/Qwen3.8-27B">Qwen/Qwen3.8-27B</a></p>
+          <p>Finetuned <a href="/incoai/Qwen3.8-27B-DFlash2">incoai/Qwen3.8-27B-DFlash2</a></p></div>
+        <div class="divider-column-vertical"></div><h2>Collection including incoai/Qwen3.8-27B-Splash</h2>
+        <div><article><a href="/collections/incoai/splash"><header><h4>Splash</h4></header>
+          <p>A local inference engine for Apple silicon.</p></a></article></div>
+        <div class="divider-column-vertical"></div><div><h2>Spaces using incoai/Qwen3.8-27B-Splash 3</h2>
+          <a href="/spaces?filter=model:incoai/Qwen3.8-27B-Splash">3 Spaces</a></div>
+        <div data-target="LinkedSpacesList"><nav><a href="/spaces/fixture/splash-demo"><div>Splash Demo</div></a>
+          <button>HF_SPACE_CONTROL_NOISE</button></nav></div>
+        <div class="divider-column-vertical"></div><h2>Papers for incoai/Qwen3.8-27B-Splash</h2>
+        <div><a href="/papers/2609.12345"><h4>Fixture Paper</h4><p>Published <time datetime="2026-09-18">yesterday</time></p></a></div>
+        <div class="divider-column-vertical"></div><div data-target="ModelEvalResults"><h2>Evaluation results</h2>
+          <ul><li><a href="/datasets/fixture/benchmark">Fixture benchmark</a> · Accuracy: 0.9</li></ul></div>
+        <div class="divider-column-vertical"></div><h2>HF_UNRELATED_NOISE</h2><p>HF_UNRELATED_NOISE</p>
+      </section></main><footer>HF_FOOTER_NOISE</footer>`,
+      expected: [
+        '| Publisher | Inco AI |', '| Downloads | Not tracked |', '| Base model relation | quantized |',
+        '| Quantized | true |', '| Region | us |', '| Community discussions | 3 |',
+        '| inference | false |', '## Inference Providers', 'This model is not deployed by any Inference Provider.',
+        '## Model Tree', '[Qwen/Qwen3.8-27B](https://huggingface.co/Qwen/Qwen3.8-27B)',
+        '## Collections', '[Splash A local inference engine', 'https://huggingface.co/collections/incoai/splash',
+        '## Spaces Using This Repository', '[Splash Demo](https://huggingface.co/spaces/fixture/splash-demo)',
+        '## Related Papers', '[Fixture Paper Published 2026-09-18](https://huggingface.co/papers/2609.12345)',
+        '## Evaluation Results', '[Fixture benchmark](https://huggingface.co/datasets/fixture/benchmark)', 'Accuracy: 0.9',
+        'A local inference engine for Apple silicon.', '```bash\nsplash serve --model incoai/Qwen3.8-27B-Splash\n```',
+        '| Decode | 74 tok/s |', '```bibtex\n@misc{fixture2026splash}\n```',
+      ],
+      excluded: ['downloads: 0', '| Downloads | 0 |', 'HF_NAV_NOISE', 'HF_COPY_NOISE',
+        'HF_UNRELATED_NOISE', 'HF_FOOTER_NOISE', 'HF_SPACE_CONTROL_NOISE', 'HF_ACCOUNT_NOISE', 'canWriteRepoContent'],
+    },
+    {
+      name: 'Hugging Face complementary model metadata',
+      url: 'https://huggingface.co/acme/complementary-model',
+      extractor: 'Hugging Face',
+      html: `<main>
+        <div data-target="ModelHeader" data-props='${JSON.stringify({ model: { id: 'acme/complementary-model', likes: 0, config: { model_type: 'header-model' } } })}'></div>
+        <div data-target="ModelEvalResults" data-props='${JSON.stringify({ model: { pipeline_tag: 'text-generation', config: { hidden_size: 4096 } } })}'></div>
+        <div data-target="InferenceWidget" data-props='${JSON.stringify({ widgetData: { model: { config: { model_type: 'fallback-model', vocab_size: 32000 }, availableInferenceProviders: [{ name: 'hf-inference', status: 'live' }] } } })}'></div>
+        <div class="prose"><h1>Complementary model</h1><p>Complete card body.</p></div>
+      </main>`,
+      expected: ['header-model', '4096', '32000', 'text-generation', 'hf-inference', 'live', '| Likes | 0 |'],
+      excluded: ['fallback-model'],
+    },
+    {
+      name: 'Hugging Face missing header metadata',
+      extractor: 'Hugging Face',
+      url: 'https://huggingface.co/fixture/model',
+      html: `<main><header data-target="ModelHeader" data-props='invalid-json'></header>
+        <article class="model-card-content"><p>The model card still loads.</p></article>
+        <div data-target="ModelEvalResults" data-props='${JSON.stringify({ model: {
+          id: 'fixture/model', pipeline_tag: 'text-generation',
+          config: { model_type: 'fixture', tokenizer_config: { eos_token: '<eos>' } },
+        } })}'></div>
+        <div data-target="InferenceWidget" data-props='${JSON.stringify({ widgetData: { model: {
+          config: { vocab_size: 32000 }, availableInferenceProviders: [{ name: 'hf-inference', status: 'live' }],
+        } } })}'></div></main>`,
+      expected: ['# fixture/model', 'The model card still loads.', '| Pipeline tag | text-generation |',
+        '## Model Configuration', '| tokenizer_config.eos_token | <eos> |', '32000', 'hf-inference'],
+      excluded: ['invalid-json'],
+    },
+    {
+      name: 'Hugging Face dataset card',
+      extractor: 'Hugging Face',
+      url: 'https://huggingface.co/datasets/fixture/corpus',
+      html: `<main><header data-target="DatasetHeader" data-props='${JSON.stringify({ dataset: {
+        id: 'fixture/corpus', cardData: { language: ['en'], task_categories: ['text-generation'],
+          dataset_info: { features: [{ name: 'text', dtype: 'string' }], splits: [{ name: 'train', num_examples: 100 }] } },
+      } })}'></header><article class="dataset-card-content"><p>Dataset documentation.</p></article></main>`,
+      expected: ['# fixture/corpus', '| Type | Dataset |', '## Dataset Card', 'Dataset documentation.',
+        '## Card Metadata', '| dataset_info.features [0].dtype | string |', '| dataset_info.splits [0].num_examples | 100 |'],
+      excluded: ['## Model Configuration', '## Inference Providers'],
     },
     {
       name: 'Hugging Face tree',
@@ -3665,13 +3771,13 @@ async function runSearchAndLinkedInChecks(browser, scriptContent) {
     }
     assertCheck(!markdown.includes('javascript:'), 'DuckDuckGo emitted unsafe javascript URL');
     assertCheck(!markdown.includes('data:text/html'), 'DuckDuckGo emitted unsafe non-HTTP URL');
-    assertCheck(!markdown.includes('### 26.'), 'DuckDuckGo exceeded 25-result cap');
+    assertCheck((markdown.match(/^### \d+\./gm) || []).length === 27, 'DuckDuckGo omitted loaded results after the old 25-result cap');
     assertCheck(
       (markdown.match(/### \d+\. Safe redirected result/g) || []).length === 1,
       'DuckDuckGo did not deduplicate repeated result links',
     );
     assertCompactMetadata(markdown, 'DuckDuckGo HTML output');
-    log('✅', 'DuckDuckGo HTML route includes answer panels, safe redirects, related searches, and bounded deduplicated results');
+    log('✅', 'DuckDuckGo HTML route includes answer panels, safe redirects, related searches, and all loaded deduplicated results');
   } finally {
     await duckduckgoPage.close();
   }
@@ -4855,7 +4961,7 @@ async function runTests(filter) {
   );
 
   const browser = await puppeteer.launch({
-    headless: true,
+    headless: 'shell',
     args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-web-security'],
   });
 

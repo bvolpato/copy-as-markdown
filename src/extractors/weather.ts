@@ -93,7 +93,7 @@ register({
         '[data-testid*="alert"]',
         '[class*="Alert"]',
         '[class*="alert"]',
-      ], 30);
+      ]);
       parts.push('## Alerts', '');
       if (alerts.length) parts.push(...alerts.map((alert) => `- ${alert}`));
       else parts.push('*No alert details currently visible.*');
@@ -104,7 +104,7 @@ register({
         '[data-testid*="HourlyForecast"]',
         '[data-testid*="hourly"]',
         '[class*="HourlyForecast"]',
-      ], 48);
+      ]);
       if (rows.length) parts.push('## Hourly Forecast', '', ...rows.map((row) => `- ${row}`), '');
     } else if (route === 'daily') {
       const rows = extractRows([
@@ -112,7 +112,7 @@ register({
         '[data-testid*="DailyForecast"]',
         '[data-testid*="daily"]',
         '[class*="DailyForecast"]',
-      ], 15);
+      ]);
       if (rows.length) parts.push('## 10-Day Forecast', '', ...rows.map((row) => `- ${row}`), '');
     }
 
@@ -121,7 +121,7 @@ register({
       '[data-testid*="ForecastSummary"]',
       '[data-testid*="Description"]',
     ]);
-    if (summary && summary !== condition) parts.push('## Forecast Summary', '', Utils.truncate(summary, 10_000), '');
+    if (summary && summary !== condition) parts.push('## Forecast Summary', '', summary, '');
     return Markdown.buildPageMarkdown(metadata, parts.join('\n'));
   },
 });
@@ -148,16 +148,15 @@ function firstText(selectors: string[], attributeMode = false): string {
   return '';
 }
 
-function extractRows(selectors: string[], limit: number): string[] {
+function extractRows(selectors: string[]): string[] {
   const seen = new Set<string>();
   const rows: string[] = [];
   for (const selector of selectors) {
     for (const element of document.querySelectorAll(selector)) {
       const text = (element.textContent || '').replace(/\s+/g, ' ').trim();
-      if (!text || text.length < 2 || text.length > 1_000 || seen.has(text)) continue;
+      if (!text || seen.has(text)) continue;
       seen.add(text);
       rows.push(text);
-      if (rows.length >= limit) return rows;
     }
   }
   return rows;

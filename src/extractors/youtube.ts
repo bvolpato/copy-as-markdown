@@ -109,15 +109,14 @@ register({
     parts.push('');
 
     if (description) {
-      parts.push('## Description', '', Utils.truncate(description, 20_000), '');
+      parts.push('## Description', '', description, '');
       const timestamps = description.match(/(?:^|\n|\s)(\d{1,2}:\d{2}(?::\d{2})?)\s+([^\n]+)/g) || [];
       if (timestamps.length >= 3) {
-        parts.push('## Chapters', '', ...timestamps.slice(0, 100).map((value) => `- ${value.trim()}`), '');
+        parts.push('## Chapters', '', ...timestamps.map((value) => `- ${value.trim()}`), '');
       }
     }
 
-    const comments = Array.from(document.querySelectorAll('ytd-comment-thread-renderer'))
-      .slice(0, 20);
+    const comments = Array.from(document.querySelectorAll('ytd-comment-thread-renderer'));
     if (comments.length) {
       parts.push('## Comments', '');
       comments.forEach((comment) => {
@@ -128,8 +127,7 @@ register({
       });
     }
 
-    const transcript = Array.from(document.querySelectorAll('ytd-transcript-segment-renderer'))
-      .slice(0, 500);
+    const transcript = Array.from(document.querySelectorAll('ytd-transcript-segment-renderer'));
     if (transcript.length) {
       parts.push('## Transcript', '');
       transcript.forEach((segment) => {

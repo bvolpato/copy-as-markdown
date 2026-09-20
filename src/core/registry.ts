@@ -55,16 +55,21 @@ export function getAll(): Extractor[] {
 }
 
 export function matchPatternToRegex(pattern: string): RegExp {
-  // 1. Replace * wildcards with a placeholder that won't be touched by escaping
-  const WILDCARD = '\x00';
-  let regex = pattern.replace(/\*/g, WILDCARD);
-  // 2. Escape regex special characters
-  regex = regex.replace(/[.+?^${}()|[\]\\]/g, '\\$&');
-  // 3. Replace placeholders with .* (regex wildcard)
-  regex = regex.replace(new RegExp(WILDCARD, 'g'), '.*');
-  // 4. Convert scheme wildcard .*:// to proper group
-  regex = regex.replace(/^\.\*:\/\//, '(https?|file)://');
-  return new RegExp('^' + regex + '$');
+  const match = pattern.match(/^(\*|https?|file):\/\/([^/]*)(\/.*)$/);
+  if (!match) return /$a/;
+  const [, scheme, authority, path] = match;
+  const escape = (value: string) => value.replace(/[.+?^${}()|[\]\\]/g, '\\$&');
+  const portMatch = authority.match(/^(.*?)(:\d+|:\*)?$/)!;
+  const hostname = portMatch[1];
+  const host = hostname === '*'
+    ? '[^/?#:@]+'
+    : hostname.startsWith('*.')
+      ? `(?:[^/?#:@]+\\.)?${escape(hostname.slice(2))}`
+      : escape(hostname);
+  const port = scheme === 'file' ? '' : portMatch[2] && portMatch[2] !== ':*'
+    ? escape(portMatch[2]) : '(?::\\d+)?';
+  const pathname = path.split('*').map(escape).join('.*');
+  return new RegExp(`^${scheme === '*' ? 'https?' : scheme}://${host}${port}${pathname}$`);
 }
 
 function testRegex(regex: RegExp | null, value: string): boolean {

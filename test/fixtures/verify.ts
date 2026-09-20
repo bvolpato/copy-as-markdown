@@ -19,7 +19,7 @@ async function main(): Promise<void> {
   const catalog = loadCatalog();
   const scriptContent = readBuiltUserscript();
   const browser = await puppeteer.launch({
-    headless: true,
+    headless: 'shell',
     args: ['--no-sandbox', '--disable-setuid-sandbox'],
   });
   let verifiedCount = 0;
@@ -48,6 +48,13 @@ async function main(): Promise<void> {
         if (provenance.source === 'wayback'
           && (!provenance.captureTimestamp || !provenance.captureDigest)) {
           throw new Error(`${site.id}/${fixtureCase.id} Wayback provenance lacks timestamp or digest`);
+        }
+        if (provenance.source === 'wayback' && typeof fixtureCase.wayback === 'object') {
+          if (provenance.captureTimestamp !== fixtureCase.wayback.timestamp
+            || provenance.captureDigest !== fixtureCase.wayback.digest
+            || provenance.captureDigestAlgorithm !== fixtureCase.wayback.digestAlgorithm) {
+            throw new Error(`${site.id}/${fixtureCase.id} Wayback provenance does not match its pin`);
+          }
         }
         auditSanitizedFixture(html, expected);
         const result = await verifyFixtureHtml(browser, site, fixtureCase, html, scriptContent);

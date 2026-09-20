@@ -198,11 +198,13 @@ Useful APIs:
 - **Browser Extension:** Click the toolbar icon on any supported site, or the page button on Datadog dashboards, Datadog notebooks, and W&B runs.
 - **Userscript:** Clicks are handled via injected buttons (inline where a site integration provides a reviewed anchor, floating otherwise). Drag floating buttons out of the way without disabling them; their positions persist per site.
 
+Copies preserve content loaded by the site or returned by its export/API. Load or expand relevant sections before copying. Pagination, virtualized history, canvas-only views, and paywalls can hide content; W&B and MLflow numeric histories remain sampled or bounded.
+
 | Site | What's Extracted |
 | --- | --- |
-| **Wikipedia** | Article body, tables, infoboxes — edit buttons and references stripped |
+| **Wikipedia** | Article body, tables, infoboxes, citations, and references; edit controls stripped |
 | **Google Docs** | Full document export via Google Docs HTML export — headings, lists, tables, links, images, and off-screen content |
-| **Google Sheets** | Active sheet or selected range as a bounded Markdown table |
+| **Google Sheets** | Complete active sheet or selected range from authenticated exports; rendered grid fallback |
 | **Google Slides** | Choose current slide or full deck; preserves order, titles, text, links, and speaker notes when available |
 | **Gmail** | Full authenticated thread from Print all view — subject, participants, message headers, bodies, links, images, and attachments |
 | **Notion** | Pages and databases with properties, rich blocks, tables, code, and rendered rows |
@@ -224,8 +226,8 @@ Useful APIs:
 | **Brave Search** | Query, answer cards, ranked results, discussions, and related searches |
 | **Reddit** | Post title, body, subreddit, author, score, threaded comments with depth |
 | **YouTube** | Video title, channel, views, likes, description, chapters, comments, transcript |
-| **WhatsApp Web** | Chat name, all messages with sender, timestamp, media indicators |
-| **X (Twitter)** | Single posts with replies, or full timelines with engagement stats |
+| **WhatsApp Web** | Chat name, all loaded messages with sender, timestamp, media indicators |
+| **X (Twitter)** | Single posts with loaded replies and media, or all loaded timeline/search posts with engagement stats |
 | **Polymarket** | Market title, description, outcome probabilities, volume, resolution rules |
 | **OpenRouter** | Full model definitions, architecture, modalities, pricing, limits, supported parameters, benchmarks, provider endpoint fields, and FAQ |
 | **Artificial Analysis** | Homepage featured items, analysis sections, complete published leaderboards, model overview, exact benchmark values, technical specifications, provenance, and FAQ |
@@ -235,7 +237,7 @@ Useful APIs:
 | **Datadog Documentation** | Authored `.md` source when available; cleaned rendered documentation DOM otherwise |
 | **Weights & Biases** | Run metadata, configuration, numeric metric summaries, sparklines, and sampled history tables through W&B GraphQL |
 | **MLflow** | Self-hosted run metadata plus chart-mode comparisons for visible runs and loaded metrics, with paginated metric-history tables through same-origin APIs |
-| **Hugging Face** | Model, dataset, and Space repository metadata and tags, rendered model/dataset cards, Space descriptions, and visible file listings |
+| **Hugging Face** | Model, dataset, and Space repository metadata and tags, full rendered cards, nested card metadata, model configuration, tensor details, evaluation results, inference providers, model lineage, related collections/Spaces/papers, Space descriptions, and visible file listings |
 | **GitHub** | Issues and PRs, repository/directory listings with READMEs, full code-file contents, and canonical patches with commit/file metadata |
 | **GitLab** | Repositories, trees, code files, issues, merge requests, comments, and visible diffs |
 | **Bitbucket** | Repositories, source files, pull requests, issues, comments, and visible diffs |
@@ -517,8 +519,19 @@ Extractors enable anchored placement only after their site selector and SPA life
 2. Import `register` from `../core/registry` and call it with `name`, `matches`, and `extract`
 3. Leave the button floating by default unless you are intentionally enabling a reviewed inline placement
 4. If you want to prepare an inline placement for later, add an `anchor` config but do not set `buttonPlacement: 'anchor'` yet
-5. Import the new file in `src/main.ts`
+5. Import the new file in `src/catalog.ts` and add its library loader in `src/library/loaders.ts`
 6. Run `pnpm build` — the new patterns propagate to all targets
+
+### Browser Tests
+
+Browser tests and fixture tools use Puppeteer's `headless: 'shell'` mode with `chrome-headless-shell`, which runs without visible windows.
+
+```bash
+pnpm exec puppeteer browsers install chrome-headless-shell
+pnpm test:regression
+```
+
+To use an existing headless shell installation, set `PUPPETEER_EXECUTABLE_PATH` to its executable path. Unset this variable if it points to regular Chrome. Tests launch their own browser and close it when finished.
 
 ### Captured Public-Site Fixtures
 
@@ -526,8 +539,11 @@ Public extractors can be checked against browser-rendered pages without committi
 
 ```bash
 # Capture current public page in a clean headless browser.
-# If live capture fails, use an exact Wayback CDX capture.
+# If live capture fails, try a Wayback snapshot.
 pnpm fixtures:capture -- --site mdn
+
+# Capture every curated public case, reporting failures without stopping early.
+pnpm fixtures:capture -- --all
 
 # Force one source while debugging.
 pnpm fixtures:capture -- --site mdn --source live
@@ -537,7 +553,11 @@ pnpm fixtures:capture -- --site mdn --source wayback
 pnpm fixtures:verify
 ```
 
-Catalog lives at `test/sites/catalog.yaml`. Capture writes raw reference screenshots only under gitignored `.fixture-work/`. A failed live attempt writes `live-failure.png` before Wayback fallback. Committed fixtures contain synthetic text, normalized links, no scripts or media, a screenshot of sanitized DOM, expected Markdown, and source provenance. Wayback provenance includes exact capture timestamp and digest. Set `wayback: true` to discover a capture through CDX, then pin accepted timestamp and digest in catalog for stable replay.
+The [catalog](test/sites/catalog.yaml) contains 30 captures across 25 extractor families, including four Hugging Face model, dataset, and file-tree pages. The [coverage inventory](test/sites/coverage.json) records public probes and gaps across the full extractor catalog. Capture checks the original copy button, extractor identity, placement, clipboard output, and `contentRequired` strings or `contentSelectors` before anonymizing the DOM. Bot challenges, login screens, and error pages fail capture.
+
+Raw reference screenshots stay under gitignored `.fixture-work/`. Committed fixtures contain synthetic text, normalized links, no scripts or media, a screenshot of sanitized DOM, expected Markdown, and source provenance. `linkPrefixes` can retain curated public route prefixes for path-aware file extractors; link suffixes are still replaced.
+
+A failed live attempt writes `live-failure.png` before Wayback fallback. Archive discovery tries CDX, then direct replay if CDX is unavailable. Accepted snapshots record the exact timestamp, digest, and downloaded-response SHA-256. Pin the accepted timestamp and digest in the catalog; set `digestAlgorithm: sha256` when pinning the response hash. Archived DOM is checked at the original URL with site scripts removed and outgoing requests blocked. An archive verifies historical content and markup; it does not prove current site placement or access.
 
 Capture refuses credentials, localhost, private IP addresses, and non-HTTP protocols. Use only curated public URLs. Authenticated pages require synthetic fixtures and must never use this capture path.
 
