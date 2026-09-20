@@ -101,7 +101,7 @@
     "test:live": "pnpm build && node test/test-sites.js",
     "test:library": "pnpm build && node test/library.test.js",
     "test:ai-chat": "pnpm build && node test/ai-chat.test.js",
-    "test:regression": "pnpm build && node test/library.test.js && node test/ai-chat.test.js && node test/background.test.js && node test/test-sites.js --regression && tsx test/fixtures/security.test.ts && tsx test/fixtures/verify.ts",
+    "test:regression": "pnpm build && node test/library.test.js && node test/catalog.test.js && node test/ai-chat.test.js && node test/background.test.js && node test/test-sites.js --regression && tsx test/fixtures/security.test.ts && tsx test/fixtures/verify.ts",
     "test:site": "pnpm build && node test/test-sites.js",
     "fixtures:capture": "pnpm build && tsx test/fixtures/capture.ts",
     "fixtures:verify": "pnpm build && tsx test/fixtures/verify.ts",

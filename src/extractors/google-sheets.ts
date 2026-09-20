@@ -11,7 +11,6 @@ import { register } from '../core/registry';
 import * as Utils from '../core/utils';
 
 const MAX_ROWS = 500;
-const MAX_COLUMNS = 50;
 const BODY_LIMIT = 110_000;
 
 type GridExtraction = {
@@ -319,7 +318,7 @@ function buildSheetMarkdown(
   const totalRows = extraction.rows.length;
   const totalColumns = extraction.rows.reduce((largest, row) => Math.max(largest, row.length), 0);
   const limitedRows = limitCollection(extraction.rows, MAX_ROWS);
-  const includedColumns = Math.min(totalColumns, MAX_COLUMNS);
+  const includedColumns = totalColumns;
   const boundedRows = limitedRows.items.map((row) => row.slice(0, includedColumns));
   const collectionTruncated = limitedRows.truncated || totalColumns > includedColumns;
   const table = boundedRows.length > 0 && includedColumns > 0
@@ -333,7 +332,6 @@ function buildSheetMarkdown(
   metadata.rows_included = boundedRows.length;
   metadata.columns_total = totalColumns;
   metadata.columns_included = includedColumns;
-  metadata.output_limits = `${MAX_ROWS} rows, ${MAX_COLUMNS} columns, ${BODY_LIMIT} characters`;
   addExtractionMetadata(metadata, {
     contentSource: extraction.contentSource,
     total: totalRows,

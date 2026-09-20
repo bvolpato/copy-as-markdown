@@ -9,6 +9,7 @@ import * as Utils from '../core/utils';
 
 register({
   name: 'Hacker News',
+  pathnameRegex: /^\/item\/?$/,
   matches: [
     '*://news.ycombinator.com/item*',
   ],

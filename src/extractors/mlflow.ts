@@ -15,7 +15,7 @@ const MAX_METADATA_VALUE_LENGTH = 2_000;
 register({
   name: 'MLflow',
   matches: [],
-  detect: () => getMlflowRoute() !== null,
+  detect: (contextDocument) => getMlflowRoute(contextDocument) !== null,
 
   async extract() {
     const route = getMlflowRoute();
@@ -89,31 +89,34 @@ type ComparisonRun = {
   apiBase?: string;
 };
 
-function getMlflowRoute(): MlflowRoute | null {
-  if (!isMlflowPage()) return null;
-  const hash = window.location.hash.replace(/^#!?\/?/, '/');
+function getMlflowRoute(contextDocument: Document = document): MlflowRoute | null {
+  if (!isMlflowPage(contextDocument)) return null;
+  const href = contextDocument.location?.href || contextDocument.baseURI;
+  if (!href) return null;
+  const url = new URL(href);
+  const hash = url.hash.replace(/^#!?\/?/, '/');
   const queryIndex = hash.indexOf('?');
   const hashPath = queryIndex === -1 ? hash : hash.slice(0, queryIndex);
   const hashSearch = new URLSearchParams(queryIndex === -1 ? '' : hash.slice(queryIndex + 1));
-  const prefix = window.location.pathname.replace(/\/+$/, '');
+  const prefix = url.pathname.replace(/\/+$/, '');
   const hashRunRoute = parseRunPath(hashPath);
   if (hashRunRoute) return { kind: 'run', ...hashRunRoute, prefix };
 
   const comparisonRoute = parseComparisonPath(hashPath, hashSearch);
   if (comparisonRoute) return { kind: 'comparison', ...comparisonRoute, prefix };
 
-  const pathRunRoute = parseRunPath(window.location.pathname);
+  const pathRunRoute = parseRunPath(url.pathname);
   if (!pathRunRoute) return null;
-  const marker = window.location.pathname.match(/\/(?:experiments\/[^/]+\/)?runs\//)?.index ?? 0;
+  const marker = url.pathname.match(/\/(?:experiments\/[^/]+\/)?runs\//)?.index ?? 0;
   return {
     kind: 'run',
     ...pathRunRoute,
-    prefix: window.location.pathname.slice(0, marker).replace(/\/+$/, ''),
+    prefix: url.pathname.slice(0, marker).replace(/\/+$/, ''),
   };
 }
 
-function isMlflowPage(): boolean {
-  if (document.querySelector([
+function isMlflowPage(contextDocument: Document): boolean {
+  if (contextDocument.querySelector([
     '#root.mlflow-ui-container',
     '.mlflow-ui-container',
     '[data-component-id^="mlflow."]',
@@ -122,9 +125,9 @@ function isMlflowPage(): boolean {
     return true;
   }
   const marker = [
-    document.title,
-    document.querySelector('meta[name="application-name"]')?.getAttribute('content'),
-    document.querySelector('meta[property="og:site_name"]')?.getAttribute('content'),
+    contextDocument.title,
+    contextDocument.querySelector('meta[name="application-name"]')?.getAttribute('content'),
+    contextDocument.querySelector('meta[property="og:site_name"]')?.getAttribute('content'),
   ].filter(Boolean).join(' ');
   return /\bmlflow\b/i.test(marker);
 }
@@ -508,7 +511,7 @@ function keyValueRows(rows: Array<{ key?: string; value?: unknown }>): Array<[st
   return rows.flatMap<[string, string]>(({ key, value }) => {
     const formatted = formatValue(value);
     return key && formatted ? [[key, formatted]] : [];
-  }).slice(0, 200);
+  });
 }
 
 function compactEntries(value: Record<string, unknown>): Array<[string, string]> {
@@ -531,9 +534,7 @@ function appendJsonSection(parts: string[], heading: string, value: unknown): vo
   const formatted = formatValue(value);
   if (!formatted || formatted === '{}' || formatted === '[]') return;
   const json = JSON.stringify(value, null, 2);
-  const excerpt = limitText(json, 20_000);
-  const language = excerpt === json ? 'json' : '';
-  parts.push(`## ${heading}\n\n\`\`\`${language}\n${excerpt}\n\`\`\``);
+  parts.push(`## ${heading}\n\n\`\`\`json\n${json}\n\`\`\``);
 }
 
 function formatTimestamp(value: number | undefined): string | undefined {
@@ -545,10 +546,10 @@ function formatTimestamp(value: number | undefined): string | undefined {
 function formatValue(value: unknown): string {
   if (value === undefined || value === null || value === '') return '';
   if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') {
-    return limitText(String(value), 2000);
+    return String(value);
   }
   try {
-    return limitText(JSON.stringify(value), 2000);
+    return JSON.stringify(value);
   } catch {
     return '';
   }

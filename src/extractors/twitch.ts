@@ -89,7 +89,7 @@ register({
     if (duration) parts.push(`**Duration:** ${duration}`);
     if (views) parts.push(`**Views:** ${views}`);
     parts.push('');
-    if (description) parts.push('## Description', '', Utils.truncate(description, 20_000), '');
+    if (description) parts.push('## Description', '', description, '');
 
     if (route === 'channel') {
       const about = extractRows([

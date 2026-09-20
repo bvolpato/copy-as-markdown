@@ -121,7 +121,7 @@ register({
       '[data-testid*="ForecastSummary"]',
       '[data-testid*="Description"]',
     ]);
-    if (summary && summary !== condition) parts.push('## Forecast Summary', '', Utils.truncate(summary, 10_000), '');
+    if (summary && summary !== condition) parts.push('## Forecast Summary', '', summary, '');
     return Markdown.buildPageMarkdown(metadata, parts.join('\n'));
   },
 });

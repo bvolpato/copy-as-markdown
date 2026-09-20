@@ -124,11 +124,11 @@ async function extractNotion(): Promise<string> {
     return Markdown.buildPageMarkdown(metadata, bounded.markdown);
 }
 
-function detectRenderedNotionPage(): boolean {
-  if (document.querySelector('.notion-page-content [data-block-id]')) return true;
-  const siteName = document.querySelector<HTMLMetaElement>('meta[property="og:site_name"]')?.content || '';
+function detectRenderedNotionPage(contextDocument: Document = document): boolean {
+  if (contextDocument.querySelector('.notion-page-content [data-block-id]')) return true;
+  const siteName = contextDocument.querySelector<HTMLMetaElement>('meta[property="og:site_name"]')?.content || '';
   return /^Notion$/i.test(siteName)
-    && Boolean(document.querySelector('[data-testid="page-content"] [data-block-id]'));
+    && Boolean(contextDocument.querySelector('[data-testid="page-content"] [data-block-id]'));
 }
 
 function getTitle(): string {
@@ -227,7 +227,7 @@ function parseProperty(element: HTMLElement): Property | null {
   }
 
   if (!name || !value || name === value || name.length > 100) return null;
-  return { name, value: Utils.truncate(value, 2_000), element };
+  return { name, value, element };
 }
 
 function addPropertiesToMetadata(metadata: PageMetadata, properties: Property[]): void {
@@ -238,7 +238,7 @@ function addPropertiesToMetadata(metadata: PageMetadata, properties: Property[])
     let key = `property_${name.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '')}`;
     if (key === 'property_' || used.has(key)) return;
     used.add(key);
-    metadata[key] = metadataValue(Utils.truncate(value, 500));
+    metadata[key] = metadataValue(value);
   });
 }
 
@@ -283,7 +283,6 @@ function extractDatabase(root: Element): DatabaseResult {
       included += limited.items.length;
       truncated ||= limited.truncated;
       const table = grid.cloneNode(true) as HTMLTableElement;
-      Array.from(table.querySelectorAll('tr')).slice(MAX_DATABASE_ROWS).forEach((row) => row.remove());
       const markdown = Markdown.tableToMarkdown(table);
       if (markdown) sections.push(`${grids.length > 1 ? `### Database view ${index + 1}\n\n` : ''}${markdown}`);
       return;
@@ -315,7 +314,7 @@ function roleRowsToMarkdown(rows: HTMLElement[]): string {
   const values = rows.map((row) => Array.from(row.querySelectorAll<HTMLElement>(
     ':scope > [role="columnheader"], :scope > [role="rowheader"], :scope > [role="cell"], :scope > [role="gridcell"], :scope > .notion-table-view-header-cell, :scope > .notion-table-view-cell',
   )).map((cell) => escapeTableCell(cellText(cell))));
-  const width = Math.min(50, Math.max(0, ...values.map((row) => row.length)));
+  const width = Math.max(0, ...values.map((row) => row.length));
   if (width === 0) return '';
   values.forEach((row) => {
     row.splice(width);

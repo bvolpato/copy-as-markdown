@@ -61,7 +61,7 @@ register({
         '[class*="carousel"]',
       ]);
       const body = Markdown.elementToMarkdown(cleaned);
-      if (body && !normalize(body).includes(normalize(description))) parts.push('', '## Details', '', body);
+      if (body && normalize(body) !== normalize(description)) parts.push('', '## Details', '', body);
     }
 
     const output = limitMarkdown(parts.join('\n'));

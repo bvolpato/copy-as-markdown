@@ -87,12 +87,13 @@ register({
 
     if (isLiveBlog) {
       parts.push('## Live Updates\n');
-      const updates = document.querySelectorAll('.live-blog-post, [data-testid="live-blog-post"], article, .post-item');
-      updates.forEach((update, i) => {
-        if (i >= 50) return;
+      const updates = Array.from(document.querySelectorAll('.live-blog-post, [data-testid="live-blog-post"], article, .post-item'));
+      updates.filter((update) => !updates.some((other) => other !== update && update.contains(other))).forEach((update) => {
         const ut = update.querySelector('h2, h3')?.textContent?.trim() || '';
         const uTime = update.querySelector('time')?.textContent?.trim() || '';
-        const uBody = update.querySelector('.post-body, .body, p')?.textContent?.trim() || '';
+        const body = update.querySelector('.post-body, .body') || update;
+        const clone = Utils.removeNoise(body, [...Utils.NOISE_SELECTORS, 'h2', 'h3', 'time', '[data-cam-instance]']);
+        const uBody = Markdown.elementToMarkdown(clone);
         if (ut || uBody) {
           parts.push(`### ${ut || 'Update'}${uTime ? ` (${uTime})` : ''}\n`);
           if (uBody) parts.push(uBody);

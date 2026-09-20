@@ -198,11 +198,13 @@ Useful APIs:
 - **Browser Extension:** Click the toolbar icon on any supported site, or the page button on Datadog dashboards, Datadog notebooks, and W&B runs.
 - **Userscript:** Clicks are handled via injected buttons (inline where a site integration provides a reviewed anchor, floating otherwise). Drag floating buttons out of the way without disabling them; their positions persist per site.
 
+Copies preserve content loaded by the site or returned by its export/API. Load or expand relevant sections before copying. Pagination, virtualized history, canvas-only views, and paywalls can hide content; W&B and MLflow numeric histories remain sampled or bounded.
+
 | Site | What's Extracted |
 | --- | --- |
-| **Wikipedia** | Article body, tables, infoboxes — edit buttons and references stripped |
+| **Wikipedia** | Article body, tables, infoboxes, citations, and references; edit controls stripped |
 | **Google Docs** | Full document export via Google Docs HTML export — headings, lists, tables, links, images, and off-screen content |
-| **Google Sheets** | Active sheet or selected range as a bounded Markdown table |
+| **Google Sheets** | Complete active sheet or selected range from authenticated exports; rendered grid fallback |
 | **Google Slides** | Choose current slide or full deck; preserves order, titles, text, links, and speaker notes when available |
 | **Gmail** | Full authenticated thread from Print all view — subject, participants, message headers, bodies, links, images, and attachments |
 | **Notion** | Pages and databases with properties, rich blocks, tables, code, and rendered rows |
@@ -224,8 +226,8 @@ Useful APIs:
 | **Brave Search** | Query, answer cards, ranked results, discussions, and related searches |
 | **Reddit** | Post title, body, subreddit, author, score, threaded comments with depth |
 | **YouTube** | Video title, channel, views, likes, description, chapters, comments, transcript |
-| **WhatsApp Web** | Chat name, all messages with sender, timestamp, media indicators |
-| **X (Twitter)** | Single posts with replies, or full timelines with engagement stats |
+| **WhatsApp Web** | Chat name, all loaded messages with sender, timestamp, media indicators |
+| **X (Twitter)** | Single posts with loaded replies and media, or all loaded timeline/search posts with engagement stats |
 | **Polymarket** | Market title, description, outcome probabilities, volume, resolution rules |
 | **OpenRouter** | Full model definitions, architecture, modalities, pricing, limits, supported parameters, benchmarks, provider endpoint fields, and FAQ |
 | **Artificial Analysis** | Homepage featured items, analysis sections, complete published leaderboards, model overview, exact benchmark values, technical specifications, provenance, and FAQ |
@@ -517,7 +519,7 @@ Extractors enable anchored placement only after their site selector and SPA life
 2. Import `register` from `../core/registry` and call it with `name`, `matches`, and `extract`
 3. Leave the button floating by default unless you are intentionally enabling a reviewed inline placement
 4. If you want to prepare an inline placement for later, add an `anchor` config but do not set `buttonPlacement: 'anchor'` yet
-5. Import the new file in `src/main.ts`
+5. Import the new file in `src/catalog.ts` and add its library loader in `src/library/loaders.ts`
 6. Run `pnpm build` — the new patterns propagate to all targets
 
 ### Browser Tests

@@ -1,0 +1,191 @@
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import puppeteer from 'puppeteer';
+import * as library from '../dist/library/index.js';
+
+await library.loadAllExtractors();
+const failures = [];
+async function check(name, run) {
+  try { await run(); console.log(`✓ ${name}`); }
+  catch (error) { failures.push(name); console.error(`✗ ${name}: ${error.message}`); }
+}
+
+await check('All catalog URL patterns reject off-host lookalikes', () => {
+  for (const extractor of library.getExtractors()) {
+    const matcher = library.createExtractorMatcher({ extractors: [extractor] });
+    for (const pattern of extractor.matches) {
+      const target = pattern.replace('*://', 'https://').replaceAll('*', 'sample');
+      const offHost = `https://unrelated.example/${target}`;
+      assert.equal(matcher.match({ url: offHost }), null, `${extractor.name}: ${offHost}`);
+    }
+    assert.equal(matcher.match({ url: 'https://unrelated.example/?next=https://demo.substack.com/p/article' }), null, extractor.name);
+  }
+});
+
+await check('Subdomain patterns include the base host and arbitrary ports', () => {
+  const extractor = library.defineExtractor({ name: 'Pattern', matches: ['*://*.example.test/content/*'], extract: async () => '' });
+  const matcher = library.createExtractorMatcher({ extractors: [extractor] });
+  for (const url of ['https://example.test/content/a', 'http://one.two.example.test:8080/content/a']) {
+    assert.ok(matcher.match({ url }), url);
+  }
+  for (const url of ['file://example.test/content/a', 'https://example.test/CONTENT/a', 'https://example.test.evil/content/a']) {
+    assert.equal(matcher.match({ url }), null, url);
+  }
+});
+await check('X and Hacker News reject unrelated route suffixes', async () => {
+  const x = await library.loadExtractor('x-twitter');
+  const hn = await library.loadExtractor('hackernews');
+  const matcher = library.createExtractorMatcher({ extractors: [x, hn] });
+  for (const url of ['https://x.com/author/unsupported', 'https://x.com/search/advanced', 'https://news.ycombinator.com/items']) {
+    assert.equal(matcher.match({ url }), null, url);
+  }
+  assert.equal(matcher.match({ url: 'https://x.com/author/status/123/photo/1' })?.name, 'X (Twitter)');
+  assert.equal(matcher.match({ url: 'https://news.ycombinator.com/item?id=123' })?.name, 'Hacker News');
+});
+
+const browser = await puppeteer.launch({ headless: 'shell', args: ['--no-sandbox'] });
+const browserCode = fs.readFileSync(new URL('../dist/library/browser.js', import.meta.url), 'utf8');
+const userscript = fs.readFileSync(new URL('../dist/userscript/copy-as-markdown.user.js', import.meta.url), 'utf8');
+const repeat = (count, make) => Array.from({ length: count }, (_, index) => make(index)).join('');
+async function fixture({ url, name, html, resources = {}, expected = [], excluded = [], ui = false, afterLoad }) {
+  const context = await browser.createBrowserContext();
+  const page = await context.newPage();
+  try {
+    await page.setRequestInterception(true);
+    page.on('request', request => {
+      const resource = resources[new URL(request.url()).pathname];
+      if (request.isNavigationRequest()) request.respond({ contentType: 'text/html; charset=utf-8', body: `<!doctype html><title>Catalog fixture</title>${html}` });
+      else if (resource) request.respond(resource);
+      else request.abort();
+    });
+    await page.goto(url);
+    await page.addScriptTag({ content: browserCode });
+    if (ui) await page.addScriptTag({ content: userscript });
+    if (afterLoad) await afterLoad(page);
+    const output = await page.evaluate(async ({ name }) => {
+      await CopyAsMarkdown.loadAllExtractors();
+      const match = CopyAsMarkdown.createExtractorMatcher().match({ url: location.href, document });
+      if (match?.name !== name) throw new Error(`Expected ${name}, got ${match?.name}`);
+      return match.extract();
+    }, { name });
+    for (const value of expected) assert.ok(output.includes(value), `Missing ${JSON.stringify(value)}`);
+    for (const value of excluded) assert.ok(!output.includes(value), `Unexpected ${JSON.stringify(value)}`);
+  } finally { await context.close(); }
+}
+
+try {
+  await check('DOM detectors honor the supplied document without global browser state', async () => {
+    const notion = await library.loadExtractor('notion');
+    const wandb = await library.loadExtractor('wandb');
+    const mlflow = await library.loadExtractor('mlflow');
+    const docs = {
+      notion: { location: { href: 'https://custom.example/page' }, querySelector: selector => selector === '.notion-page-content [data-block-id]' ? {} : null },
+      wandb: { location: { href: 'https://custom.example/team/project/runs/id' }, title: 'Weights & Biases', querySelector: () => null },
+      mlflow: { location: { href: 'https://custom.example/#/experiments/1/runs/id' }, title: 'MLflow', querySelector: () => null },
+    };
+    for (const [id, extractor] of Object.entries({ notion, wandb, mlflow })) {
+      assert.equal(library.createExtractorMatcher({ extractors: [extractor] }).match({ url: docs[id].location.href, document: docs[id] })?.name, extractor.name);
+    }
+  });
+
+  const csv = repeat(512, row => repeat(55, column => `${column ? ',' : ''}cell-${row}-${column}`) + '\n');
+  await check('Google Sheets preserves complete exports beyond 500 rows and 50 columns', () => fixture({
+    name: 'Google Sheets', url: 'https://docs.google.com/spreadsheets/d/audit/edit', html: '<main>Sheet</main>',
+    resources: { '/spreadsheets/d/audit/export': { contentType: 'text/csv', body: csv } },
+    expected: ['cell-511-54', '| BC |'], excluded: ['output_limits'],
+  }));
+
+  const table = `<table>${repeat(212, row => `<tr>${repeat(55, column => `<td>cell-${row}-${column}</td>`)}</tr>`)}</table>`;
+  await check('Excel preserves every rendered table row and column', () => fixture({
+    name: 'Microsoft 365', url: 'https://excel.officeapps.live.com/x/audit', html: `<main>${table}</main>`, expected: ['cell-211-54'],
+  }));
+  await check('Notion public pages preserve full properties and database views', () => fixture({
+    name: 'Notion', url: 'https://team.notion.site/audit-project',
+    html: `<main class="notion-page-content"><h1>Project</h1><div data-block-id="a"><p>Project content</p></div>${table}</main>`, expected: ['cell-211-54', 'rendered rows only'],
+  }));
+  await check('GitLab preserves rendered files beyond 500000 characters', () => fixture({
+    name: 'GitLab', url: 'https://gitlab.com/team/project/-/blob/main/large.txt', html: `<main><div class="blob-content"><pre>${'a'.repeat(500_010)}FILE_END</pre></div></main>`, expected: ['FILE_END'], excluded: ['Content truncated'],
+  }));
+  await check('YouTube preserves all loaded comments and transcript segments', () => fixture({
+    name: 'YouTube', url: 'https://www.youtube.com/watch?v=audit',
+    html: `<h1>Video</h1>${repeat(25, i => `<ytd-comment-thread-renderer><span id="author-text">Author ${i}</span><div id="content-text">Comment ${i}</div></ytd-comment-thread-renderer>`)}${repeat(505, i => `<ytd-transcript-segment-renderer><span class="segment-text">Transcript ${i}</span></ytd-transcript-segment-renderer>`)}`,
+    expected: ['Comment 24', 'Transcript 504'],
+  }));
+  const tweets = repeat(31, i => `<article data-testid="tweet"><div data-testid="User-Name"><a href="/author"><span><span>Author</span></span></a></div><div data-testid="tweetText">Post ${i}</div>${i === 30 ? repeat(25, image => `<img alt="Photo ${image}" src="https://media.example/photo-${image}.png">`) : ''}</article>`);
+  for (const route of ['home', 'search?q=audit', 'author/status/123']) {
+    await check(`X preserves all loaded posts on ${route}`, () => fixture({ name: 'X (Twitter)', url: `https://x.com/${route}`, html: tweets, expected: ['Post 30', 'https://media.example/photo-24.png'] }));
+  }
+
+  const searches = [
+    ['Google Search', 'https://www.google.com/search?q=audit', 'g', 'VwiC3b'],
+    ['DuckDuckGo Search', 'https://duckduckgo.com/?q=audit', 'result', 'result__snippet'],
+    ['Bing Search', 'https://www.bing.com/search?q=audit', 'b_algo', 'b_caption'],
+    ['Yahoo Search', 'https://search.yahoo.com/search?p=audit', 'algo', 'compText'],
+    ['Yandex Search', 'https://yandex.com/search?text=audit', 'serp-item', 'OrganicTextContentSpan'],
+    ['Baidu Search', 'https://www.baidu.com/s?wd=audit', 'result', 'c-abstract'],
+    ['Brave Search', 'https://search.brave.com/search?q=audit', 'snippet', 'snippet-description'],
+  ];
+  for (const [name, url, resultClass, snippetClass] of searches) {
+    await check(`${name} preserves all loaded results and complete snippets`, () => fixture({
+      name, url, html: `<main id="${name === 'Yahoo Search' ? 'web' : 'content_left'}">${repeat(30, i => `<div class="${resultClass}"><h2><a href="https://result.example/${i}"><h3 class="result__title">Result ${i}</h3></a></h2><div class="${snippetClass}"><p>${'s'.repeat(650)}SNIPPET_END_${i}</p></div></div>`)}</main>`,
+      expected: ['Result 29', 'SNIPPET_END_29'],
+    }));
+  }
+  await check('Live news preserves every update and all paragraphs', () => fixture({
+    name: 'News (Generic)', url: 'https://www.cnn.com/live-news/audit', html: `<h1>News</h1>${repeat(51, i => `<div class="live-blog-post"><h2>Update ${i}</h2><p>First ${i}</p><p>Second ${i}</p></div>`)}`, expected: ['Update 50', 'Second 50'],
+  }));
+  await check('FOX keeps details that share the synopsis', () => fixture({
+    name: 'FOX', url: 'https://www.fox.com/shows/audit', html: '<main><h1>Show</h1><div class="details"><p data-testid="description">Synopsis</p><p>Additional episode detail</p></div></main>', expected: ['Synopsis', 'Additional episode detail'],
+  }));
+  await check('Amazon preserves full descriptions and every loaded review', () => fixture({
+    name: 'Amazon', url: 'https://www.amazon.com/dp/AUDIT', html: `<h1>Product</h1><div id="productDescription"><p>First product paragraph with enough content.</p><p>Second product paragraph</p></div>${repeat(11, i => `<div data-hook="review"><span data-hook="review-body"><span>Review ${i}</span></span></div>`)}`, expected: ['Second product paragraph', 'Review 10'],
+  }));
+  await check('Wikipedia preserves citations and reference targets', () => fixture({
+    name: 'Wikipedia', url: 'https://en.wikipedia.org/wiki/Audit', html: '<h1 id="firstHeading">Audit</h1><main id="mw-content-text"><p>Claim<sup class="reference"><a href="#cite-note-1">[1]</a></sup></p><div class="reflist"><ol><li id="cite-note-1"><a href="https://source.example/paper">Reference title</a></li></ol></div></main>', expected: ['[1]', 'Reference title', 'https://source.example/paper'],
+  }));
+  await check('Datadog documentation fallback retains code-toolbar contents', () => fixture({
+    name: 'Datadog Documentation', url: 'https://docs.datadoghq.com/audit/', html: '<main id="mainContent"><h1>Audit</h1><div class="code-toolbar"><pre><code class="language-python">print("CODE_END")</code></pre><div class="toolbar"><button>Copy noise</button></div></div></main>', expected: ['CODE_END', '```python'], excluded: ['Copy noise'],
+  }));
+  await check('W&B preserves every configuration value and complete notes', () => fixture({
+    name: 'Weights & Biases', url: 'https://wandb.ai/team/project/runs/audit', html: '<main>Run</main>',
+    afterLoad: page => page.evaluate(() => { window.CONFIG = { BACKEND_HOST: location.origin }; }),
+    resources: { '/graphql': { headers: { 'Access-Control-Allow-Origin': 'https://wandb.ai', 'Access-Control-Allow-Credentials': 'true' }, contentType: 'application/json', body: JSON.stringify({ data: { project: { run: {
+      displayName: 'Audit', notes: 'n'.repeat(10_010) + 'NOTES_END', config: Object.fromEntries(Array.from({ length: 101 }, (_, i) => [`param-${i}`, 'v'.repeat(2010) + `VALUE_END_${i}`])),
+    } } } }) } }, expected: ['NOTES_END', 'VALUE_END_100'],
+  }));
+  await check('MLflow preserves every parameter and complete values', () => fixture({
+    name: 'MLflow', url: 'https://mlflow.example/#/experiments/1/runs/audit', html: '<main class="mlflow-ui-container">Run</main>',
+    resources: { '/ajax-api/2.0/mlflow/runs/get': { contentType: 'application/json', body: JSON.stringify({ run: {
+      info: { run_id: 'audit', run_name: 'Audit' }, data: { params: Array.from({ length: 201 }, (_, i) => ({ key: `param-${i}`, value: 'v'.repeat(2010) + `VALUE_END_${i}` })) },
+    } }) } }, expected: ['VALUE_END_200'],
+  }));
+  await check('Substack custom domains require framework identity and post content', () => fixture({
+    name: 'Substack', url: 'https://newsletter.example/p/audit', html: '<meta name="generator" content="Substack"><article><h1>Newsletter</h1><div class="body markup"><p>Full post</p></div></article>', expected: ['Full post'],
+  }));
+
+  await check('Markdown tables preserve images, footers, and repeated data', () => fixture({
+    name: 'GitLab', url: 'https://gitlab.com/team/project', html: '<main><div id="readme"><table><thead><tr><th>Label</th></tr></thead><tbody><tr><td>Label</td></tr><tr><td>Label</td></tr><tr><td><img alt="Diagram" src="https://media.example/diagram.png"></td></tr></tbody><tfoot><tr><td>Footnote</td></tr></tfoot></table></div></main>',
+    expected: ['Diagram', 'https://media.example/diagram.png', 'Footnote', '| Label |\n| Label |'],
+  }));
+  await check('Placement skips hidden anchors and uses a visible alternate', () => fixture({
+    name: 'Google Search', url: 'https://www.google.com/search?q=audit', html: '<div hidden><button id="hdtb-tls">Hidden Tools</button></div><div class="yeKjxb" style="width:100px;height:40px">Visible Tools</div>', ui: true,
+    afterLoad: async page => {
+      await page.waitForSelector('#cam-copy-btn', { visible: true });
+      const state = await page.evaluate(() => ({ hidden: !!document.querySelector('[hidden] #cam-copy-btn'), alternate: document.querySelector('.yeKjxb').nextElementSibling?.id }));
+      assert.equal(state.hidden, false);
+      assert.equal(state.alternate, 'cam-copy-btn');
+    },
+  }));
+  await check('Overlay placement stays visible at narrow viewport edges', () => fixture({
+    name: 'YouTube', url: 'https://www.youtube.com/watch?v=audit', html: '<h1>Video</h1><div id="actions" style="position:absolute;left:4px;top:4px;width:80px;height:40px">Actions</div>', ui: true,
+    afterLoad: async page => {
+      await page.setViewport({ width: 320, height: 568 });
+      await page.waitForSelector('#cam-copy-btn', { visible: true });
+      await page.waitForFunction(() => {
+        const button = document.querySelector('#cam-copy-btn').getBoundingClientRect();
+        return button.left >= 8 && button.top >= 8 && button.right <= innerWidth - 8 && button.bottom <= innerHeight - 8;
+      }, { timeout: 3000 });
+    },
+  }));
+} finally { await browser.close(); }
+assert.deepEqual(failures, [], `Catalog regressions failed: ${failures.join(', ')}`);

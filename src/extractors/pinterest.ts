@@ -12,7 +12,6 @@ import { register } from '../core/registry';
 import * as Utils from '../core/utils';
 
 const COMMENT_LIMIT = 30;
-const MEDIA_LIMIT = 20;
 
 interface PinterestPin {
   id: string;
@@ -232,7 +231,7 @@ function extractMedia(scope: ParentNode): string[] {
     const value = src ? `[${escapeLabel(alt)}](${src})` : alt;
     if (value && !media.includes(value) && !/profile|avatar|logo|icon/i.test(image.alt)) media.push(value);
   });
-  return media.slice(0, MEDIA_LIMIT);
+  return media;
 }
 
 function findEmbeddedPin(id: string): PinterestPin | null {
@@ -277,7 +276,7 @@ function mapEmbeddedPin(record: Record<string, unknown>, id: string): PinterestP
   const images = [record.images, record.image_signature, record.story_pin_data]
     .filter((value) => value && typeof value === 'object');
   images.forEach((value) => collectMediaUrls(value, pin.media));
-  pin.media = unique(pin.media).slice(0, MEDIA_LIMIT);
+  pin.media = unique(pin.media);
   return pin;
 }
 
@@ -297,7 +296,7 @@ function mapLdPin(record: Record<string, unknown>, id: string): PinterestPin {
 function collectMediaUrls(root: unknown, result: string[]): void {
   const stack: Array<{ value: unknown; depth: number }> = [{ value: root, depth: 0 }];
   let visited = 0;
-  while (stack.length && visited++ < 2_000 && result.length < MEDIA_LIMIT) {
+  while (stack.length && visited++ < 2_000) {
     const current = stack.pop()!;
     if (typeof current.value === 'string' && /^https?:\/\//i.test(current.value)
       && /\.(?:jpe?g|png|gif|webp)(?:\?|$)/i.test(current.value)) {
@@ -322,7 +321,7 @@ function mergePins(primary: PinterestPin | null, fallback: PinterestPin): Pinter
     saves: primary.saves || fallback.saves,
     comments: primary.comments || fallback.comments,
     reactions: primary.reactions || fallback.reactions,
-    media: unique([...primary.media, ...fallback.media]).slice(0, MEDIA_LIMIT),
+    media: unique([...primary.media, ...fallback.media]),
   };
 }
 

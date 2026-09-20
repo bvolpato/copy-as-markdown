@@ -79,7 +79,7 @@ register({
     if (creator) parts.push(`**Cast / creator:** ${creator}`);
     if (rating) parts.push(`**Score:** ${rating}`);
     parts.push('');
-    if (description) parts.push('## Synopsis', '', Utils.truncate(description, 20_000), '');
+    if (description) parts.push('## Synopsis', '', description, '');
 
     const episode = firstText([
       '[data-uia="video-episode-title"]',
@@ -92,7 +92,7 @@ register({
 
     const details = Array.from(document.querySelectorAll(
       '[data-uia="video-details"] li, [data-uia="title-info"] li, .title-info-talent li',
-    )).map((item) => item.textContent?.trim() || '').filter(Boolean).slice(0, 30);
+    )).map((item) => item.textContent?.trim() || '').filter(Boolean);
     if (details.length) parts.push('## Details', '', ...details.map((item) => `- ${item}`), '');
 
     return Markdown.buildPageMarkdown(metadata, parts.join('\n'));

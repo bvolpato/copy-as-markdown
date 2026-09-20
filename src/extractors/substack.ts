@@ -13,8 +13,9 @@ register({
     '*://*.substack.com/p/*',
     '*://*.substack.com/publish/post/*',
   ],
-  // Also match custom domains using Substack (detected by meta tag)
-  regex: /substack\.com\/p\//,
+  detect: (contextDocument = document) =>
+    /substack/i.test(contextDocument.querySelector<HTMLMetaElement>('meta[name="generator"]')?.content || '')
+    && Boolean(contextDocument.querySelector('.body.markup, .available-content, article .body')),
 
   async extract() {
     const url = Utils.getCanonicalUrl();

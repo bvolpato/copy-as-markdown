@@ -80,10 +80,10 @@ register({
     if (price) parts.push(`**Price:** ${price}`);
     if (hotelUrl && route === 'search') parts.push(`**Hotel:** ${hotelUrl}`);
     parts.push('');
-    if (description) parts.push('## Description', '', Utils.truncate(description, 20_000), '');
+    if (description) parts.push('## Description', '', description, '');
 
     if (route === 'search') {
-      const cards = Array.from(document.querySelectorAll('[data-testid="property-card"]')).slice(0, 30);
+      const cards = Array.from(document.querySelectorAll('[data-testid="property-card"]'));
       if (cards.length) {
         parts.push('## Search Results', '');
         cards.forEach((card, index) => {

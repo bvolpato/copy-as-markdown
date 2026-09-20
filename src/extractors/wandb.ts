@@ -78,13 +78,16 @@ function getWandbRunRoute(): WandbRoute | null {
   }
 }
 
-function isWandbRunPage(): boolean {
-  if (!getWandbRunRoute()) return false;
-  if (/(?:^|\.)wandb\.ai$/i.test(window.location.hostname)) return true;
+function isWandbRunPage(contextDocument: Document = document): boolean {
+  const href = contextDocument.location?.href || contextDocument.baseURI;
+  if (!href) return false;
+  const url = new URL(href);
+  if (!/^\/[^/]+\/[^/]+\/runs\/[^/?#]+(?:\/.*)?$/.test(url.pathname)) return false;
+  if (/(?:^|\.)wandb\.ai$/i.test(url.hostname)) return true;
   const marker = [
-    document.title,
-    document.querySelector('meta[name="application-name"]')?.getAttribute('content'),
-    document.querySelector('meta[property="og:site_name"]')?.getAttribute('content'),
+    contextDocument.title,
+    contextDocument.querySelector('meta[name="application-name"]')?.getAttribute('content'),
+    contextDocument.querySelector('meta[property="og:site_name"]')?.getAttribute('content'),
   ].filter(Boolean).join(' ');
   return /(?:weights\s*&\s*biases|\bwandb\b|\bw&b\b)/i.test(marker);
 }
@@ -242,11 +245,11 @@ function buildRunMarkdown(
     Commit: run.commit,
   });
   if (details.length > 0) parts.push(details.map(([key, value]) => `- **${key}:** ${value}`).join('\n'));
-  if (run.description) parts.push(`## Description\n\n${limitText(run.description, 10_000)}`);
-  if (run.notes && run.notes !== run.description) parts.push(`## Notes\n\n${limitText(run.notes, 10_000)}`);
+  if (run.description) parts.push(`## Description\n\n${run.description}`);
+  if (run.notes && run.notes !== run.description) parts.push(`## Notes\n\n${run.notes}`);
 
   const config = parseJsonRecord(run.config);
-  const configRows = compactEntries(config, true).slice(0, 100);
+  const configRows = compactEntries(config, true);
   if (configRows.length > 0) {
     parts.push('## Configuration');
     parts.push(keyValueTable(configRows));
@@ -350,10 +353,10 @@ function keyValueTable(rows: Array<[string, string]>): string {
 function formatValue(value: unknown): string {
   if (value === null || value === undefined || value === '') return '';
   if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') {
-    return limitText(String(value), 2000);
+    return String(value);
   }
   try {
-    return limitText(JSON.stringify(value), 2000);
+    return JSON.stringify(value);
   } catch {
     return '';
   }

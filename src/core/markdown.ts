@@ -144,6 +144,7 @@ export function tableToMarkdown(tableEl: Element): string {
       tbody.querySelectorAll(':scope > tr').forEach((tr) => trElements.push(tr)),
     );
   }
+  tableEl.querySelectorAll(':scope > tfoot > tr').forEach((tr) => trElements.push(tr));
   if (trElements.length === 0) {
     tableEl.querySelectorAll(':scope > tr').forEach((tr) => trElements.push(tr));
   }
@@ -178,10 +179,6 @@ export function tableToMarkdown(tableEl: Element): string {
   lines.push('| ' + allRowCells[0].map(() => '---').join(' | ') + ' |');
 
   for (let i = 1; i < allRowCells.length; i++) {
-    // Skip rows that are exact duplicates of the header (Wikipedia renders headers twice)
-    if (allRowCells[i].join('|') === allRowCells[0].join('|')) continue;
-    // Skip completely empty rows
-    if (allRowCells[i].every((c) => !c)) continue;
     lines.push('| ' + allRowCells[i].join(' | ') + ' |');
   }
 
@@ -220,7 +217,7 @@ function cellToMarkdown(cell: Element): string {
         const text = normalizeWhitespace(el.textContent || '');
         if (text) parts.push(`*${text}*`);
       } else if (tag === 'IMG') {
-        // skip images in tables
+        parts.push(elementToMarkdown(el).trim());
       } else if (tag === 'UL' || tag === 'OL') {
         // Flatten list items inline
         const items = Array.from(el.querySelectorAll('li'));
