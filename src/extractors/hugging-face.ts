@@ -135,9 +135,17 @@ function decodePart(value: string | undefined): string {
 }
 
 function getRepositoryData(kind: RepositoryKind): JsonRecord | null {
-  const target = HEADER_TARGETS[kind];
-  const payload = parseDataProps(document.querySelector(`[data-target="${target}"]`));
-  return asRecord(payload?.[REPOSITORY_KEYS[kind]]);
+  const payload = getHeaderData(kind);
+  const repository = asRecord(payload?.[REPOSITORY_KEYS[kind]]);
+  if (repository || kind !== 'model') return repository;
+
+  const evaluation = parseDataProps(document.querySelector('[data-target="ModelEvalResults"]'));
+  const inference = parseDataProps(document.querySelector('[data-target="InferenceWidget"]'));
+  return asRecord(evaluation?.model) || asRecord(asRecord(inference?.widgetData)?.model);
+}
+
+function getHeaderData(kind: RepositoryKind): JsonRecord | null {
+  return parseDataProps(document.querySelector(`[data-target="${HEADER_TARGETS[kind]}"]`));
 }
 
 function parseDataProps(element: Element | null): JsonRecord | null {
@@ -175,7 +183,7 @@ function buildMetadata(
   };
   addMetadata(metadata, 'created', repositoryData?.createdAt);
   addMetadata(metadata, 'updated', repositoryData?.lastModified);
-  addMetadata(metadata, 'downloads', repositoryData?.downloads);
+  addMetadata(metadata, 'downloads', downloadValue(repositoryData));
   addMetadata(metadata, 'likes', repositoryData?.likes);
   addMetadata(metadata, 'private', repositoryData?.private);
   addMetadata(metadata, 'gated', repositoryData?.gated);
@@ -209,6 +217,7 @@ function extractCard(
     metadata.tags = tags.join(', ');
     parts.push(`## Tags\n\n${tags.map((tag) => `- ${tag}`).join('\n')}`);
   }
+  appendStructuredMetadata(parts, route.kind, repositoryData);
 
   const card = getRenderedCard(route.kind);
   let capturedCard = false;
@@ -225,6 +234,8 @@ function extractCard(
     }
   }
 
+  appendSidebarSections(parts, route.kind);
+
   if (route.kind === 'space') {
     const description = getSpaceDescription();
     if (description) parts.push(`## Description\n\n${description}`);
@@ -240,18 +251,28 @@ function extractCard(
 
 function overviewMarkdown(route: RepositoryRoute, repositoryData: JsonRecord | null): string {
   const cardData = asRecord(repositoryData?.cardData);
+  const headerData = getHeaderData(route.kind);
+  const publisher = asRecord(headerData?.author);
+  const discussions = asRecord(headerData?.discussionsStats);
   const runtime = asRecord(repositoryData?.runtime);
   const hardware = asRecord(runtime?.hardware);
   const rows: Array<[string, unknown]> = [
     ['Repository', stringValue(repositoryData?.id) || route.repository],
     ['Type', kindLabel(route.kind)],
     ['Author', stringValue(repositoryData?.author) || route.owner],
+    ['Publisher', publisher?.fullname],
     ['Created', repositoryData?.createdAt],
     ['Last modified', repositoryData?.lastModified],
-    ['Downloads', repositoryData?.downloads],
+    ['Downloads', downloadValue(repositoryData)],
+    ['All-time downloads', repositoryData?.trackDownloads === false ? undefined : repositoryData?.downloadsAllTime],
     ['Likes', repositoryData?.likes],
     ['Private', repositoryData?.private],
     ['Gated', repositoryData?.gated],
+    ['Commit', repositoryData?.sha],
+    ['Region', repositoryData?.region],
+    ['Community discussions', discussions?.total],
+    ['Open discussions', discussions?.open],
+    ['Closed discussions', discussions?.closed],
   ];
 
   if (route.kind === 'model') {
@@ -261,6 +282,9 @@ function overviewMarkdown(route: RepositoryRoute, repositoryData: JsonRecord | n
       ['License', cardData?.license],
       ['Languages', cardData?.language],
       ['Base models', cardData?.base_model],
+      ['Base model relation', cardData?.base_model_relation],
+      ['Quantized', repositoryData?.isQuantized],
+      ['Inference status', repositoryData?.inference],
       ['Datasets', cardData?.datasets],
     );
   } else if (route.kind === 'dataset') {
@@ -296,6 +320,149 @@ function overviewMarkdown(route: RepositoryRoute, repositoryData: JsonRecord | n
       `| ${Markdown.escapeMarkdownTableCell(label)} | ${Markdown.escapeMarkdownTableCell(value)} |`,
     ),
   ].join('\n');
+}
+
+function downloadValue(repositoryData: JsonRecord | null): unknown {
+  return repositoryData?.trackDownloads === false ? 'Not tracked' : repositoryData?.downloads;
+}
+
+function appendStructuredMetadata(
+  parts: string[],
+  kind: RepositoryKind,
+  repositoryData: JsonRecord | null,
+): void {
+  // Copy repository metadata only. Header props also contain viewer permissions
+  // and billing context, which are unrelated to the repository.
+  const represented = new Set(['license', 'tags', 'pipeline_tag', 'library_name']);
+  const overviewFields = kind === 'model'
+    ? ['language', 'base_model', 'base_model_relation', 'datasets']
+    : kind === 'dataset'
+      ? ['pretty_name', 'language', 'task_categories', 'size_categories']
+      : ['title', 'sdk', 'sdk_version', 'app_file'];
+  overviewFields.forEach((key) => represented.add(key));
+  const cardData = asRecord(repositoryData?.cardData);
+  const additional = Object.fromEntries(Object.entries(cardData || {})
+    .filter(([key]) => !represented.has(key) && !(kind === 'model' && key === 'model-index')));
+  appendPropertyTable(parts, 'Card Metadata', additional);
+
+  if (kind !== 'model') return;
+  appendPropertyTable(parts, 'Model Configuration', repositoryData?.config);
+  appendPropertyTable(parts, 'Safetensors', repositoryData?.safetensors);
+  appendPropertyTable(parts, 'Transformers', repositoryData?.transformersInfo);
+  appendPropertyTable(parts, 'Evaluation Results', repositoryData?.['model-index'] || cardData?.['model-index']);
+
+  const providers = repositoryData?.availableInferenceProviders;
+  if (Array.isArray(providers)) {
+    if (providers.length > 0) {
+      appendPropertyTable(parts, 'Inference Providers', providers);
+    } else {
+      parts.push('## Inference Providers\n\nThis model is not deployed by any Inference Provider.');
+    }
+  }
+}
+
+function appendPropertyTable(parts: string[], title: string, value: unknown): void {
+  const rows = propertyRows(value);
+  if (rows.length === 0) return;
+  parts.push([
+    `## ${title}`, '', '| Property | Value |', '| --- | --- |',
+    ...rows.map(([key, text]) =>
+      `| ${Markdown.escapeMarkdownTableCell(key)} | ${Markdown.escapeMarkdownTableCell(text)} |`,
+    ),
+  ].join('\n'));
+}
+
+function propertyRows(value: unknown, path = ''): Array<[string, string]> {
+  if (Array.isArray(value)) {
+    if (value.every((item) => ['string', 'number', 'boolean'].includes(typeof item))) {
+      const text = displayValue(value);
+      return text ? [[path || 'value', text]] : [];
+    }
+    return value.flatMap((item, index) => propertyRows(item, `${path}[${index}]`));
+  }
+  const record = asRecord(value);
+  if (record) {
+    return Object.entries(record).flatMap(([key, child]) =>
+      propertyRows(child, path ? `${path}.${key}` : key),
+    );
+  }
+  const text = displayValue(value);
+  return text ? [[path || 'value', text]] : [];
+}
+
+function appendSidebarSections(parts: string[], kind: RepositoryKind): void {
+  const card = getRenderedCard(kind);
+  const sections: Array<[RegExp, string]> = [
+    [/^Model tree for\b/i, 'Model Tree'],
+    [/^Collections? including\b/i, 'Collections'],
+    [/^Spaces using\b/i, 'Spaces Using This Repository'],
+    [/^Papers for\b/i, 'Related Papers'],
+    [/^Evaluation results\b/i, 'Evaluation Results'],
+  ];
+  for (const heading of document.querySelectorAll('main h2')) {
+    if (card?.contains(heading) || heading.closest('[role="dialog"], [hidden], .modal')) continue;
+    let title = sections.find(([pattern]) => pattern.test(textOf(heading)))?.[1];
+    if (!title) continue;
+    if (title === 'Evaluation Results' && parts.some((part) => part.startsWith('## Evaluation Results\n'))) {
+      title = 'Evaluation Results (Page)';
+    }
+    if (title === 'Spaces Using This Repository') {
+      const count = textOf(heading).match(/\s(\d[\d,]*)$/)?.[1];
+      if (count) title += ` (${count})`;
+    }
+    // Some sidebar headings share a wrapper with a "see all" link.
+    let sectionHeader = heading;
+    while (sectionHeader.parentElement
+      && !sectionHeader.parentElement.matches('main, section, aside')
+      && Array.from(sectionHeader.parentElement.children).every((child) =>
+        child === sectionHeader || child.matches('a, button, svg, span'),
+      )) {
+      sectionHeader = sectionHeader.parentElement;
+    }
+    const container = document.createElement('div');
+    if (sectionHeader !== heading) {
+      const controls = sectionHeader.cloneNode(true) as Element;
+      controls.querySelector('h2')?.remove();
+      container.appendChild(controls);
+    }
+    for (let sibling = sectionHeader.nextElementSibling; sibling; sibling = sibling.nextElementSibling) {
+      if (/^H[1-3]$/.test(sibling.tagName)
+        || sibling.querySelector('h2')
+        || sibling.classList.contains('divider-column-vertical')
+        || sibling.getAttribute('data-target') === 'ModelEvalResults') break;
+      container.appendChild(sibling.cloneNode(true));
+    }
+    // Collection titles use headers, and linked Spaces use a nav container.
+    const clean = Utils.removeNoise(container, [
+      ...Utils.NOISE_SELECTORS.filter((selector) => selector !== 'header' && selector !== 'nav'),
+      'button', '[hidden]', '#cam-copy-btn', '[data-cam-instance]',
+    ]);
+    // The shared converter skips nav tags. These contain repository links.
+    for (const nav of clean.querySelectorAll('nav')) {
+      const content = document.createElement('div');
+      for (const attribute of nav.attributes) content.setAttribute(attribute.name, attribute.value);
+      content.append(...Array.from(nav.childNodes));
+      nav.replaceWith(content);
+    }
+    for (const time of clean.querySelectorAll('time[datetime]')) {
+      time.textContent = time.getAttribute('datetime');
+    }
+    for (const link of clean.querySelectorAll('a[href]')) {
+      const blocks = link.querySelectorAll('header, h3, h4, p, div');
+      if (blocks.length === 0) continue;
+      for (const block of blocks) {
+        block.before(' ');
+        block.after(' ');
+      }
+      link.textContent = textOf(link);
+    }
+    const markdown = Markdown.elementToMarkdown(clean);
+    if (markdown) parts.push(`## ${title}\n\n${markdown}`);
+  }
+}
+
+function textOf(element: Element): string {
+  return (element.textContent || '').replace(/\s+/g, ' ').trim();
 }
 
 function getTags(kind: RepositoryKind, repositoryData: JsonRecord | null): string[] {

@@ -265,7 +265,7 @@ const nodeMatch = matcher.match({ url: 'https://jira.corp.example/browse/ENG-123
 await assert.rejects(nodeMatch.extract(), /active browser page/);
 
 const browserCode = fs.readFileSync(path.join(ROOT, 'dist', 'library', 'browser.js'), 'utf8');
-const browser = await puppeteer.launch({ headless: true, args: ['--no-sandbox'] });
+const browser = await puppeteer.launch({ headless: 'shell', args: ['--no-sandbox'] });
 try {
   const page = await browser.newPage();
   await page.setContent(`<!doctype html>
