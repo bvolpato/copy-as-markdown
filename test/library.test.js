@@ -35,6 +35,33 @@ assert.deepEqual(
   selectedExtractors.map(({ name }) => name).sort(),
 );
 
+const notionExtractor = await library.loadExtractor('notion');
+const [notionFromBatch] = await library.loadExtractors(['notion']);
+assert.equal(notionFromBatch, notionExtractor, 'repeated loads should reuse the extractor');
+const notionByName = library.getExtractors(['Notion']);
+assert.equal(notionByName.length, 2, 'name selection must preserve both Notion routes');
+for (const extractors of [[notionExtractor], ['Notion'], [notionExtractor, 'Notion']]) {
+  const notionMatcher = library.createExtractorMatcher({ extractors });
+  for (const url of [
+    'https://www.notion.so/Page-12345678901234567890123456789012',
+    'https://team.notion.so/Page-12345678-1234-1234-1234-123456789012',
+    'https://team.notion.site/Public-page',
+    'https://docs.team.notion.site:8443/Public-page',
+  ]) {
+    assert.equal(notionMatcher.matchAll({ url }).length, 1, `Notion route must match once: ${url}`);
+  }
+  for (const url of [
+    'https://www.notion.so/settings',
+    'https://www.notion.so/Public-page',
+    'https://team.notion.site/settings',
+    'https://team.notion.site/api/page',
+    'https://team.notion.site/',
+    'https://team.notion.site.evil.example/Public-page',
+  ]) {
+    assert.equal(notionMatcher.match({ url }), null, `Notion route must reject: ${url}`);
+  }
+}
+
 const directCore = await import(path.join(ROOT, 'dist', 'library', 'core.js'));
 const { jiraExtractor } = await import(path.join(ROOT, 'dist', 'library', 'extractors', 'jira.js'));
 const { confluenceExtractor } = await import(path.join(ROOT, 'dist', 'library', 'extractors', 'confluence.js'));
@@ -267,6 +294,27 @@ await assert.rejects(nodeMatch.extract(), /active browser page/);
 const browserCode = fs.readFileSync(path.join(ROOT, 'dist', 'library', 'browser.js'), 'utf8');
 const browser = await puppeteer.launch({ headless: 'shell', args: ['--no-sandbox'] });
 try {
+  const notionPage = await browser.newPage();
+  await notionPage.setRequestInterception(true);
+  notionPage.on('request', request => request.respond({
+    contentType: 'text/html',
+    body: '<!doctype html><main class="notion-page-content"><h1>Custom Notion page</h1><div data-block-id="a"><p>Detected Notion content</p></div></main>',
+  }));
+  await notionPage.goto('https://custom.example/page');
+  await notionPage.addScriptTag({ content: browserCode });
+  const notionDirect = await notionPage.evaluate(async () => {
+    const extractor = await CopyAsMarkdown.loadExtractor('notion');
+    const detected = extractor.detect(document);
+    const markdown = await extractor.extract();
+    document.querySelector('main').remove();
+    const rejection = await extractor.extract().then(() => null, error => error.message);
+    return { detected, markdown, rejection };
+  });
+  assert.equal(notionDirect.detected, true);
+  assert.ok(notionDirect.markdown.includes('Detected Notion content'));
+  assert.equal(notionDirect.rejection, 'No Notion extractor matches the active browser page');
+  await notionPage.close();
+
   const page = await browser.newPage();
   await page.setContent(`<!doctype html>
     <html>
@@ -305,6 +353,117 @@ try {
   assert.match(result.markdown, /# Library API/);
   assert.match(result.markdown, /Use "smart quotes" - safely\./);
   assert.match(result.markdown, /\[Install\]\(https:\/\/docs\.example\.test\/guide\/install\)/);
+
+  const codeCases = await page.evaluate(() => {
+    const inline = 'a[b](c)d “Ａ”\u200b';
+    const block = 'const text = “Ａ”;  \n\n\n```\n````\n\tend  \n\n';
+    const root = document.createElement('div');
+    const prose = root.appendChild(document.createElement('p'));
+    prose.textContent = '“Prose”\u200b — Ａ';
+    const paragraph = root.appendChild(document.createElement('p'));
+    paragraph.appendChild(document.createElement('code')).textContent = inline;
+    const pre = root.appendChild(document.createElement('pre'));
+    const code = pre.appendChild(document.createElement('code'));
+    code.className = 'language-typescript';
+    code.textContent = block;
+    const markdown = CopyAsMarkdown.domToMarkdown(root);
+    const list = document.createElement('ul');
+    list.appendChild(document.createElement('li'))
+      .appendChild(document.createElement('code')).textContent = inline;
+    const codeSpan = (text) => {
+      const element = document.createElement('code');
+      element.textContent = text;
+      return CopyAsMarkdown.domToMarkdown(element);
+    };
+    return {
+      inline, block, markdown,
+      pageMarkdown: CopyAsMarkdown.buildPageMarkdown({ title: 'Example' }, markdown),
+      cleaned: CopyAsMarkdown.cleanMarkdown(markdown),
+      list: CopyAsMarkdown.domToMarkdown(list),
+      edgeBackticks: codeSpan('`edge`'),
+      padded: codeSpan(' value '),
+      spaces: codeSpan('   '),
+      newline: codeSpan('one\ntwo'),
+      noFinalNewline: CopyAsMarkdown.htmlToMarkdown('<pre><code class="language-c++">one</code></pre>'),
+      quoted: CopyAsMarkdown.htmlToMarkdown('<blockquote><pre><code>“Ａ”  \n\n\nend</code></pre></blockquote>'),
+      listBlock: CopyAsMarkdown.htmlToMarkdown('<ul><li><pre><code>“Ａ”  \n\n\nend</code></pre></li></ul>'),
+      listBefore: CopyAsMarkdown.htmlToMarkdown('<ul><li><p>Example:</p><pre><code>“Ａ”  \nline</code></pre></li></ul>'),
+      listAfter: CopyAsMarkdown.htmlToMarkdown('<ul><li><pre><code>“Ａ”  \nline</code></pre><p>Explanation after.</p></li></ul>'),
+      listCard: CopyAsMarkdown.htmlToMarkdown('<ol><li><a href="https://example.test/card"><h3>Card title</h3><p>Card body</p></a></li></ol>'),
+      table: CopyAsMarkdown.htmlToMarkdown('<table><tr><th>Code</th></tr><tr><td><strong><code>“Ａ”  value</code></strong></td></tr></table>'),
+      tablePath: CopyAsMarkdown.htmlToMarkdown('<table><tr><th>Code</th></tr><tr><td><code>C:\\foo | bar</code></td></tr></table>'),
+      tableEscapedPipe: CopyAsMarkdown.htmlToMarkdown('<table><tr><th>Code</th></tr><tr><td><code>C:\\foo\\|bar</code></td></tr></table>'),
+    };
+  });
+  assert.match(codeCases.markdown, /"Prose" - A/);
+  assert.ok(codeCases.markdown.includes('`' + codeCases.inline + '`'), 'inline code must retain literal Unicode and punctuation');
+  const fenced = '`````typescript\n' + codeCases.block + '`````';
+  assert.ok(codeCases.markdown.includes(fenced), 'a fence must exceed every literal backtick run and retain code whitespace');
+  assert.equal(codeCases.cleaned, codeCases.markdown, 'Markdown cleanup must preserve code on repeated calls');
+  assert.ok(codeCases.pageMarkdown.endsWith(codeCases.markdown), 'page metadata must not rewrite code');
+  assert.equal(codeCases.list, '- `' + codeCases.inline + '`', 'list normalization must preserve code');
+  assert.equal(codeCases.edgeBackticks, '`` `edge` ``');
+  assert.equal(codeCases.padded, '`  value  `');
+  assert.equal(codeCases.spaces, '`   `');
+  assert.equal(codeCases.newline, '`one two`');
+  assert.equal(codeCases.noFinalNewline, '```c++\none\n```');
+  assert.equal(codeCases.quoted, '> ```\n> “Ａ”  \n> \n> \n> end\n> ```');
+  assert.equal(codeCases.listBlock, '- ```\n  “Ａ”  \n\n\n  end\n  ```');
+  assert.equal(codeCases.listBefore, '- Example:\n\n  ```\n  “Ａ”  \n  line\n  ```');
+  assert.equal(codeCases.listAfter, '- ```\n  “Ａ”  \n  line\n  ```\n\n  Explanation after.');
+  assert.equal(codeCases.listCard, '1. [### Card title Card body](https://example.test/card)');
+  assert.equal(codeCases.table, '| Code |\n| --- |\n| **`“Ａ”  value`** |');
+  assert.equal(codeCases.tablePath, '| Code |\n| --- |\n| `C:\\foo \\| bar` |');
+  assert.equal(codeCases.tableEscapedPipe, '| Code |\n| --- |\n| `C:\\foo\\\\|bar` |');
+  assert.equal(library.cleanMarkdown(codeCases.tablePath), codeCases.tablePath);
+  assert.equal(library.cleanMarkdown('`unmatched\n\n“Prose”\n\n`another'), '`unmatched\n\n"Prose"\n\n`another', 'unmatched delimiters across paragraphs must not bypass prose normalization');
+
+  const { spawnSync } = await import('node:child_process');
+  const quotePrefix = '> '.repeat(80);
+  const literalCode = 'a[b](c)d “Ａ”\u200b  \\|\n\n```\nlast  \n';
+  const literalFence = '````text\n' + literalCode + '````';
+  const adversarialMarkdown = quotePrefix + '“Prose”\u200b\n' + quotePrefix + '\n\n' + literalFence;
+  const cleanupResult = spawnSync(process.execPath, ['--input-type=module', '-e', `
+    const { cleanMarkdown } = await import(${JSON.stringify(new URL('../dist/library/index.js', import.meta.url).href)});
+    process.stdout.write(cleanMarkdown(${JSON.stringify(adversarialMarkdown)}));
+  `], { encoding: 'utf8', timeout: 10000 });
+  assert.equal(cleanupResult.error, undefined, 'deep quote prefixes must complete Markdown cleanup within the process deadline');
+  assert.equal(cleanupResult.status, 0, cleanupResult.stderr);
+  assert.equal(cleanupResult.stdout, quotePrefix + '"Prose"\n' + quotePrefix.trimEnd() + '\n\n' + literalFence, 'deep prefixes must preserve code and retain prose normalization');
+
+  const imageCases = await page.evaluate(() => {
+    const image = (src, alt) => {
+      const element = document.createElement('img');
+      element.setAttribute('src', src);
+      element.setAttribute('alt', alt);
+      return CopyAsMarkdown.domToMarkdown(element);
+    };
+    return {
+      safe: image('../image(1).png', 'chart [draft] \\ path'),
+      unsafe: ['javascript:alert(1)', 'data:image/svg+xml,<svg/>', 'mailto:evil@example.test', 'http://[invalid']
+        .map((src) => image(src, 'Unavailable image')),
+      empty: image('', 'Missing image'),
+    };
+  });
+  assert.equal(imageCases.safe, '![chart \\[draft\\] \\\\ path](https://docs.example.test/image%281%29.png)');
+  assert.deepEqual(imageCases.unsafe, Array(4).fill('Unavailable image'));
+  assert.equal(imageCases.empty, 'Missing image');
+
+  const tableCases = await page.evaluate(() => {
+    const table = (html) => CopyAsMarkdown.htmlToMarkdown(html);
+    return {
+      spans: table('<table><tr><th>Group</th><th>Left</th><th>Right</th></tr><tr><td rowspan="2">A</td><td colspan="2">Both</td></tr><tr><td>L</td><td>R</td></tr></table>'),
+      sections: table('<table><thead><tr><th>Group</th><th>Value</th></tr></thead><tbody><tr><td rowspan="0">A</td><td>1</td></tr><tr><td>2</td></tr></tbody><tbody><tr><td>B</td><td>3</td></tr></tbody><tfoot><tr><td>End</td><td>4</td></tr></tfoot></table>'),
+      nested: table('<table><tr><th>Outer</th><th>Other</th></tr><tr><td><table><tr><td>Nested</td></tr></table></td><td>Value</td></tr></table>'),
+      oversized: table('<table><tr><td colspan="999999999" rowspan="999999999">Wide</td></tr><tr><td>Next</td></tr></table>'),
+    };
+  });
+  assert.equal(tableCases.spans, '| Group | Left | Right |\n| --- | --- | --- |\n| A | Both |  |\n|  | L | R |');
+  assert.equal(tableCases.sections, '| Group | Value |\n| --- | --- |\n| A | 1 |\n|  | 2 |\n| B | 3 |\n| End | 4 |');
+  assert.equal(tableCases.nested, '| Outer | Other |\n| --- | --- |\n| Nested | Value |');
+  assert.equal(tableCases.oversized.split('\n').length, 3, 'row spans must not invent rows');
+  assert.ok(tableCases.oversized.length < 20000, 'malformed spans must have bounded expansion');
+  assert.ok(tableCases.oversized.includes('Next'), 'bounded spans must retain following cell values');
 
   await page.setContent(`<!doctype html>
     <html>

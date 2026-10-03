@@ -42,9 +42,10 @@ function injectStyles(): void {
       position: fixed;
       bottom: 96px;
       right: 24px;
-      z-index: 999999;
+      z-index: 2147483647;
       display: flex;
       align-items: flex-start;
+      pointer-events: auto;
       touch-action: none;
       user-select: none;
       -webkit-user-select: none;
@@ -128,7 +129,7 @@ function injectStyles(): void {
       position: fixed;
       bottom: 140px;
       right: 24px;
-      z-index: 999999;
+      z-index: 2147483647;
       background: rgba(0, 0, 0, 0.88);
       color: #fff;
       font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
@@ -304,7 +305,7 @@ function injectStyles(): void {
     #${OPTION_DIALOG_ID} {
       position: fixed;
       inset: 0;
-      z-index: 2147483646;
+      z-index: 2147483647;
       display: flex;
       align-items: center;
       justify-content: center;
@@ -696,6 +697,59 @@ function isCorrectlyAnchored(btn: HTMLButtonElement, target: Element, anchor: An
   }
 }
 
+function isButtonObscured(btn: HTMLButtonElement): boolean {
+  const rect = btn.getBoundingClientRect();
+  if (!rect.width || !rect.height) return true;
+
+  const left = Math.max(0, rect.left);
+  const top = Math.max(0, rect.top);
+  const right = Math.min(window.innerWidth, rect.right);
+  const bottom = Math.min(window.innerHeight, rect.bottom);
+  if (left >= right || top >= bottom) return false;
+
+  const hit = document.elementFromPoint((left + right) / 2, (top + bottom) / 2);
+  return !hit || !btn.contains(hit);
+}
+
+function isAnchorObscured(target: Element): boolean {
+  const rect = target.getBoundingClientRect();
+  if (!rect.width || !rect.height) return true;
+
+  const left = Math.max(0, rect.left);
+  const top = Math.max(0, rect.top);
+  const right = Math.min(window.innerWidth, rect.right);
+  const bottom = Math.min(window.innerHeight, rect.bottom);
+  if (left >= right || top >= bottom) return true;
+
+  const hit = document.elementFromPoint((left + right) / 2, (top + bottom) / 2);
+  return !hit || (!target.contains(hit) && !hit.contains(target));
+}
+
+function getFloatingParent(): HTMLElement {
+  const selector = 'dialog:modal, [popover]:popover-open';
+  const buttonRect = document.getElementById(BUTTON_ID)?.getBoundingClientRect();
+  if (buttonRect?.width && buttonRect.height) {
+    const coveringPopup = document.elementFromPoint(
+      Math.max(0, Math.min(window.innerWidth - 1, buttonRect.left + buttonRect.width / 2)),
+      Math.max(0, Math.min(window.innerHeight - 1, buttonRect.top + buttonRect.height / 2)),
+    )?.closest<HTMLElement>(selector);
+    if (coveringPopup) return coveringPopup;
+  }
+  const atCenter = document.elementFromPoint(window.innerWidth / 2, window.innerHeight / 2)
+    ?.closest<HTMLElement>(selector);
+  if (atCenter) return atCenter;
+  const popups = Array.from(document.querySelectorAll<HTMLElement>(selector));
+  for (const popup of popups.reverse()) {
+    const rect = popup.getBoundingClientRect();
+    const hit = document.elementFromPoint(
+      Math.max(0, Math.min(window.innerWidth - 1, rect.left + rect.width / 2)),
+      Math.max(0, Math.min(window.innerHeight - 1, rect.top + rect.height / 2)),
+    )?.closest<HTMLElement>(selector);
+    if (hit) return hit;
+  }
+  return document.documentElement;
+}
+
 /**
  * Periodically check if the anchored button is still in the DOM.
  * SPAs (ChatGPT, Claude, Gemini) re-render and destroy injected elements.
@@ -716,6 +770,12 @@ function startAnchorWatchdog(
 
     const target = findAnchorTarget(anchor.selector);
     const isFloating = !!btn.closest('.cam-floating-wrapper');
+    if (isFloating) {
+      const wrapper = btn.closest('.cam-floating-wrapper')!;
+      const parent = getFloatingParent();
+      if (wrapper.parentElement !== parent) parent.appendChild(wrapper);
+      if (target && (wrapper.hasAttribute('data-cam-pointer-active') || isAnchorObscured(target))) return;
+    }
 
     if (!target) {
       if (!isFloating) {
@@ -728,13 +788,21 @@ function startAnchorWatchdog(
       return;
     }
 
-    if (document.contains(btn) && !isFloating && isCorrectlyAnchored(btn, target, anchor)) return;
+    if (document.contains(btn) && !isFloating && isCorrectlyAnchored(btn, target, anchor)) {
+      if (!isButtonObscured(btn)) return;
+      showFloating(btn, instanceId);
+      return;
+    }
 
     detachButtonPlacement(btn);
     btn.className = '';
     btn.removeAttribute('style');
 
     if (attachToAnchor(btn, anchor, instanceId)) {
+      if (isButtonObscured(btn)) {
+        showFloating(btn, instanceId);
+        return;
+      }
       console.log('[Copy as Markdown] Re-anchored after SPA re-render');
       return;
     }
@@ -864,7 +932,7 @@ export function chooseExtractionOption(
       if (event.target === overlay) finish(null);
     });
     document.addEventListener('keydown', onKeyDown, true);
-    document.body.appendChild(overlay);
+    getFloatingParent().appendChild(overlay);
     activeOptionCancel = cancelDialog;
     list.querySelector<HTMLButtonElement>('button')?.focus();
   });
@@ -1038,7 +1106,33 @@ function setFloatingPosition(wrapper: HTMLElement, position: FloatingPosition): 
   wrapper.style.bottom = 'auto';
 }
 
-function enableFloatingDrag(btn: HTMLButtonElement, wrapper: FloatingWrapperElement): void {
+function watchFloatingParent(wrapper: FloatingWrapperElement, instanceId: string): () => void {
+  let active = true;
+  const updateParent = () => {
+    if (!active || !isActiveInstance(instanceId)) return;
+    const parent = getFloatingParent();
+    if (wrapper.parentElement !== parent) parent.appendChild(wrapper);
+  };
+
+  const observer = new MutationObserver(updateParent);
+  observer.observe(document.documentElement, {
+    childList: true,
+    subtree: true,
+    attributes: true,
+    attributeFilter: ['open'],
+  });
+  document.addEventListener('toggle', updateParent, true);
+  document.addEventListener('close', updateParent, true);
+
+  return () => {
+    active = false;
+    observer.disconnect();
+    document.removeEventListener('toggle', updateParent, true);
+    document.removeEventListener('close', updateParent, true);
+  };
+}
+
+function enableFloatingDrag(btn: HTMLButtonElement, wrapper: FloatingWrapperElement, instanceId: string): void {
   let activePointerId: number | null = null;
   let startPointerX = 0;
   let startPointerY = 0;
@@ -1057,6 +1151,7 @@ function enableFloatingDrag(btn: HTMLButtonElement, wrapper: FloatingWrapperElem
   const finishDrag = (event: PointerEvent): void => {
     if (event.pointerId !== activePointerId) return;
     activePointerId = null;
+    wrapper.removeAttribute('data-cam-pointer-active');
     wrapper.classList.remove('cam-dragging');
     if (btn.hasPointerCapture(event.pointerId)) {
       btn.releasePointerCapture(event.pointerId);
@@ -1079,6 +1174,7 @@ function enableFloatingDrag(btn: HTMLButtonElement, wrapper: FloatingWrapperElem
     startLeft = rect.left;
     startTop = rect.top;
     dragged = false;
+    wrapper.setAttribute('data-cam-pointer-active', 'true');
     btn.setPointerCapture(event.pointerId);
   });
 
@@ -1112,8 +1208,10 @@ function enableFloatingDrag(btn: HTMLButtonElement, wrapper: FloatingWrapperElem
     saveFloatingPosition(position);
   };
   window.addEventListener('resize', keepInsideViewport, { passive: true });
+  const stopWatchingFloatingParent = watchFloatingParent(wrapper, instanceId);
   wrapper._camCleanup = () => {
     window.removeEventListener('resize', keepInsideViewport);
+    stopWatchingFloatingParent();
     wrapper.remove();
     wrapper._camCleanup = undefined;
   };
@@ -1204,7 +1302,7 @@ function showFloating(btn: HTMLButtonElement, instanceId: string): void {
     actions.appendChild(yesBtn);
     prompt.appendChild(msg);
     prompt.appendChild(actions);
-    document.body.appendChild(prompt);
+    getFloatingParent().appendChild(prompt);
 
     // Auto-dismiss after 6 seconds
     setTimeout(() => {
@@ -1214,8 +1312,8 @@ function showFloating(btn: HTMLButtonElement, instanceId: string): void {
 
   wrapper.appendChild(btn);
   wrapper.appendChild(dismiss);
-  document.body.appendChild(wrapper);
-  enableFloatingDrag(btn, wrapper);
+  getFloatingParent().appendChild(wrapper);
+  enableFloatingDrag(btn, wrapper, instanceId);
 }
 
 // ----------------------------------------------------------------
@@ -1267,7 +1365,8 @@ export function showButton(
   // Attempt anchor placement
   if (anchor) {
     if (attachToAnchor(btn, anchor, instanceId)) {
-      console.log('[Copy as Markdown] Anchored inline');
+      if (isButtonObscured(btn)) showFloating(btn, instanceId);
+      else console.log('[Copy as Markdown] Anchored inline');
       // Start watchdog to re-inject if SPA removes the button
       startAnchorWatchdog(btn, anchor, instanceId);
       return btn;
@@ -1324,7 +1423,8 @@ function observeForAnchor(
       btn.removeAttribute('style');
 
       if (attachToAnchor(btn, anchor, instanceId)) {
-        console.log('[Copy as Markdown] Late-anchored inline');
+        if (isButtonObscured(btn)) showFloating(btn, instanceId);
+        else console.log('[Copy as Markdown] Late-anchored inline');
         startAnchorWatchdog(btn, anchor, instanceId);
       } else {
         // Shouldn't happen, but be safe
@@ -1400,8 +1500,8 @@ export function showToast(message: string): void {
   if (!toast) {
     toast = document.createElement('div');
     toast.id = TOAST_ID;
-    document.body.appendChild(toast);
   }
+  getFloatingParent().appendChild(toast);
   toast.textContent = message;
   toast.classList.add('cam-visible');
 

@@ -19,9 +19,12 @@ export function escapeMarkdownLinkText(value: string): string {
 }
 
 export function escapeMarkdownTableCell(value: string, lineBreak = ' '): string {
-  return value
-    .replace(/\\/g, '\\\\')
-    .replace(/\|/g, '\\|')
+  return withPreservedCode(value, (prose) => prose.replace(/([\\|])/g, '\\$1'), (code) => {
+    // Table pipes need an escape; backslashes inside code are already literal.
+    const parts: string[] = [];
+    for (const character of code) parts.push(character === '|' ? '\\|' : character);
+    return parts.join('');
+  })
     .replace(/\r?\n/g, lineBreak)
     .trim();
 }
@@ -140,19 +143,50 @@ export function tableToMarkdown(tableEl: Element): string {
 
   if (trElements.length === 0) return '';
 
-  // Determine column count from widest row
   let maxCols = 0;
   const allRowCells: string[][] = [];
+  const groupSizes = new Map<Element | null, number>();
+  for (const tr of trElements) {
+    groupSizes.set(tr.parentElement, (groupSizes.get(tr.parentElement) || 0) + 1);
+  }
+  let previousGroup: Element | null = null;
+  let groupRow = 0;
+  let rowSpans: number[] = [];
 
   for (const tr of trElements) {
+    if (tr.parentElement !== previousGroup) {
+      rowSpans = [];
+      groupRow = 0;
+      previousGroup = tr.parentElement;
+    }
+    const occupied = rowSpans.map((remaining) => remaining > 0);
+    rowSpans = rowSpans.map((remaining) => Math.max(0, remaining - 1));
+    const values: string[] = occupied.map(() => '');
     const cells = Array.from(tr.querySelectorAll(':scope > th, :scope > td'));
-    const values = cells.map((cell) => {
-      // Recursively convert cell contents to Markdown, then flatten to single line
+    let column = 0;
+    for (const cell of cells) {
+      const tableCell = cell as HTMLTableCellElement;
+      // HTML caps colspan at 1000. Never allocate rows from a declared rowspan.
+      const columnSpan = Math.min(1000, Math.max(1, tableCell.colSpan));
+      while (occupied.slice(column, column + columnSpan).some(Boolean)) {
+        column += 1;
+        while (occupied[column]) column += 1;
+      }
+      const groupRemaining = (groupSizes.get(tr.parentElement) || 1) - groupRow;
+      const rowSpan = tableCell.rowSpan === 0
+        ? groupRemaining
+        : Math.min(groupRemaining, Math.max(1, tableCell.rowSpan));
       const md = cellToMarkdown(cell);
-      return escapeMarkdownTableCell(md.replace(/\n/g, ' ').replace(/\s+/g, ' '));
-    });
+      for (let offset = 0; offset < columnSpan; offset += 1) {
+        values[column + offset] = offset === 0 ? escapeMarkdownTableCell(md) : '';
+        occupied[column + offset] = true;
+        rowSpans[column + offset] = rowSpan - 1;
+      }
+      column += columnSpan;
+    }
     maxCols = Math.max(maxCols, values.length);
     allRowCells.push(values);
+    groupRow += 1;
   }
 
   if (maxCols === 0) return '';
@@ -192,7 +226,7 @@ function cellToMarkdown(cell: Element): string {
         parts.push('; ');
       } else if (tag === 'A') {
         const href = el.getAttribute('href');
-        const text = normalizeWhitespace(el.textContent || '');
+        const text = normalizeMarkdownWhitespace(childrenToMarkdown(el));
         const fullHref = safeMarkdownLinkUrl(href || '', el.ownerDocument?.baseURI);
         if (text && fullHref) {
           parts.push(`[${text}](${fullHref})`);
@@ -200,18 +234,20 @@ function cellToMarkdown(cell: Element): string {
           parts.push(text);
         }
       } else if (tag === 'STRONG' || tag === 'B') {
-        const text = normalizeWhitespace(el.textContent || '');
-        if (text) parts.push(`**${text}**`);
+        parts.push(nodeToMarkdown(el));
       } else if (tag === 'EM' || tag === 'I') {
-        const text = normalizeWhitespace(el.textContent || '');
-        if (text) parts.push(`*${text}*`);
+        parts.push(nodeToMarkdown(el));
       } else if (tag === 'IMG') {
         parts.push(elementToMarkdown(el).trim());
+      } else if (tag === 'CODE') {
+        parts.push(nodeToMarkdown(el));
+      } else if (tag === 'PRE') {
+        parts.push(inlineCodeToMarkdown(el.textContent || ''));
       } else if (tag === 'UL' || tag === 'OL') {
         // Flatten list items inline
         const items = Array.from(el.querySelectorAll('li'));
         const listText = items
-          .map((li) => normalizeWhitespace(li.textContent || ''))
+          .map((li) => cellToMarkdown(li))
           .filter(Boolean)
           .join('; ');
         if (listText) parts.push(listText);
@@ -224,7 +260,7 @@ function cellToMarkdown(cell: Element): string {
     }
   });
 
-  return parts.join('').replace(/\s+/g, ' ').trim();
+  return normalizeMarkdownWhitespace(parts.join(''));
 }
 
 /**
@@ -245,7 +281,7 @@ export function listToMarkdown(listEl: Element, indent = 0): string {
     let text = '';
     li.childNodes.forEach((node) => {
       if (node.nodeType === Node.TEXT_NODE) {
-        text += node.textContent;
+        text += nodeToMarkdown(node);
       } else if (
         node.nodeType === Node.ELEMENT_NODE &&
         (node as Element).tagName !== 'UL' &&
@@ -255,8 +291,16 @@ export function listToMarkdown(listEl: Element, indent = 0): string {
         text += nodeToMarkdown(node);
       }
     });
-    text = normalizeWhitespace(text);
-    if (text) lines.push(`${prefix}${bullet} ${text}`);
+    const hasCodeBlock = Array.from(li.querySelectorAll('pre'))
+      .some((pre) => pre.closest('li') === li);
+    text = hasCodeBlock ? cleanMarkdown(text) : normalizeMarkdownWhitespace(text);
+    if (text) {
+      const continuation = prefix + ' '.repeat(bullet.length + 1);
+      const content = text.split('\n')
+        .map((line, index) => index && line ? continuation + line : line)
+        .join('\n');
+      lines.push(`${prefix}${bullet} ${content}`);
+    }
 
     childLists.forEach((subList) => {
       lines.push(listToMarkdown(subList, indent + 2));
@@ -359,8 +403,7 @@ export function nodeToMarkdown(
       ) {
         return el.textContent || '';
       }
-      const inner = (el.textContent || '').trim();
-      return inner ? `\`${inner}\`` : '';
+      return inlineCodeToMarkdown(el.textContent || '');
     }
 
     case 'PRE': {
@@ -371,7 +414,7 @@ export function nodeToMarkdown(
       const lang = codeEl
         ? (codeEl.className.match(/language-([\w.+#-]+)/) || ['', ''])[1]
         : '';
-      return `\n\`\`\`${lang}\n${code.trimEnd()}\n\`\`\`\n`;
+      return `\n${fencedCodeToMarkdown(code, lang)}\n`;
     }
 
     case 'A': {
@@ -387,16 +430,10 @@ export function nodeToMarkdown(
     }
 
     case 'IMG': {
-      const alt = el.getAttribute('alt') || '';
+      const alt = escapeMarkdownLinkText(normalizeWhitespace(el.getAttribute('alt') || ''));
       const src = el.getAttribute('src') || '';
-      if (!src) return '';
-      let fullSrc = src;
-      try {
-        fullSrc = new URL(src, el.ownerDocument?.baseURI).href;
-      } catch {
-        /* keep original */
-      }
-      return `![${normalizeWhitespace(alt)}](${fullSrc})`;
+      const fullSrc = safeMarkdownLinkUrl(src, el.ownerDocument?.baseURI, false);
+      return fullSrc ? `![${alt}](${fullSrc})` : alt;
     }
 
     case 'BLOCKQUOTE': {
@@ -474,11 +511,163 @@ export function childrenToMarkdown(
   return parts.join('');
 }
 
+function longestBacktickRun(value: string): number {
+  let longest = 0;
+  for (const match of value.matchAll(/`+/g)) longest = Math.max(longest, match[0].length);
+  return longest;
+}
+
+export function fencedCodeToMarkdown(code: string, language = ''): string {
+  const fence = '`'.repeat(Math.max(3, longestBacktickRun(code) + 1));
+  const ending = code && !code.endsWith('\n') ? '\n' : '';
+  return `${fence}${language.replace(/[^\w.+#-]/g, '')}\n${code}${ending}${fence}`;
+}
+
+/** Encode a literal code span with CommonMark delimiters and padding. */
+export function inlineCodeToMarkdown(text: string): string {
+  const inner = text.replace(/\r\n?|\n/g, ' ');
+  if (!inner) return '';
+  const delimiter = '`'.repeat(longestBacktickRun(inner) + 1);
+  const padding = /^`|`$/.test(inner) || (/^ .* $/.test(inner) && /[^ ]/.test(inner)) ? ' ' : '';
+  return `${delimiter}${padding}${inner}${padding}${delimiter}`;
+}
+
+function markdownLinePrefix(line: string): { position: number; quoteDepth: number } {
+  let position = 0;
+  let quoteDepth = 0;
+  while (position < line.length) {
+    while (line[position] === ' ' || line[position] === '\t') position += 1;
+    if (line[position] !== '>') break;
+    quoteDepth += 1;
+    position += 1;
+  }
+  return { position, quoteDepth };
+}
+
+function markdownFence(line: string) {
+  const prefix = markdownLinePrefix(line);
+  let position = prefix.position;
+  let markerEnd = position;
+  if (line[markerEnd] === '-' || line[markerEnd] === '+' || line[markerEnd] === '*') {
+    markerEnd += 1;
+  } else {
+    while (line[markerEnd] >= '0' && line[markerEnd] <= '9') markerEnd += 1;
+    markerEnd = markerEnd > position && (line[markerEnd] === '.' || line[markerEnd] === ')')
+      ? markerEnd + 1
+      : position;
+  }
+  const listMarker = markerEnd > position && line[markerEnd] === ' ';
+  if (listMarker) {
+    position = markerEnd;
+    while (line[position] === ' ') position += 1;
+  }
+  const start = position;
+  const character = line[position];
+  if (character !== '`' && character !== '~') return undefined;
+  while (line[position] === character) position += 1;
+  if (position - start < 3) return undefined;
+  return {
+    delimiter: line.slice(start, position),
+    info: line.slice(position),
+    quoteDepth: prefix.quoteDepth,
+    listMarker,
+  };
+}
+
+/** Keep Markdown code literal while applying prose-only cleanup. */
+function withPreservedCode(
+  value: string,
+  transform: (prose: string) => string,
+  transformCode: (code: string) => string = (code) => code,
+): string {
+  let prefix = 'COPYASMARKDOWNCODE';
+  while (value.includes(prefix)) prefix += 'X';
+  const literals: string[] = [];
+  const protect = (literal: string): string => `${prefix}${literals.push(transformCode(literal)) - 1}TOKEN`;
+  const protectInlineParagraph = (prose: string): string => {
+    const runs = Array.from(prose.matchAll(/`+/g));
+    const next = new Map<number, number>();
+    const closings = runs.map(() => -1);
+    for (let index = runs.length - 1; index >= 0; index -= 1) {
+      const length = runs[index][0].length;
+      closings[index] = next.get(length) ?? -1;
+      next.set(length, index);
+    }
+    const parts: string[] = [];
+    let position = 0;
+    for (let index = 0; index < runs.length; index += 1) {
+      const start = runs[index].index!;
+      let slashes = 0;
+      while (prose[start - slashes - 1] === '\\') slashes += 1;
+      const closing = closings[index];
+      if (slashes % 2 || closing < 0) continue;
+      const end = runs[closing].index! + runs[closing][0].length;
+      parts.push(prose.slice(position, start), protect(prose.slice(start, end)));
+      position = end;
+      index = closing;
+    }
+    return parts.join('') + prose.slice(position);
+  };
+  const protectInline = (prose: string): string => {
+    const parts: string[] = [];
+    let paragraphStart = 0;
+    let lineStart = 0;
+    while (lineStart < prose.length) {
+      const lineEnd = prose.indexOf('\n', lineStart);
+      if (lineEnd < 0) break;
+      const line = prose.slice(lineStart, lineEnd);
+      if (lineStart > paragraphStart && markdownLinePrefix(line).position === line.length) {
+        parts.push(protectInlineParagraph(prose.slice(paragraphStart, lineStart - 1)));
+        parts.push(prose.slice(lineStart - 1, lineEnd + 1));
+        paragraphStart = lineEnd + 1;
+      }
+      lineStart = lineEnd + 1;
+    }
+    parts.push(protectInlineParagraph(prose.slice(paragraphStart)));
+    return parts.join('');
+  };
+
+  const parts: string[] = [];
+  let proseStart = 0;
+  let fenceStart = -1;
+  let fence = '';
+  let quoteDepth = 0;
+  let lineStart = 0;
+  for (const rawLine of value.split('\n')) {
+    const start = lineStart;
+    const end = start + rawLine.length;
+    lineStart = end + 1;
+    const line = end < value.length && rawLine.endsWith('\r') ? rawLine.slice(0, -1) : rawLine;
+    const match = markdownFence(line);
+    if (!match) continue;
+    if (fenceStart < 0) {
+      if (match.delimiter[0] === '`' && match.info.includes('`')) continue;
+      parts.push(protectInline(value.slice(proseStart, start)));
+      fenceStart = start;
+      fence = match.delimiter;
+      quoteDepth = match.quoteDepth;
+    } else if (
+      match.quoteDepth === quoteDepth && !match.listMarker && match.delimiter[0] === fence[0]
+      && match.delimiter.length >= fence.length && /^[ \t]*$/.test(match.info)
+    ) {
+      parts.push(protect(value.slice(fenceStart, end)));
+      proseStart = end;
+      fenceStart = -1;
+    }
+  }
+  parts.push(fenceStart < 0 ? protectInline(value.slice(proseStart)) : protect(value.slice(fenceStart)));
+  return transform(parts.join('')).replace(new RegExp(`${prefix}(\\d+)TOKEN`, 'g'), (_, index: string) => literals[Number(index)]);
+}
+
+function normalizeMarkdownWhitespace(value: string): string {
+  return withPreservedCode(value, normalizeWhitespace);
+}
+
 /**
  * Post-process Markdown: collapse excessive blank lines, fix spacing, trim.
  */
 export function cleanMarkdown(md: string): string {
-  return normalizeUnicodeText(md)
+  return withPreservedCode(md, (prose) => normalizeUnicodeText(prose)
     // Fix link spacing: ensure space before [ if preceded by a word char
     .replace(/(\w)\[/g, '$1 [')
     // Fix link spacing: ensure space after ) if followed by a word char
@@ -491,14 +680,15 @@ export function cleanMarkdown(md: string): string {
     .join('\n')
     .replace(/^\n+/, '')
     .replace(/\n+$/, '\n')
-    .trim();
+    .trim());
 }
 
-function safeMarkdownLinkUrl(value: string, baseUrl?: string): string {
+function safeMarkdownLinkUrl(value: string, baseUrl?: string, allowMailto = true): string {
   if (!value) return '';
   try {
     const url = new URL(value, baseUrl);
-    return /^(?:https?|mailto):$/.test(url.protocol) ? url.href : '';
+    if (!/^https?:$/.test(url.protocol) && !(allowMailto && url.protocol === 'mailto:')) return '';
+    return url.href.replace(/\(/g, '%28').replace(/\)/g, '%29');
   } catch {
     return '';
   }

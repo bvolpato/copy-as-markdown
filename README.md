@@ -35,7 +35,7 @@ You're chatting with ChatGPT, Claude, or Gemini. You want to share a web page fo
 - **Browser Extension:** Click the "Copy as Markdown" icon in your browser toolbar. Datadog dashboards, Datadog notebooks, and W&B runs also get a page button through narrowly scoped site access; extraction and clipboard writes still run only after a click.
 - **Userscript:** A context-aware button is added to supported websites (e.g., a draggable floating button, or inline buttons on Wikipedia, Google Docs, Atlassian, and Datadog pages). Floating positions persist per site.
 
-One click, and the page's content lands in your clipboard as clean, structured Markdown — headers, tables, links, code blocks, metadata — all preserved. Unicode compatibility forms, non-ASCII spaces, smart quotes, and dashes are normalized; invisible watermark and direction-control characters are removed. Paste it into your LLM conversation. Done.
+One click, and the page's content lands in your clipboard as structured Markdown, with headers, tables, links, code blocks, and metadata. Prose normalizes Unicode compatibility forms, non-ASCII spaces, smart quotes, and dashes, and removes invisible watermark and direction-control characters. Code retains its literal text and uses delimiters that cannot be closed by backticks inside the sample. Paste it into your LLM conversation.
 
 > 💡 **Structured Markdown is the most token-efficient, context-rich format for sharing web content with LLMs.** It preserves semantic meaning (headers = hierarchy, tables = data, links = sources) while stripping visual noise.
 
@@ -455,7 +455,7 @@ build/
 
 ### Userscript Button Positioning
 
-*Note: Button positioning only applies to the Userscript build. The browser extensions rely exclusively on the toolbar icon.*
+Userscripts support floating and inline buttons. Browser extensions use the toolbar icon on any page, with inline buttons also enabled for Datadog dashboards, Datadog notebooks, and W&B runs.
 
 The default behavior is simple: unless a site is explicitly opted into inline placement, the userscript button is rendered as a floating action button in the bottom-right corner.
 

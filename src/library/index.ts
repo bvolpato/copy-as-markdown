@@ -136,20 +136,25 @@ function resolveExtractors(
   selectors: readonly ExtractorSelector[],
   catalog: readonly Extractor[],
 ): Extractor[] {
-  const byName = new Map(catalog.map((extractor) => [normalizeName(extractor.name), extractor]));
   const selected: Extractor[] = [];
   const seen = new Set<Extractor>();
 
-  for (const selector of selectors) {
-    const extractor = typeof selector === 'string'
-      ? byName.get(normalizeName(selector))
-      : selector;
-    if (!extractor) {
-      throw new Error(`Unknown extractor: ${selector}`);
-    }
-    if (!seen.has(extractor)) {
+  function add(extractor: Extractor): void {
+    if (extractor.variants) {
+      extractor.variants.forEach(add);
+    } else if (!seen.has(extractor)) {
       selected.push(extractor);
       seen.add(extractor);
+    }
+  }
+
+  for (const selector of selectors) {
+    if (typeof selector === 'string') {
+      const matches = catalog.filter((extractor) => normalizeName(extractor.name) === normalizeName(selector));
+      if (matches.length === 0) throw new Error(`Unknown extractor: ${selector}`);
+      matches.forEach(add);
+    } else {
+      add(selector);
     }
   }
   return selected;

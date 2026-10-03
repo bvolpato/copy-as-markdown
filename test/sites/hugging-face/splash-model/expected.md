@@ -90,8 +90,8 @@ FIXTURE_CODE_0138
 
 | FIXTURE_TH_0139 | FIXTURE_TH_0140 | FIXTURE_TH_0141 |
 | --- | --- | --- |
-| FIXTURE_TD_0142 | [FIXTURE_CODE_0143](https://example.invalid/fixture-link-0057) | FIXTURE_CODE_0144 |
-| FIXTURE_TD_0145 | [FIXTURE_CODE_0146](https://example.invalid/fixture-link-0058) | FIXTURE_CODE_0147 |
+| FIXTURE_TD_0142 | [`FIXTURE_CODE_0143`](https://example.invalid/fixture-link-0057) | `FIXTURE_CODE_0144` |
+| FIXTURE_TD_0145 | [`FIXTURE_CODE_0146`](https://example.invalid/fixture-link-0058) | `FIXTURE_CODE_0147` |
 
 FIXTURE_P_0148
 

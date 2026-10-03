@@ -22,6 +22,10 @@ async function main(): Promise<void> {
   auditSanitizedFixture('<!doctype html><html><body><main>FIXTURE_MAIN_0001</main></body></html>');
   auditSanitizedFixture('<html><body><p>FIXTURE_P_0001FIXTURE_SPAN_0002 FIXTURE_P_0003</p></body></html>');
   expectFailure(
+    () => auditSanitizedFixture('<html><body><main>FIXTURE_P_0001 CUSTOMER NAME</main></body></html>'),
+    'non-synthetic text',
+  );
+  expectFailure(
     () => auditSanitizedFixture('<html><body><main>Alice Example</main></body></html>'),
     'non-synthetic text',
   );
