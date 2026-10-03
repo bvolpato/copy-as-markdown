@@ -154,7 +154,7 @@ function renderTable(rows: JsonObject[]): string {
     const characters: string[] = [];
     for (const character of rendered) characters.push(character === '|' ? '\\|' : character);
     return characters.join('')
-      .replace(/\s*\n\s*/g, '<br>')
+      .replace(/\s+/g, (whitespace) => whitespace.includes('\n') ? '<br>' : whitespace)
       .trim();
   }));
   if (values.length === 0) return '';
