@@ -27,7 +27,7 @@ export function htmlToMarkdown(html: string): string {
 export function adfToMarkdown(value: unknown): string {
   const document = asObject(value);
   if (!document) return '';
-  return normalizeMarkdown(renderNode(document, 0));
+  return Markdown.cleanMarkdown(renderNode(document, 0));
 }
 
 function renderNode(node: JsonObject, depth: number): string {
@@ -61,10 +61,8 @@ function renderNode(node: JsonObject, depth: number): string {
       return `- [${checked}] ${content.map((child) => renderNode(child, depth + 1)).join('\n')}`;
     }
     case 'codeBlock': {
-      const language = stringValue(attrs.language).replace(/[^\w.+-]/g, '');
       const code = content.map((child) => stringValue(child.text)).join('');
-      const fence = code.includes('```') ? '````' : '```';
-      return `${fence}${language}\n${code.replace(/\n$/, '')}\n${fence}`;
+      return Markdown.fencedCodeToMarkdown(code, stringValue(attrs.language));
     }
     case 'blockquote':
     case 'panel': {
@@ -117,7 +115,7 @@ function renderInlineChildren(content: JsonObject[]): string {
 function renderText(value: string, marks: JsonObject[]): string {
   const codeMark = marks.some((mark) => mark.type === 'code');
   let rendered = codeMark
-    ? `\`${value.replace(/\\/g, '\\\\').replace(/`/g, '\\`')}\``
+    ? Markdown.inlineCodeToMarkdown(value)
     : escapeMarkdown(value);
 
   for (const mark of marks) {
@@ -152,7 +150,6 @@ function renderTable(rows: JsonObject[]): string {
     const value = objectArray(cell.content)
       .map((child) => renderNode(child, 0))
       .join(' ')
-      .replace(/\\/g, '\\\\')
       .replace(/\|/g, '\\|')
       .replace(/\s*\n\s*/g, '<br>')
       .trim();
@@ -166,13 +163,6 @@ function renderTable(rows: JsonObject[]): string {
     `| ${Array(width).fill('---').join(' | ')} |`,
     ...normalized.slice(1).map((row) => `| ${row.join(' | ')} |`),
   ].join('\n');
-}
-
-function normalizeMarkdown(value: string): string {
-  return value
-    .replace(/[ \t]+\n/g, '\n')
-    .replace(/\n{3,}/g, '\n\n')
-    .trim();
 }
 
 function escapeMarkdown(value: string): string {

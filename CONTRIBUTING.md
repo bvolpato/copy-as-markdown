@@ -4,6 +4,8 @@ Thanks for your interest in contributing! Here's how to get started.
 
 ## Development Setup
 
+Build with Node.js 22.22.2 and pnpm 11.22.0, matching CI. The published library supports Node.js 22.22.2 and newer; its consumers can use their own package manager.
+
 ```bash
 git clone https://github.com/bvolpato/copy-as-markdown.git
 cd copy-as-markdown
@@ -115,6 +117,16 @@ GitHub Actions builds and publishes browser releases. Do not create releases or 
    ```
 
 The release workflow accepts only signed strict semantic-version tags from an allowed signer. Tag version must match `package.json`, and tagged commit must be reachable from `main`. Workflow runs typechecking, browser regression tests, packaging, and manifest/archive verification before publishing GitHub and browser artifacts.
+
+The workflow attests the verified release payloads with GitHub build provenance. For releases built with this workflow, download the assets and `SHA256SUMS` into one directory and run `sha256sum --check SHA256SUMS`. Verify the expected repository and release workflow for each downloaded archive or userscript:
+
+```bash
+gh attestation verify copy-as-markdown-chrome-vMAJOR.MINOR.PATCH.zip \
+  --repo bvolpato/copy-as-markdown \
+  --signer-workflow bvolpato/copy-as-markdown/.github/workflows/release.yml
+```
+
+Earlier releases have checksums but may not have build attestations.
 
 Tag pushes do not publish to npm. To publish the scoped package explicitly, manually dispatch the Release workflow on the signed tag with `publish_npm=true`:
 

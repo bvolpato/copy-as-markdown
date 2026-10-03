@@ -509,8 +509,7 @@ export function auditSanitizedFixture(html: string, markdown?: string): void {
     .map((match) => match[1].trim())
     .filter(Boolean);
   const unsafeText = textSegments.find((text) => {
-    const compact = text.replace(/\s+/g, '');
-    return !/^FIXTURE_[A-Z0-9_]+$/.test(compact);
+    return !/^(?:FIXTURE_[A-Z0-9]+_[0-9]{4,}\s*)+$/.test(text);
   });
   if (unsafeText) throw new Error(`Sanitized HTML contains non-synthetic text: ${unsafeText.slice(0, 80)}`);
 }

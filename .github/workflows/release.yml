@@ -27,6 +27,10 @@ jobs:
     name: Validate & Package
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
     outputs:
       version: ${{ steps.version.outputs.version }}
 
@@ -124,6 +128,12 @@ jobs:
       - name: Verify release bundle
         run: pnpm verify:release -- "${{ steps.version.outputs.version }}" --bundle release-bundle
 
+      - name: Attest verified release artifacts
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
+        with:
+          subject-checksums: release-bundle/SHA256SUMS
+          create-storage-record: false
+
       - name: Generate release notes
         shell: bash
         run: |
@@ -148,8 +158,19 @@ jobs:
             echo "For local testing, download **copy-as-markdown-chrome-v${version}.zip** below, unzip it, then load the folder from \`chrome://extensions/\` with Developer mode enabled."
             echo
             echo "### Firefox Extension"
-            echo "1. Download **copy-as-markdown-firefox-v${version}.zip** below"
-            echo "2. Open \`about:debugging#/runtime/this-firefox\`, choose Load Temporary Add-on, and select \`manifest.json\`"
+            echo "[Install from Firefox Add-ons](https://addons.mozilla.org/en-US/firefox/addon/copy-as-markdown-addon/)."
+            echo
+            echo "For local testing, download **copy-as-markdown-firefox-v${version}.zip** below, unzip it, then open \`about:debugging#/runtime/this-firefox\`, choose Load Temporary Add-on, and select \`manifest.json\`."
+            echo
+            echo "## Verify downloads"
+            echo
+            echo "Download **SHA256SUMS** and the release assets into the same folder, then run \`sha256sum --check SHA256SUMS\`."
+            echo
+            echo "Verify build provenance for either extension archive or userscript with GitHub CLI:"
+            echo
+            echo "\`\`\`bash"
+            echo "gh attestation verify copy-as-markdown-chrome-v${version}.zip --repo ${GITHUB_REPOSITORY} --signer-workflow ${GITHUB_REPOSITORY}/.github/workflows/release.yml"
+            echo "\`\`\`"
             echo
             echo "## Changes"
             echo

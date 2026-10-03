@@ -74,6 +74,51 @@ async function fixture({ url, name, html, resources = {}, expected = [], exclude
 }
 
 try {
+  await check('Reddit includes sibling comment threads and excludes sidebar comments', () => fixture({
+    name: 'Reddit', url: 'https://www.reddit.com/r/markdown/comments/abc123/thread/',
+    html: `<main><shreddit-post data-post-id="t3_abc123" author="poster" score="42" comment-count="2">
+      <h1>Thread title</h1><div slot="text-body"><p>Thread body with <strong>formatting</strong>.</p></div>
+    </shreddit-post><shreddit-comment author="reader" score="5" depth="0">
+      <div slot="comment"><p>Top-level comment</p></div>
+      <shreddit-comment author="reply-author" score="2" depth="1"><div slot="comment"><p>Nested reply</p></div></shreddit-comment>
+    </shreddit-comment></main><aside><shreddit-comment author="sidebar"><div slot="comment">Unrelated sidebar comment</div></shreddit-comment></aside>`,
+    expected: ['# Thread title', 'Thread body with **formatting**.', '**Author:** u/poster', '**Score:** 42',
+      '## Comments (2 loaded)', '**reader** (5 points):', '> Top-level comment', '> **reply-author** (2 points):', '> > Nested reply'],
+    excluded: ['Unrelated sidebar comment'],
+  }));
+  await check('Reddit retains comments nested inside the post', () => fixture({
+    name: 'Reddit', url: 'https://new.reddit.com/r/markdown/comments/abc123/thread/',
+    html: '<div class="Post" data-post-id="t3_abc123"><h1>Classic post</h1><div data-testid="post-selftext"><p>Classic body</p></div><div class="Comment"><a class="author">classic-reader</a><div class="md"><p>Classic comment</p></div></div></div>',
+    expected: ['Classic body', '## Comments (1 loaded)', '**classic-reader**:', '> Classic comment'],
+  }));
+  await check('Old Reddit copies the matching post and threaded comments without adopting deleted parents', () => fixture({
+    name: 'Reddit', url: 'https://old.reddit.com/r/markdown/comments/abc123/thread/', ui: true,
+    html: `<style>.flat-list { width: 240px; height: 40px; }</style><div class="content" role="main">
+      <div class="thing link" data-fullname="t3_other"><a class="title">Unrelated post</a><div class="expando"><div class="md">Unrelated body</div></div></div>
+      <div class="thing link" data-fullname="t3_abc123"><div class="entry"><a class="title">Old thread title</a>
+        <a class="author">old-poster</a><span class="score">17 points</span><time datetime="2026-09-25T12:00:00Z"></time>
+        <div class="expando"><div class="usertext-body"><div class="md"><p>Old post <em>body</em>.</p></div></div></div>
+        <ul class="flat-list buttons"><li><a class="comments">2 comments</a></li></ul>
+      </div></div><div class="commentarea"><div class="thing comment" data-fullname="t1_parent"><div class="entry">
+        <a class="author">old-reader</a><span class="score">4 points</span><div class="usertext-body"><div class="md"><p>Old parent comment</p></div></div>
+      </div><div class="child"><div class="thing comment" data-fullname="t1_reply"><div class="entry">
+        <a class="author">old-replier</a><span class="score">1 point</span><div class="usertext-body"><div class="md"><p>Old nested reply</p></div></div>
+      </div></div></div></div><div class="thing comment" data-fullname="t1_deleted"><div class="entry"><a class="author">[deleted]</a></div>
+        <div class="child"><div class="thing comment" data-fullname="t1_survivor"><div class="entry"><a class="author">survivor</a>
+          <div class="usertext-body"><div class="md"><p>Reply under deleted parent</p></div></div>
+        </div></div></div>
+      </div></div></div>`,
+    afterLoad: page => page.waitForSelector('.cam-overlay-container #cam-copy-btn', { timeout: 4000 }),
+    expected: ['# Old thread title', '**Author:** u/old-poster', '**Score:** 17 points', '**Published:** 2026-09-25T12:00:00Z',
+      'Old post *body*.', '## Comments (3 loaded)', '**old-reader** (4 points):', '> Old parent comment',
+      '> **old-replier** (1 point):', '> > Old nested reply', '> **survivor**:', '> > Reply under deleted parent'],
+    excluded: ['Unrelated post', 'Unrelated body', '**[deleted]**'],
+  }));
+  await check('Old Reddit feeds copy the visible post instead of hidden entries', () => fixture({
+    name: 'Reddit', url: 'https://old.reddit.com/r/markdown/',
+    html: '<div class="thing link" style="display:none"><a class="title">Hidden title</a><div class="expando"><div class="md">Hidden body</div></div></div><div class="thing link" data-fullname="t3_visible"><a class="title">Visible title</a><div class="expando"><div class="md"><p>Visible body</p></div></div></div>',
+    expected: ['# Visible title', 'Visible body'], excluded: ['Hidden title', 'Hidden body'],
+  }));
   await check('DOM detectors honor the supplied document without global browser state', async () => {
     const notion = await library.loadExtractor('notion');
     const wandb = await library.loadExtractor('wandb');
@@ -182,6 +227,167 @@ try {
   await check('Globo preserves text columns and prefers the article body over outer page content', () => fixture({
     name: 'Globo', url: 'https://g1.globo.com/news/noticia/audit.ghtml', html: '<h1>Article title</h1><main><p>Outer page noise</p><article class="video-widget">Video widget noise</article><div class="mc-article-body"><article itemprop="articleBody"><div class="mc-column content-text"><p>First article paragraph</p><p>Second article paragraph</p></div><figure><bs-player><img src="data:image/gif;base64,R0lGODlh"><div class="clappr-player">Player controls</div></bs-player><figcaption>Article video caption</figcaption></figure></article></div></main>',
     expected: ['First article paragraph', 'Second article paragraph', 'Article video caption'], excluded: ['Outer page noise', 'Video widget noise', 'Player controls', 'data:image/gif'],
+  }));
+  await check('Anchored copy button stays clickable above popups and returns when they close', () => fixture({
+    name: 'Globo', url: 'https://g1.globo.com/news/noticia/popup.ghtml',
+    html: '<article><h1>Article title</h1><p>Article body</p></article>', ui: true,
+    afterLoad: async page => {
+      await page.waitForSelector('article #cam-copy-btn');
+      for (const kind of ['overlay', 'modal', 'popover']) {
+        await page.evaluate(kind => {
+          const blocker = document.createElement(kind === 'modal' ? 'dialog' : 'div');
+          blocker.id = 'site-popup';
+          blocker.setAttribute('role', 'dialog');
+          if (kind === 'overlay' || kind === 'popover') {
+            blocker.style.cssText = 'position:fixed;inset:0;width:100vw;height:100vh;margin:0;max-width:none;max-height:none;z-index:2147483646;background:rgba(0,0,0,.6)';
+          }
+          if (kind === 'popover') blocker.setAttribute('popover', 'manual');
+          document.body.appendChild(blocker);
+          if (kind === 'modal') blocker.showModal();
+          if (kind === 'popover') blocker.showPopover();
+        }, kind);
+        await page.waitForSelector('.cam-floating-wrapper #cam-copy-btn', { timeout: 5000 })
+          .catch(error => { throw new Error(`${kind}: ${error.message}`); });
+        const clickable = await page.evaluate(() => {
+          const button = document.querySelector('#cam-copy-btn');
+          const rect = button.getBoundingClientRect();
+          const hit = document.elementFromPoint(rect.left + rect.width / 2, rect.top + rect.height / 2);
+          return hit === button || button.contains(hit);
+        });
+        assert.equal(clickable, true, `${kind} blocks the floating copy button`);
+        await page.click('#cam-copy-btn');
+        await page.waitForFunction(() => document.querySelector('#cam-toast')?.textContent?.includes('Copied!'), { timeout: 3000 });
+        await page.evaluate(() => {
+          const blocker = document.querySelector('#site-popup');
+          if (blocker instanceof HTMLDialogElement) blocker.close();
+          if (blocker.matches(':popover-open')) blocker.hidePopover();
+          blocker.remove();
+        });
+        await page.waitForSelector('article #cam-copy-btn', { timeout: 5000 });
+      }
+    },
+    expected: ['Article body'],
+  }));
+  await check('Copy controls follow the topmost modal and covering popovers', () => fixture({
+    name: 'Globo', url: 'https://g1.globo.com/news/noticia/modals.ghtml',
+    html: '<article><h1>Article title</h1><p>Article body</p></article>', ui: true,
+    afterLoad: async page => {
+      await page.waitForSelector('article #cam-copy-btn');
+      for (const order of [['first', 'second'], ['second', 'first']]) {
+        await page.evaluate(order => {
+          for (const id of ['first', 'second']) {
+            const dialog = document.createElement('dialog');
+            dialog.id = id;
+            dialog.style.cssText = 'position:fixed;inset:0;width:100vw;height:100vh;margin:0;max-width:none;max-height:none;background:white';
+            document.body.appendChild(dialog);
+          }
+          for (const id of order) document.getElementById(id).showModal();
+        }, order);
+        for (const id of [...order].reverse()) {
+          await page.waitForFunction(id => {
+            const button = document.querySelector('#cam-copy-btn');
+            const rect = button?.getBoundingClientRect();
+            return button?.closest('dialog:modal')?.id === id
+              && button.contains(document.elementFromPoint(rect.left + rect.width / 2, rect.top + rect.height / 2));
+          }, { timeout: 5000 }, id);
+          await page.click('#cam-copy-btn');
+          await page.waitForFunction(id => document.querySelector(`#${id} #cam-toast`)?.textContent?.includes('Copied!'), { timeout: 3000 }, id);
+          await page.evaluate(id => document.getElementById(id).remove(), id);
+        }
+        await page.waitForSelector('article #cam-copy-btn', { timeout: 5000 });
+      }
+      await page.evaluate(() => {
+        const dialog = document.createElement('dialog');
+        dialog.id = 'site-dialog';
+        dialog.style.cssText = 'position:fixed;inset:0;width:100vw;height:100vh;margin:0;max-width:none;max-height:none;background:white';
+        document.body.appendChild(dialog);
+        dialog.showModal();
+      });
+      await page.waitForSelector('#site-dialog .cam-floating-wrapper #cam-copy-btn', { timeout: 5000 });
+      await page.evaluate(() => {
+        const popover = document.createElement('div');
+        popover.id = 'site-menu';
+        popover.setAttribute('popover', 'manual');
+        popover.style.cssText = 'position:fixed;inset:auto;right:0;bottom:0;width:260px;height:260px;padding:0;border:0;margin:0;background:white';
+        document.querySelector('#site-dialog').appendChild(popover);
+        popover.showPopover();
+      });
+      await page.waitForFunction(() => {
+        const button = document.querySelector('#site-menu #cam-copy-btn');
+        const rect = button?.getBoundingClientRect();
+        return button && button.contains(document.elementFromPoint(rect.left + rect.width / 2, rect.top + rect.height / 2));
+      }, { timeout: 5000 });
+      await page.click('#cam-copy-btn');
+      await page.waitForFunction(() => document.querySelector('#site-menu #cam-toast')?.textContent?.includes('Copied!'), { timeout: 3000 });
+      await page.evaluate(() => document.querySelector('#site-menu').hidePopover());
+      await page.waitForSelector('#site-dialog > .cam-floating-wrapper #cam-copy-btn', { timeout: 5000 });
+      await page.evaluate(() => document.querySelector('#site-dialog').remove());
+      await page.waitForSelector('article #cam-copy-btn', { timeout: 5000 });
+    },
+    expected: ['Article body'],
+  }));
+  await check('Floating copy button preserves an active drag while an overlay blocks its anchor', () => fixture({
+    name: 'Globo', url: 'https://g1.globo.com/news/noticia/drag.ghtml',
+    html: '<article><h1>Article title</h1><p>Article body</p></article>', ui: true,
+    afterLoad: async page => {
+      await page.waitForSelector('article #cam-copy-btn');
+      await page.evaluate(() => {
+        const blocker = document.createElement('div');
+        blocker.id = 'site-popup';
+        blocker.style.cssText = 'position:fixed;inset:0;width:100vw;height:100vh;margin:0;max-width:none;max-height:none;z-index:2147483646;background:rgba(0,0,0,.6)';
+        document.body.appendChild(blocker);
+      });
+      await page.waitForSelector('.cam-floating-wrapper #cam-copy-btn', { timeout: 5000 });
+
+      const start = await page.evaluate(() => {
+        const wrapper = document.querySelector('.cam-floating-wrapper');
+        const button = document.querySelector('#cam-copy-btn');
+        const rect = wrapper.getBoundingClientRect();
+        window.__camDragWrapper = wrapper;
+        return { left: rect.left, top: rect.top, x: button.getBoundingClientRect().left + 18, y: button.getBoundingClientRect().top + 18 };
+      });
+      await page.mouse.move(start.x, start.y);
+      await page.mouse.down();
+      await page.mouse.move(start.x - 80, start.y - 60, { steps: 5 });
+      await page.waitForFunction(() => document.querySelector('.cam-floating-wrapper')?.classList.contains('cam-dragging'));
+
+      const moved = await page.evaluate(() => {
+        const rect = document.querySelector('.cam-floating-wrapper').getBoundingClientRect();
+        return { left: rect.left, top: rect.top };
+      });
+      await new Promise(resolve => setTimeout(resolve, 2200));
+
+      const afterWatchdog = await page.evaluate(() => {
+        const wrapper = document.querySelector('.cam-floating-wrapper');
+        const rect = wrapper?.getBoundingClientRect();
+        return {
+          sameWrapper: window.__camDragWrapper === wrapper,
+          dragging: wrapper?.classList.contains('cam-dragging') || false,
+          left: rect?.left,
+          top: rect?.top,
+        };
+      });
+      assert.equal(afterWatchdog.sameWrapper, true, 'watchdog replaced the floating wrapper during a drag');
+      assert.equal(afterWatchdog.dragging, true, 'watchdog ended the active drag');
+      assert.ok(Math.abs(afterWatchdog.left - moved.left) < 1, 'watchdog reset the dragged horizontal position');
+      assert.ok(Math.abs(afterWatchdog.top - moved.top) < 1, 'watchdog reset the dragged vertical position');
+
+      await page.mouse.move(start.x - 120, start.y - 90, { steps: 5 });
+      const movedAgain = await page.evaluate(() => {
+        const rect = document.querySelector('.cam-floating-wrapper').getBoundingClientRect();
+        return { left: rect.left, top: rect.top };
+      });
+      assert.ok(movedAgain.left < afterWatchdog.left, 'pointer movement stopped after the watchdog tick');
+      assert.ok(movedAgain.top < afterWatchdog.top, 'pointer movement stopped after the watchdog tick');
+      await page.mouse.up();
+
+      await page.evaluate(() => document.querySelector('#site-popup').remove());
+      await page.waitForFunction(() => {
+        const button = document.querySelector('article #cam-copy-btn');
+        return button && !button.closest('.cam-floating-wrapper');
+      }, { timeout: 5000 });
+    },
+    expected: ['Article body'],
   }));
   await check('Read the Docs classic themes retain the documentation body without generator metadata', () => fixture({
     name: 'Sphinx / Read the Docs', url: 'https://requests.readthedocs.io/en/latest/', html: '<div class="document"><div class="body" role="main"><h1>Guide</h1><p>Documentation body</p><pre>Code sample</pre></div></div><main><dl><dt>Footer label</dt><dd>Footer noise</dd></dl></main>',

@@ -84,6 +84,8 @@ export interface ExtractorConfig {
  */
 export interface Extractor {
   name: string;
+  /** Original route definitions when a library loader groups same-name extractors. */
+  variants?: readonly Extractor[];
   matches: string[];
   regex: RegExp | null;
   pathnameRegex: RegExp | null;

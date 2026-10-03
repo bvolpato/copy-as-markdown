@@ -1,4 +1,4 @@
-import { getAll } from '../core/registry';
+import { getAll, matchesExtractor } from '../core/registry';
 import type { Extractor } from '../core/types';
 
 const EXTRACTOR_LOADERS = {
@@ -99,9 +99,21 @@ export function loadExtractor(id: ExtractorId | string): Promise<Extractor> {
   if (!entry) throw new Error(`Unknown extractor id: ${id}`);
 
   const loading = entry.load().then(() => {
-    const extractor = getAll().find(({ name }) => name === entry.name);
-    if (!extractor) throw new Error(`Extractor failed to register: ${normalized}`);
-    return extractor;
+    const variants = getAll().filter(({ name }) => name === entry.name);
+    if (variants.length === 0) throw new Error(`Extractor failed to register: ${normalized}`);
+    if (variants.length === 1) return variants[0];
+    return {
+      ...variants[0],
+      variants: Object.freeze(variants),
+      matches: [...new Set(variants.flatMap((extractor) => extractor.matches))],
+      detect: (contextDocument?: Document) => variants.some((extractor) => extractor.detect?.(contextDocument)),
+      async extract(optionId?: string): Promise<string> {
+        if (typeof window === 'undefined') throw new Error('Site extractors require an active browser page');
+        const variant = variants.find((extractor) => matchesExtractor(extractor, window.location.href));
+        if (!variant) throw new Error(`No ${entry.name} extractor matches the active browser page`);
+        return variant.extract(optionId);
+      },
+    };
   });
   pending.set(normalized, loading);
   return loading;

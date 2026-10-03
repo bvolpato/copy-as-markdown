@@ -1,6 +1,6 @@
 {
   "name": "@bvolpato/copy-as-markdown",
-  "version": "1.5.0",
+  "version": "1.5.1",
   "description": "Copy page content as clean, structured Markdown",
   "type": "module",
   "main": "./dist/library/index.js",
@@ -82,8 +82,7 @@
   },
   "packageManager": "pnpm@11.22.0",
   "engines": {
-    "node": "22.22.2",
-    "pnpm": "11.22.0"
+    "node": ">=22.22.2"
   },
   "scripts": {
     "typecheck": "tsc --noEmit",
@@ -101,7 +100,7 @@
     "test:live": "pnpm build && node test/test-sites.js",
     "test:library": "pnpm build && node test/library.test.js",
     "test:ai-chat": "pnpm build && node test/ai-chat.test.js",
-    "test:regression": "pnpm build && node test/facebook-detector.test.js && node test/library.test.js && node test/catalog.test.js && node test/ai-chat.test.js && node test/background.test.js && node test/test-sites.js --regression && tsx test/fixtures/security.test.ts && tsx test/fixtures/verify.ts",
+    "test:regression": "pnpm build && node test/facebook-detector.test.js && tsx --test test/atlassian.test.ts && node test/library.test.js && node test/catalog.test.js && node test/ai-chat.test.js && node test/background.test.js && node test/test-sites.js --regression && tsx test/fixtures/security.test.ts && tsx test/fixtures/verify.ts",
     "test:site": "pnpm build && node test/test-sites.js",
     "fixtures:capture": "pnpm build && tsx test/fixtures/capture.ts",
     "fixtures:verify": "pnpm build && tsx test/fixtures/verify.ts",

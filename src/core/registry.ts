@@ -79,6 +79,9 @@ function testRegex(regex: RegExp | null, value: string): boolean {
 }
 
 export function matchesExtractorUrl(extractor: Extractor, href: string): boolean {
+  if (extractor.variants) {
+    return extractor.variants.some((variant) => matchesExtractorUrl(variant, href));
+  }
   return testRegex(extractor.regex, href) ||
     extractor.matches.some((pattern) => matchPatternToRegex(pattern).test(href));
 }
@@ -94,6 +97,9 @@ export function matchesPathname(regex: RegExp | null, href: string): boolean {
 }
 
 export function matchesExtractor(extractor: Extractor, href: string): boolean {
+  if (extractor.variants) {
+    return extractor.variants.some((variant) => matchesExtractor(variant, href));
+  }
   return matchesExtractorUrl(extractor, href)
     && matchesPathname(extractor.pathnameRegex, href);
 }

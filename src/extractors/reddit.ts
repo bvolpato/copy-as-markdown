@@ -10,6 +10,8 @@ import { register } from '../core/registry';
 import * as Utils from '../core/utils';
 
 const COMMENT_LIMIT = 30;
+const POST_SELECTOR = 'shreddit-post, [data-testid="post-container"], [data-post-id], .Post, [data-testid="post"], .thing.link';
+const COMMENT_SELECTOR = 'shreddit-comment, .Comment, [data-testid="comment"], [data-testid="comment-tree-item"], .thing.comment';
 
 interface RedditPost {
   id: string;
@@ -50,6 +52,7 @@ register({
       '[data-testid="post-container"] [data-testid="post-actions"]',
       '.Post .flat-list.buttons',
       '.Post .actionBar',
+      '.thing.link .flat-list.buttons',
     ].join(', '),
     position: 'overlay',
     style: 'link',
@@ -64,7 +67,8 @@ register({
     const domPost = extractDomPost(root, route.id);
     const embeddedPost = route.id ? findEmbeddedPost(route.id) : null;
     const post = mergePosts(embeddedPost, domPost);
-    const comments = route.id ? extractComments(root || document) : [];
+    const commentScope = root?.closest('main, [role="main"], .content, [role="dialog"], dialog') || document;
+    const comments = route.id ? extractComments(commentScope, root) : [];
     const limitedComments = limitCollection(comments, COMMENT_LIMIT);
     const kind = route.id ? 'post' : route.kind === 'search' ? 'search results' : 'subreddit feed';
     const title = post.title || Utils.getPageTitle() || `Reddit ${kind}`;
@@ -127,13 +131,10 @@ function emptyPost(id = ''): RedditPost {
 }
 
 function findPostRoot(id: string): Element | null {
-  const candidates = Array.from(document.querySelectorAll<HTMLElement>([
-    'shreddit-post', '[data-testid="post-container"]', 'article[data-testid="post-container"]',
-    '[data-post-id]', '.Post', '[data-testid="post"]',
-  ].join(', ')));
+  const candidates = Array.from(document.querySelectorAll<HTMLElement>(POST_SELECTOR));
   if (!id) return null;
   return candidates.find((candidate) => {
-    const ids = [candidate.id, candidate.getAttribute('data-post-id') || '', candidate.getAttribute('id') || ''];
+    const ids = [candidate.id, candidate.getAttribute('data-post-id') || '', candidate.getAttribute('data-fullname') || ''];
     return ids.some((value) => value === id || value.endsWith(`_${id}`) || value.includes(`t3_${id}`))
       || Array.from(candidate.querySelectorAll<HTMLAnchorElement>('a[href]'))
         .some((link) => link.href.includes(`/comments/${id}`));
@@ -141,10 +142,7 @@ function findPostRoot(id: string): Element | null {
 }
 
 function findVisiblePost(): Element | null {
-  const candidates = Array.from(document.querySelectorAll<HTMLElement>([
-    'shreddit-post', '[data-testid="post-container"]', 'article[data-testid="post-container"]',
-    '[data-post-id]', '.Post', '[data-testid="post"]',
-  ].join(', ')));
+  const candidates = Array.from(document.querySelectorAll<HTMLElement>(POST_SELECTOR));
   return mostVisible(candidates);
 }
 
@@ -169,7 +167,8 @@ function extractDomPost(root: Element | null, id: string): RedditPost {
     post.subreddit = window.location.pathname.match(/^\/r\/([^/]+)/)?.[1] || '';
     return post;
   }
-  post.id = post.id || root.getAttribute('id')?.replace(/^t3_/, '') || root.getAttribute('data-post-id') || '';
+  post.id = post.id || (root.getAttribute('data-post-id') || root.getAttribute('data-fullname') || root.id)
+    .replace(/^(?:thing_)?t3_/, '');
   post.title = text(root, [
     'h1', '[data-testid="post-title"]', '[slot="title"]', '.title',
   ]) || clean(root.getAttribute('post-title') || '');
@@ -199,38 +198,58 @@ function extractDomPost(root: Element | null, id: string): RedditPost {
   return post;
 }
 
-function extractComments(scope: ParentNode): RedditComment[] {
-  const nodes = scope.querySelectorAll<HTMLElement>([
-    'shreddit-comment', '.Comment', '[data-testid="comment"]', '[data-testid="comment-tree-item"]',
-  ].join(', '));
+function extractComments(scope: ParentNode, postRoot: Element | null): RedditComment[] {
+  const nodes = scope.querySelectorAll<HTMLElement>(COMMENT_SELECTOR);
   const comments: RedditComment[] = [];
   const seen = new Set<string>();
   nodes.forEach((node) => {
-    const bodyEl = node.querySelector('[slot="comment"], [data-testid="comment-body"], .md, [data-testid="comment-content"]');
+    const owner = node.closest(POST_SELECTOR);
+    if (owner && owner !== postRoot) return;
+    const bodyEl = commentElement(node, '[slot="comment"], [data-testid="comment-body"], .md, [data-testid="comment-content"]');
     if (!bodyEl) return;
     const body = Markdown.elementToMarkdown(Utils.removeNoise(bodyEl, ['script', 'style', 'button', 'svg'])).trim();
     if (!body) return;
-    const author = (node.getAttribute('author') || text(node, [
-      '[data-testid="comment_author_link"]', '[data-testid="comment-author"]', '.author', 'a[href*="/user/"]',
-    ])).trim();
-    const score = node.getAttribute('score') || text(node, ['[data-testid="comment-score"]', '.score']);
+    const author = (node.getAttribute('author') || clean(commentElement(node,
+      '[data-testid="comment_author_link"], [data-testid="comment-author"], .author, a[href*="/user/"]',
+    )?.textContent || '')).trim();
+    const score = (node.getAttribute('score') || clean(commentElement(node,
+      '[data-testid="comment-score"], .score',
+    )?.textContent || '')).replace(/\s+points?$/i, '');
     const key = `${author}\n${body}`;
     if (seen.has(key)) return;
     seen.add(key);
     comments.push({
       author: author || 'Anonymous',
       body,
-      timestamp: attr(node, ['time[datetime]'], 'datetime') || text(node, ['time']),
+      timestamp: commentElement(node, 'time[datetime]')?.getAttribute('datetime')
+        || clean(commentElement(node, 'time')?.textContent || ''),
       score,
-      depth: Math.min(Number.parseInt(node.getAttribute('depth') || '0', 10) || 0, 3),
+      depth: commentDepth(node),
     });
   });
   return comments;
 }
 
+function commentElement(node: Element, selector: string): Element | undefined {
+  return Array.from(node.querySelectorAll(selector))
+    .find((element) => element.closest(COMMENT_SELECTOR) === node);
+}
+
+function commentDepth(node: Element): number {
+  let depth = Number.parseInt(node.getAttribute('depth') || '', 10);
+  if (Number.isNaN(depth)) {
+    depth = 0;
+    for (let parent = node.parentElement?.closest(COMMENT_SELECTOR); parent; parent = parent.parentElement?.closest(COMMENT_SELECTOR)) {
+      depth++;
+    }
+  }
+  return Math.max(0, Math.min(depth, 3));
+}
+
 function appendComment(parts: string[], comment: RedditComment): void {
   const indent = '> '.repeat(comment.depth);
-  const details = [comment.timestamp, comment.score ? `${comment.score} points` : ''].filter(Boolean).join(' · ');
+  const score = comment.score ? `${comment.score} ${comment.score === '1' ? 'point' : 'points'}` : '';
+  const details = [comment.timestamp, score].filter(Boolean).join(' · ');
   parts.push(`${indent}**${comment.author}**${details ? ` (${details})` : ''}:`);
   const lines = comment.body.split(/\n+/).map((line) => `${indent}> ${line}`);
   parts.push(...lines, '');

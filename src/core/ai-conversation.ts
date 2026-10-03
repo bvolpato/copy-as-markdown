@@ -497,10 +497,6 @@ function clean(element: Element, keepEditable = false): Element {
       return;
     }
     image.setAttribute('src', source);
-    image.setAttribute(
-      'alt',
-      Markdown.escapeMarkdownLinkText(image.getAttribute('alt') || ''),
-    );
   });
   return clone;
 }
