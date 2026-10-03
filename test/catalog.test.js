@@ -326,6 +326,54 @@ try {
     },
     expected: ['Article body'],
   }));
+  await check('Floating copy button leaves a closed modal and remains copyable', () => fixture({
+    name: 'Substack', url: 'https://newsletter.substack.com/p/modal-lifecycle',
+    html: '<dialog id="site-dialog" style="position:fixed;inset:0;width:100vw;height:100vh;margin:0"><p>Modal content</p></dialog><script>document.querySelector("#site-dialog").showModal()</script><h1 class="post-title">Newsletter title</h1><div class="body markup"><p>Newsletter body</p></div>',
+    ui: true,
+    afterLoad: async page => {
+      await page.waitForFunction(() => document.querySelector('#cam-copy-btn')?.closest('dialog:modal')?.id === 'site-dialog');
+      await page.evaluate(() => document.querySelector('#site-dialog').close());
+      await page.waitForFunction(() => {
+        const wrapper = document.querySelector('.cam-floating-wrapper');
+        return wrapper?.parentElement === document.documentElement;
+      }, { timeout: 3000 });
+      const clickable = await page.evaluate(() => {
+        const button = document.querySelector('#cam-copy-btn');
+        const rect = button.getBoundingClientRect();
+        const hit = document.elementFromPoint(rect.left + rect.width / 2, rect.top + rect.height / 2);
+        return button.closest('.cam-floating-wrapper').parentElement === document.documentElement
+          && (hit === button || button.contains(hit));
+      });
+      assert.equal(clickable, true, 'button did not return to the document after the modal closed');
+      await page.click('#cam-copy-btn');
+      await page.waitForFunction(() => document.documentElement.querySelector('#cam-toast')?.textContent?.includes('Copied!'));
+    },
+    expected: ['Newsletter body'],
+  }));
+  await check('Floating copy button leaves a closed popover and remains copyable', () => fixture({
+    name: 'Substack', url: 'https://newsletter.substack.com/p/popover-lifecycle',
+    html: '<div id="site-popover" popover="manual" style="position:fixed;inset:0;width:100vw;height:100vh;padding:0;border:0;margin:0"><p>Popover content</p></div><script>document.querySelector("#site-popover").showPopover()</script><h1 class="post-title">Newsletter title</h1><div class="body markup"><p>Newsletter body</p></div>',
+    ui: true,
+    afterLoad: async page => {
+      await page.waitForFunction(() => document.querySelector('#cam-copy-btn')?.closest('[popover]:popover-open')?.id === 'site-popover');
+      await page.evaluate(() => document.querySelector('#site-popover').hidePopover());
+      await page.waitForFunction(() => {
+        const wrapper = document.querySelector('.cam-floating-wrapper');
+        return wrapper?.parentElement === document.documentElement;
+      }, { timeout: 3000 });
+      const clickable = await page.evaluate(() => {
+        const button = document.querySelector('#cam-copy-btn');
+        const rect = button.getBoundingClientRect();
+        const hit = document.elementFromPoint(rect.left + rect.width / 2, rect.top + rect.height / 2);
+        return button.closest('.cam-floating-wrapper').parentElement === document.documentElement
+          && (hit === button || button.contains(hit));
+      });
+      assert.equal(clickable, true, 'button did not return to the document after the popover closed');
+      await page.click('#cam-copy-btn');
+      await page.waitForFunction(() => document.documentElement.querySelector('#cam-toast')?.textContent?.includes('Copied!'));
+    },
+    expected: ['Newsletter body'],
+  }));
   await check('Floating copy button preserves an active drag while an overlay blocks its anchor', () => fixture({
     name: 'Globo', url: 'https://g1.globo.com/news/noticia/drag.ghtml',
     html: '<article><h1>Article title</h1><p>Article body</p></article>', ui: true,

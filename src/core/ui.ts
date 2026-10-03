@@ -1106,7 +1106,33 @@ function setFloatingPosition(wrapper: HTMLElement, position: FloatingPosition): 
   wrapper.style.bottom = 'auto';
 }
 
-function enableFloatingDrag(btn: HTMLButtonElement, wrapper: FloatingWrapperElement): void {
+function watchFloatingParent(wrapper: FloatingWrapperElement, instanceId: string): () => void {
+  let active = true;
+  const updateParent = () => {
+    if (!active || !isActiveInstance(instanceId)) return;
+    const parent = getFloatingParent();
+    if (wrapper.parentElement !== parent) parent.appendChild(wrapper);
+  };
+
+  const observer = new MutationObserver(updateParent);
+  observer.observe(document.documentElement, {
+    childList: true,
+    subtree: true,
+    attributes: true,
+    attributeFilter: ['open'],
+  });
+  document.addEventListener('toggle', updateParent, true);
+  document.addEventListener('close', updateParent, true);
+
+  return () => {
+    active = false;
+    observer.disconnect();
+    document.removeEventListener('toggle', updateParent, true);
+    document.removeEventListener('close', updateParent, true);
+  };
+}
+
+function enableFloatingDrag(btn: HTMLButtonElement, wrapper: FloatingWrapperElement, instanceId: string): void {
   let activePointerId: number | null = null;
   let startPointerX = 0;
   let startPointerY = 0;
@@ -1182,8 +1208,10 @@ function enableFloatingDrag(btn: HTMLButtonElement, wrapper: FloatingWrapperElem
     saveFloatingPosition(position);
   };
   window.addEventListener('resize', keepInsideViewport, { passive: true });
+  const stopWatchingFloatingParent = watchFloatingParent(wrapper, instanceId);
   wrapper._camCleanup = () => {
     window.removeEventListener('resize', keepInsideViewport);
+    stopWatchingFloatingParent();
     wrapper.remove();
     wrapper._camCleanup = undefined;
   };
@@ -1285,7 +1313,7 @@ function showFloating(btn: HTMLButtonElement, instanceId: string): void {
   wrapper.appendChild(btn);
   wrapper.appendChild(dismiss);
   getFloatingParent().appendChild(wrapper);
-  enableFloatingDrag(btn, wrapper);
+  enableFloatingDrag(btn, wrapper, instanceId);
 }
 
 // ----------------------------------------------------------------
