@@ -147,13 +147,15 @@ function renderList(items: JsonObject[], ordered: boolean, start: number, depth:
 
 function renderTable(rows: JsonObject[]): string {
   const values = rows.map((row) => objectArray(row.content).map((cell) => {
-    const value = objectArray(cell.content)
+    const rendered = objectArray(cell.content)
       .map((child) => renderNode(child, 0))
-      .join(' ')
-      .replace(/\|/g, '\\|')
+      .join(' ');
+    // Child Markdown already escapes prose; code backslashes must stay literal.
+    const characters: string[] = [];
+    for (const character of rendered) characters.push(character === '|' ? '\\|' : character);
+    return characters.join('')
       .replace(/\s*\n\s*/g, '<br>')
       .trim();
-    return value;
   }));
   if (values.length === 0) return '';
   const width = Math.max(...values.map((row) => row.length));
