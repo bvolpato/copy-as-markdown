@@ -294,6 +294,27 @@ await assert.rejects(nodeMatch.extract(), /active browser page/);
 const browserCode = fs.readFileSync(path.join(ROOT, 'dist', 'library', 'browser.js'), 'utf8');
 const browser = await puppeteer.launch({ headless: 'shell', args: ['--no-sandbox'] });
 try {
+  const notionPage = await browser.newPage();
+  await notionPage.setRequestInterception(true);
+  notionPage.on('request', request => request.respond({
+    contentType: 'text/html',
+    body: '<!doctype html><main class="notion-page-content"><h1>Custom Notion page</h1><div data-block-id="a"><p>Detected Notion content</p></div></main>',
+  }));
+  await notionPage.goto('https://custom.example/page');
+  await notionPage.addScriptTag({ content: browserCode });
+  const notionDirect = await notionPage.evaluate(async () => {
+    const extractor = await CopyAsMarkdown.loadExtractor('notion');
+    const detected = extractor.detect(document);
+    const markdown = await extractor.extract();
+    document.querySelector('main').remove();
+    const rejection = await extractor.extract().then(() => null, error => error.message);
+    return { detected, markdown, rejection };
+  });
+  assert.equal(notionDirect.detected, true);
+  assert.ok(notionDirect.markdown.includes('Detected Notion content'));
+  assert.equal(notionDirect.rejection, 'No Notion extractor matches the active browser page');
+  await notionPage.close();
+
   const page = await browser.newPage();
   await page.setContent(`<!doctype html>
     <html>
@@ -371,6 +392,7 @@ try {
       listCard: CopyAsMarkdown.htmlToMarkdown('<ol><li><a href="https://example.test/card"><h3>Card title</h3><p>Card body</p></a></li></ol>'),
       table: CopyAsMarkdown.htmlToMarkdown('<table><tr><th>Code</th></tr><tr><td><strong><code>“Ａ”  value</code></strong></td></tr></table>'),
       tablePath: CopyAsMarkdown.htmlToMarkdown('<table><tr><th>Code</th></tr><tr><td><code>C:\\foo | bar</code></td></tr></table>'),
+      tableEscapedPipe: CopyAsMarkdown.htmlToMarkdown('<table><tr><th>Code</th></tr><tr><td><code>C:\\foo\\|bar</code></td></tr></table>'),
     };
   });
   assert.match(codeCases.markdown, /"Prose" - A/);
@@ -392,8 +414,22 @@ try {
   assert.equal(codeCases.listCard, '1. [### Card title Card body](https://example.test/card)');
   assert.equal(codeCases.table, '| Code |\n| --- |\n| **`“Ａ”  value`** |');
   assert.equal(codeCases.tablePath, '| Code |\n| --- |\n| `C:\\foo \\| bar` |');
+  assert.equal(codeCases.tableEscapedPipe, '| Code |\n| --- |\n| `C:\\foo\\\\|bar` |');
   assert.equal(library.cleanMarkdown(codeCases.tablePath), codeCases.tablePath);
   assert.equal(library.cleanMarkdown('`unmatched\n\n“Prose”\n\n`another'), '`unmatched\n\n"Prose"\n\n`another', 'unmatched delimiters across paragraphs must not bypass prose normalization');
+
+  const { spawnSync } = await import('node:child_process');
+  const quotePrefix = '> '.repeat(80);
+  const literalCode = 'a[b](c)d “Ａ”\u200b  \\|\n\n```\nlast  \n';
+  const literalFence = '````text\n' + literalCode + '````';
+  const adversarialMarkdown = quotePrefix + '“Prose”\u200b\n' + quotePrefix + '\n\n' + literalFence;
+  const cleanupResult = spawnSync(process.execPath, ['--input-type=module', '-e', `
+    const { cleanMarkdown } = await import(${JSON.stringify(new URL('../dist/library/index.js', import.meta.url).href)});
+    process.stdout.write(cleanMarkdown(${JSON.stringify(adversarialMarkdown)}));
+  `], { encoding: 'utf8', timeout: 10000 });
+  assert.equal(cleanupResult.error, undefined, 'deep quote prefixes must complete Markdown cleanup within the process deadline');
+  assert.equal(cleanupResult.status, 0, cleanupResult.stderr);
+  assert.equal(cleanupResult.stdout, quotePrefix + '"Prose"\n' + quotePrefix.trimEnd() + '\n\n' + literalFence, 'deep prefixes must preserve code and retain prose normalization');
 
   const imageCases = await page.evaluate(() => {
     const image = (src, alt) => {

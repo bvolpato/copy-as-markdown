@@ -109,7 +109,8 @@ export function loadExtractor(id: ExtractorId | string): Promise<Extractor> {
       detect: (contextDocument?: Document) => variants.some((extractor) => extractor.detect?.(contextDocument)),
       async extract(optionId?: string): Promise<string> {
         if (typeof window === 'undefined') throw new Error('Site extractors require an active browser page');
-        const variant = variants.find((extractor) => matchesExtractor(extractor, window.location.href));
+        const variant = variants.find((extractor) => matchesExtractor(extractor, window.location.href))
+          || variants.find((extractor) => extractor.detect?.(document));
         if (!variant) throw new Error(`No ${entry.name} extractor matches the active browser page`);
         return variant.extract(optionId);
       },

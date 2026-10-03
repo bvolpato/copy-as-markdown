@@ -19,8 +19,12 @@ export function escapeMarkdownLinkText(value: string): string {
 }
 
 export function escapeMarkdownTableCell(value: string, lineBreak = ' '): string {
-  return withPreservedCode(value, (prose) => prose.replace(/\\/g, '\\\\'))
-    .replace(/\|/g, '\\|')
+  return withPreservedCode(value, (prose) => prose.replace(/([\\|])/g, '\\$1'), (code) => {
+    // Table pipes need an escape; backslashes inside code are already literal.
+    const parts: string[] = [];
+    for (const character of code) parts.push(character === '|' ? '\\|' : character);
+    return parts.join('');
+  })
     .replace(/\r?\n/g, lineBreak)
     .trim();
 }
@@ -528,12 +532,58 @@ export function inlineCodeToMarkdown(text: string): string {
   return `${delimiter}${padding}${inner}${padding}${delimiter}`;
 }
 
+function markdownLinePrefix(line: string): { position: number; quoteDepth: number } {
+  let position = 0;
+  let quoteDepth = 0;
+  while (position < line.length) {
+    while (line[position] === ' ' || line[position] === '\t') position += 1;
+    if (line[position] !== '>') break;
+    quoteDepth += 1;
+    position += 1;
+  }
+  return { position, quoteDepth };
+}
+
+function markdownFence(line: string) {
+  const prefix = markdownLinePrefix(line);
+  let position = prefix.position;
+  let markerEnd = position;
+  if (line[markerEnd] === '-' || line[markerEnd] === '+' || line[markerEnd] === '*') {
+    markerEnd += 1;
+  } else {
+    while (line[markerEnd] >= '0' && line[markerEnd] <= '9') markerEnd += 1;
+    markerEnd = markerEnd > position && (line[markerEnd] === '.' || line[markerEnd] === ')')
+      ? markerEnd + 1
+      : position;
+  }
+  const listMarker = markerEnd > position && line[markerEnd] === ' ';
+  if (listMarker) {
+    position = markerEnd;
+    while (line[position] === ' ') position += 1;
+  }
+  const start = position;
+  const character = line[position];
+  if (character !== '`' && character !== '~') return undefined;
+  while (line[position] === character) position += 1;
+  if (position - start < 3) return undefined;
+  return {
+    delimiter: line.slice(start, position),
+    info: line.slice(position),
+    quoteDepth: prefix.quoteDepth,
+    listMarker,
+  };
+}
+
 /** Keep Markdown code literal while applying prose-only cleanup. */
-function withPreservedCode(value: string, transform: (prose: string) => string): string {
+function withPreservedCode(
+  value: string,
+  transform: (prose: string) => string,
+  transformCode: (code: string) => string = (code) => code,
+): string {
   let prefix = 'COPYASMARKDOWNCODE';
   while (value.includes(prefix)) prefix += 'X';
   const literals: string[] = [];
-  const protect = (literal: string): string => `${prefix}${literals.push(literal) - 1}TOKEN`;
+  const protect = (literal: string): string => `${prefix}${literals.push(transformCode(literal)) - 1}TOKEN`;
   const protectInlineParagraph = (prose: string): string => {
     const runs = Array.from(prose.matchAll(/`+/g));
     const next = new Map<number, number>();
@@ -558,32 +608,48 @@ function withPreservedCode(value: string, transform: (prose: string) => string):
     }
     return parts.join('') + prose.slice(position);
   };
-  const protectInline = (prose: string): string => prose
-    .split(/(\n(?:[ \t]*> ?)*[ \t]*\n)/)
-    .map((part, index) => index % 2 ? part : protectInlineParagraph(part))
-    .join('');
+  const protectInline = (prose: string): string => {
+    const parts: string[] = [];
+    let paragraphStart = 0;
+    let lineStart = 0;
+    while (lineStart < prose.length) {
+      const lineEnd = prose.indexOf('\n', lineStart);
+      if (lineEnd < 0) break;
+      const line = prose.slice(lineStart, lineEnd);
+      if (lineStart > paragraphStart && markdownLinePrefix(line).position === line.length) {
+        parts.push(protectInlineParagraph(prose.slice(paragraphStart, lineStart - 1)));
+        parts.push(prose.slice(lineStart - 1, lineEnd + 1));
+        paragraphStart = lineEnd + 1;
+      }
+      lineStart = lineEnd + 1;
+    }
+    parts.push(protectInlineParagraph(prose.slice(paragraphStart)));
+    return parts.join('');
+  };
 
   const parts: string[] = [];
   let proseStart = 0;
   let fenceStart = -1;
   let fence = '';
   let quoteDepth = 0;
-  for (const line of value.matchAll(/[^\n]*(?:\n|$)/g)) {
-    if (!line[0]) continue;
-    const match = line[0].replace(/\r?\n$/, '').match(/^((?:[ \t]*> ?)*[ \t]*)((?:[-+*]|\d+[.)]) +)?(`{3,}|~{3,})(.*)$/);
+  let lineStart = 0;
+  for (const rawLine of value.split('\n')) {
+    const start = lineStart;
+    const end = start + rawLine.length;
+    lineStart = end + 1;
+    const line = end < value.length && rawLine.endsWith('\r') ? rawLine.slice(0, -1) : rawLine;
+    const match = markdownFence(line);
     if (!match) continue;
-    const depth = (match[1].match(/>/g) || []).length;
     if (fenceStart < 0) {
-      if (match[3][0] === '`' && match[4].includes('`')) continue;
-      parts.push(protectInline(value.slice(proseStart, line.index)));
-      fenceStart = line.index!;
-      fence = match[3];
-      quoteDepth = depth;
+      if (match.delimiter[0] === '`' && match.info.includes('`')) continue;
+      parts.push(protectInline(value.slice(proseStart, start)));
+      fenceStart = start;
+      fence = match.delimiter;
+      quoteDepth = match.quoteDepth;
     } else if (
-      depth === quoteDepth && !match[2] && match[3][0] === fence[0]
-      && match[3].length >= fence.length && /^[ \t]*$/.test(match[4])
+      match.quoteDepth === quoteDepth && !match.listMarker && match.delimiter[0] === fence[0]
+      && match.delimiter.length >= fence.length && /^[ \t]*$/.test(match.info)
     ) {
-      const end = line.index! + line[0].replace(/\n$/, '').length;
       parts.push(protect(value.slice(fenceStart, end)));
       proseStart = end;
       fenceStart = -1;
