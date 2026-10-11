@@ -459,6 +459,8 @@ Userscripts support floating and inline buttons. Browser extensions use the tool
 
 The default behavior is simple: unless a site is explicitly opted into inline placement, the userscript button is rendered as a floating action button in the bottom-right corner.
 
+On sites with inline placement, the button falls back to a floating control when its anchor scrolls out of view or there is no safe space beside the toolbar. It returns to the inline position when that position becomes usable again.
+
 To enable a custom inline position for a specific site, you need two things:
 
 1. An `anchor` config that describes where and how to inject the button

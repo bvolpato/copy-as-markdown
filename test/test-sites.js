@@ -1862,6 +1862,8 @@ DD_SITE=datadoghq.com
     await lifecyclePage.waitForSelector('.cam-overlay-container #cam-copy-btn');
     await lifecyclePage.evaluate(() => document.querySelector('#conversation-header-actions').remove());
     await lifecyclePage.waitForSelector('.cam-floating-wrapper #cam-copy-btn', { timeout: 5000 });
+    const floatingListeners = await lifecyclePage.evaluate(() => window.__camListenerCounts());
+    assertCheck(floatingListeners.scroll === 1 && floatingListeners.resize === 2, `floating fallback left overlay listeners: ${JSON.stringify(floatingListeners)}`);
 
     await lifecyclePage.evaluate(() => {
       const target = document.createElement('div');
@@ -1888,7 +1890,7 @@ DD_SITE=datadoghq.com
       };
     });
     assertCheck(lifecycle.buttons === 1, `overlay lifecycle left ${lifecycle.buttons} buttons`);
-    assertCheck(lifecycle.listeners.scroll === 1 && lifecycle.listeners.resize === 1, `overlay listeners leaked: ${JSON.stringify(lifecycle.listeners)}`);
+    assertCheck(lifecycle.listeners.scroll === 2 && lifecycle.listeners.resize === 2, `overlay listeners leaked: ${JSON.stringify(lifecycle.listeners)}`);
     assertCheck(!boxesOverlap(lifecycle.button, lifecycle.target), 're-anchored overlay overlaps replacement target');
 
     await lifecyclePage.evaluate(() => document.querySelector('#conversation-header-actions').remove());

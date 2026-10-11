@@ -306,9 +306,7 @@ sites:
       - id: me-at-the-zoo
         url: https://www.youtube.com/watch?v=jNQXAC9IVRw
         readySelector: ytd-watch-metadata
-        placement: anchor
-        anchorSelector: "#top-level-buttons-computed"
-        anchorPosition: overlay
+        placement: floating
         minChars: 100
         maxChars: 3000000
         contentRequired:
