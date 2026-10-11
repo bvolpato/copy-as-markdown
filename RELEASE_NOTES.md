@@ -24,6 +24,7 @@ Version 1.5.2 improves copy-button placement on responsive pages.
 - Keeps the copy control accessible when an inline toolbar scrolls out of view.
 - Uses a floating control when a narrow toolbar has no safe room for an overlay button.
 - Restores inline placement when the toolbar becomes usable again.
+- Limits full collision checks during scrolling to keep long pages responsive.
 
 All processing remains local. Authenticated integrations call only the current service's HTTPS APIs using the existing browser session. No remote code, analytics, or developer-operated data service is used.
 ```

@@ -621,5 +621,47 @@ try {
       },
     }));
   }
+  await check('Fixed overlays detect content scrolling into their cached placement', () => fixture({
+    name: 'YouTube', url: 'https://www.youtube.com/watch?v=fixed-placement', ui: true,
+    html: '<h1>Video title</h1><div id="actions" style="position:fixed;left:300px;top:100px;width:140px;height:40px">Actions</div><button aria-label="Native left action" style="position:absolute;left:146px;top:210px;width:20px;height:20px;padding:0;border:0"></button><button aria-label="Native right action" style="position:absolute;left:463px;top:210px;width:20px;height:20px;padding:0;border:0"></button><div style="height:2400px"></div>',
+    afterLoad: async page => {
+      await page.waitForSelector('.cam-overlay-container #cam-copy-btn');
+      await page.evaluate(() => window.scrollTo(0, 100));
+      await page.waitForSelector('.cam-floating-wrapper #cam-copy-btn', { timeout: 1000 });
+      await page.evaluate(() => window.scrollTo(0, 0));
+      await page.waitForSelector('.cam-overlay-container #cam-copy-btn', { timeout: 5000 });
+    },
+  }));
+  await check('Overlay reacts to native DOM changes and cancels pending placement when hidden', () => fixture({
+    name: 'YouTube', url: 'https://www.youtube.com/watch?v=dynamic-placement', ui: true,
+    html: '<h1>Video title</h1><div id="actions" style="position:absolute;left:300px;top:100px;width:140px;height:40px">Actions</div>',
+    afterLoad: async page => {
+      await page.waitForSelector('.cam-overlay-container #cam-copy-btn');
+      await page.evaluate(() => {
+        const copy = document.querySelector('#cam-copy-btn').getBoundingClientRect();
+        const target = document.querySelector('#actions').getBoundingClientRect();
+        for (const left of [copy.left + 15, target.right + 23]) {
+          const obstacle = document.createElement('button');
+          obstacle.className = 'dynamic-obstacle';
+          obstacle.setAttribute('aria-label', 'Native icon action');
+          obstacle.style.cssText = `position:absolute;left:${left}px;top:${copy.top + 5}px;width:20px;height:20px;padding:0;border:0`;
+          document.body.appendChild(obstacle);
+        }
+      });
+      await page.waitForSelector('.cam-floating-wrapper #cam-copy-btn', { timeout: 1500 });
+      await page.evaluate(() => document.querySelectorAll('.dynamic-obstacle').forEach(obstacle => obstacle.remove()));
+      await page.waitForSelector('.cam-overlay-container #cam-copy-btn', { timeout: 5000 });
+      await page.evaluate(() => {
+        window.dispatchEvent(new Event('scroll'));
+        const optOut = document.createElement('div');
+        optOut.id = 'copy_as_markdown_btn';
+        document.body.appendChild(optOut);
+      });
+      await page.waitForFunction(() => !document.querySelector('#cam-copy-btn'));
+      await new Promise(resolve => setTimeout(resolve, 2200));
+      assert.equal(await page.$('#cam-copy-btn'), null);
+      assert.equal(await page.$('.cam-overlay-container'), null);
+    },
+  }));
 } finally { await browser.close(); }
 assert.deepEqual(failures, [], `Catalog regressions failed: ${failures.join(', ')}`);

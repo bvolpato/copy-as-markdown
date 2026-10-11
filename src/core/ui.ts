@@ -28,6 +28,7 @@ const FLOATING_VIEWPORT_MARGIN = 8;
 const ANCHOR_OBSERVE_TIMEOUT = 8000;
 /** Interval (ms) for the anchor watchdog that re-injects if SPA removes the button. */
 const ANCHOR_WATCHDOG_INTERVAL = 2000;
+const OVERLAY_SAFETY_INTERVAL = 100;
 let activeAnchorObserver: MutationObserver | null = null;
 let activeAnchorTimeout: number | null = null;
 let activeWatchdogInterval: number | null = null;
@@ -1057,6 +1058,23 @@ function attachToAnchor(
     overlay.appendChild(btn);
     document.body.appendChild(overlay);
 
+    let active = true;
+    let repositionFrame: number | null = null;
+    let safetyTimeout: number | null = null;
+    let safetyDirty = true;
+    let lastSafetyCheck = 0;
+    let checkedGeometry: string | null = null;
+    let safeSide = 0;
+    const scheduleReposition = (checkSafety = false) => {
+      if (!active) return;
+      safetyDirty ||= checkSafety;
+      if (repositionFrame !== null) return;
+      repositionFrame = window.requestAnimationFrame(() => {
+        repositionFrame = null;
+        if (!document.contains(overlay)) return;
+        if (!updatePosition()) showFloating(btn, instanceId);
+      });
+    };
     const updatePosition = () => {
       const t = findAnchorTarget(anchor.selector);
       if (!t || isAnchorObscured(t)) return false;
@@ -1070,16 +1088,40 @@ function attachToAnchor(
         targetRect.top + (targetRect.height - buttonRect.height) / 2,
         window.innerHeight - buttonRect.height - gap,
       ));
-      for (const left of [targetRect.left - buttonRect.width - gap, targetRect.right + gap]) {
-        if (left < gap || left + buttonRect.width > window.innerWidth - gap
-          || top + buttonRect.height > window.innerHeight - gap) continue;
-        const candidate = new DOMRect(left, top, buttonRect.width, buttonRect.height);
-        if (!isOverlaySpaceClear(candidate)) continue;
-        overlay.style.top = `${top - buttonOffsetTop}px`;
-        overlay.style.left = `${left - buttonOffsetLeft}px`;
-        return true;
+      const candidates = [targetRect.left - buttonRect.width - gap, targetRect.right + gap]
+        .map((left, side) => ({ rect: new DOMRect(left, top, buttonRect.width, buttonRect.height), side }))
+        .filter(({ rect }) => rect.left >= gap && rect.right <= window.innerWidth - gap && rect.bottom <= window.innerHeight - gap);
+      let candidate = candidates.find(({ side }) => side === safeSide) || candidates[0];
+      if (!candidate) return false;
+
+      const geometry = (rect: DOMRect) => [rect.left, rect.top, rect.width, rect.height].join(',');
+      const needsSafetyCheck = safetyDirty || geometry(candidate.rect) !== checkedGeometry;
+      const elapsed = performance.now() - lastSafetyCheck;
+      if (needsSafetyCheck && (checkedGeometry === null || candidate.side !== safeSide || elapsed >= OVERLAY_SAFETY_INTERVAL)) {
+        const preferredSide = candidate.side;
+        const clearCandidate = [candidate, ...candidates.filter(({ side }) => side !== preferredSide)]
+          .find(({ rect }) => isOverlaySpaceClear(rect));
+        if (!clearCandidate) return false;
+        candidate = clearCandidate;
+        checkedGeometry = geometry(candidate.rect);
+        safeSide = candidate.side;
+        lastSafetyCheck = performance.now();
+        safetyDirty = false;
+        if (safetyTimeout !== null) {
+          window.clearTimeout(safetyTimeout);
+          safetyTimeout = null;
+        }
+      } else if (needsSafetyCheck && safetyTimeout === null) {
+        safetyTimeout = window.setTimeout(() => {
+          safetyTimeout = null;
+          scheduleReposition(true);
+        }, OVERLAY_SAFETY_INTERVAL - elapsed);
       }
-      return false;
+      const nextTop = `${candidate.rect.top - buttonOffsetTop}px`;
+      const nextLeft = `${candidate.rect.left - buttonOffsetLeft}px`;
+      if (overlay.style.top !== nextTop) overlay.style.top = nextTop;
+      if (overlay.style.left !== nextLeft) overlay.style.left = nextLeft;
+      return true;
     };
 
     if (!updatePosition()) {
@@ -1088,14 +1130,30 @@ function attachToAnchor(
     }
 
     // Reposition on scroll/resize and periodically (SPA layout shifts)
-    const reposition = () => {
-      if (!document.contains(overlay)) return;
-      if (!updatePosition()) showFloating(btn, instanceId);
-    };
+    const onScroll = () => scheduleReposition(true);
+    const onResize = () => scheduleReposition(true);
+    const observer = new MutationObserver(records => {
+      const nativeChange = records.some(record => {
+        const target = record.target instanceof Element ? record.target : record.target.parentElement;
+        if (target?.closest(`[${UI_INSTANCE_ATTR}]`)) return false;
+        if (record.type !== 'childList') return true;
+        return [...record.addedNodes, ...record.removedNodes]
+          .some(node => !(node instanceof Element && node.hasAttribute(UI_INSTANCE_ATTR)));
+      });
+      if (nativeChange) scheduleReposition(true);
+    });
+    observer.observe(document.documentElement, {
+      childList: true, subtree: true, characterData: true, attributes: true,
+      attributeFilter: ['class', 'style', 'hidden', 'open', 'id', 'aria-hidden', 'inert'],
+    });
     let repositionInterval: number | null = null;
     const cleanup = () => {
-      window.removeEventListener('scroll', reposition);
-      window.removeEventListener('resize', reposition);
+      active = false;
+      observer.disconnect();
+      window.removeEventListener('scroll', onScroll, true);
+      window.removeEventListener('resize', onResize);
+      if (repositionFrame !== null) window.cancelAnimationFrame(repositionFrame);
+      if (safetyTimeout !== null) window.clearTimeout(safetyTimeout);
       if (repositionInterval !== null) {
         window.clearInterval(repositionInterval);
         repositionInterval = null;
@@ -1104,9 +1162,9 @@ function attachToAnchor(
       overlay._camCleanup = undefined;
     };
     overlay._camCleanup = cleanup;
-    window.addEventListener('scroll', reposition, { passive: true });
-    window.addEventListener('resize', reposition, { passive: true });
-    repositionInterval = window.setInterval(reposition, ANCHOR_WATCHDOG_INTERVAL);
+    window.addEventListener('scroll', onScroll, { capture: true, passive: true });
+    window.addEventListener('resize', onResize, { passive: true });
+    repositionInterval = window.setInterval(() => scheduleReposition(true), ANCHOR_WATCHDOG_INTERVAL);
     return true;
   }
 
