@@ -31,6 +31,7 @@ const ANCHOR_WATCHDOG_INTERVAL = 2000;
 let activeAnchorObserver: MutationObserver | null = null;
 let activeAnchorTimeout: number | null = null;
 let activeWatchdogInterval: number | null = null;
+let activeWatchdogCleanup: (() => void) | null = null;
 let activeOptionCancel: (() => void) | null = null;
 
 function injectStyles(): void {
@@ -626,6 +627,8 @@ function cancelAnchorObserver(): void {
 }
 
 function cancelWatchdog(): void {
+  activeWatchdogCleanup?.();
+  activeWatchdogCleanup = null;
   if (activeWatchdogInterval !== null) {
     window.clearInterval(activeWatchdogInterval);
     activeWatchdogInterval = null;
@@ -705,7 +708,7 @@ function isButtonObscured(btn: HTMLButtonElement): boolean {
   const top = Math.max(0, rect.top);
   const right = Math.min(window.innerWidth, rect.right);
   const bottom = Math.min(window.innerHeight, rect.bottom);
-  if (left >= right || top >= bottom) return false;
+  if (left !== rect.left || top !== rect.top || right !== rect.right || bottom !== rect.bottom) return true;
 
   const hit = document.elementFromPoint((left + right) / 2, (top + bottom) / 2);
   return !hit || !btn.contains(hit);
@@ -723,6 +726,40 @@ function isAnchorObscured(target: Element): boolean {
 
   const hit = document.elementFromPoint((left + right) / 2, (top + bottom) / 2);
   return !hit || (!target.contains(hit) && !hit.contains(target));
+}
+
+function isOverlaySpaceClear(rect: DOMRect): boolean {
+  const controls = 'a, button, input, select, textarea, img, svg, video, canvas, iframe, [role="button"]';
+  const overlaps = (other: DOMRect): boolean => other.width > 0 && other.height > 0
+    && other.left < rect.right && other.right > rect.left && other.top < rect.bottom && other.bottom > rect.top;
+  for (const element of document.querySelectorAll(controls)) {
+    if (element.closest(`[${UI_INSTANCE_ATTR}]`)) continue;
+    for (const controlRect of element.getClientRects()) {
+      if (overlaps(controlRect) && getComputedStyle(element).visibility === 'visible') return false;
+    }
+  }
+
+  const range = document.createRange();
+  const text = document.createTreeWalker(document.body, NodeFilter.SHOW_ELEMENT | NodeFilter.SHOW_TEXT, {
+    acceptNode(node) {
+      if (node instanceof Element) {
+        if (node.hasAttribute(UI_INSTANCE_ATTR) || node.matches('script, style, template, noscript')) return NodeFilter.FILTER_REJECT;
+        if (overlaps(node.getBoundingClientRect())) return NodeFilter.FILTER_SKIP;
+        // Range bounds include overflowing and positioned descendant text.
+        range.selectNodeContents(node);
+        return overlaps(range.getBoundingClientRect()) ? NodeFilter.FILTER_SKIP : NodeFilter.FILTER_REJECT;
+      }
+      return node.textContent?.trim() ? NodeFilter.FILTER_ACCEPT : NodeFilter.FILTER_REJECT;
+    },
+  });
+  for (let node = text.nextNode(); node; node = text.nextNode()) {
+    if (!node.parentElement || getComputedStyle(node.parentElement).visibility !== 'visible') continue;
+    range.selectNodeContents(node);
+    for (const textRect of range.getClientRects()) {
+      if (overlaps(textRect)) return false;
+    }
+  }
+  return true;
 }
 
 function getFloatingParent(): HTMLElement {
@@ -762,7 +799,7 @@ function startAnchorWatchdog(
 ): void {
   cancelWatchdog();
 
-  activeWatchdogInterval = window.setInterval(() => {
+  const updatePlacement = () => {
     if (!isActiveInstance(instanceId)) {
       cancelWatchdog();
       return;
@@ -774,7 +811,22 @@ function startAnchorWatchdog(
       const wrapper = btn.closest('.cam-floating-wrapper')!;
       const parent = getFloatingParent();
       if (wrapper.parentElement !== parent) parent.appendChild(wrapper);
-      if (target && (wrapper.hasAttribute('data-cam-pointer-active') || isAnchorObscured(target))) return;
+      if (!target || wrapper.hasAttribute('data-cam-pointer-active') || isAnchorObscured(target)) return;
+
+      // Keep the existing floating wrapper until native placement succeeds.
+      const floatingStyle = btn.style.cssText;
+      btn.removeAttribute('style');
+      if (attachToAnchor(btn, anchor, instanceId) && !isButtonObscured(btn)) {
+        cleanupFloatingWrapper(wrapper);
+        return;
+      }
+      if (!wrapper.contains(btn)) detachButtonPlacement(btn);
+      btn.className = 'cam-floating';
+      btn.title = FLOATING_BUTTON_TITLE;
+      btn.style.cssText = floatingStyle;
+      setButtonContent(btn, createIconElement());
+      wrapper.appendChild(btn);
+      return;
     }
 
     if (!target) {
@@ -808,7 +860,34 @@ function startAnchorWatchdog(
     }
 
     showFloating(btn, instanceId);
-  }, ANCHOR_WATCHDOG_INTERVAL);
+  };
+
+  let frame: number | null = null;
+  let restoreTimeout: number | null = null;
+  const schedulePlacement = () => {
+    if (btn.closest('.cam-floating-wrapper')) {
+      if (restoreTimeout !== null) window.clearTimeout(restoreTimeout);
+      restoreTimeout = window.setTimeout(() => {
+        restoreTimeout = null;
+        updatePlacement();
+      }, 100);
+      return;
+    }
+    if (frame !== null) return;
+    frame = window.requestAnimationFrame(() => {
+      frame = null;
+      updatePlacement();
+    });
+  };
+  window.addEventListener('scroll', schedulePlacement, { capture: true, passive: true });
+  window.addEventListener('resize', schedulePlacement, { passive: true });
+  activeWatchdogCleanup = () => {
+    window.removeEventListener('scroll', schedulePlacement, true);
+    window.removeEventListener('resize', schedulePlacement);
+    if (frame !== null) window.cancelAnimationFrame(frame);
+    if (restoreTimeout !== null) window.clearTimeout(restoreTimeout);
+  };
+  activeWatchdogInterval = window.setInterval(updatePlacement, ANCHOR_WATCHDOG_INTERVAL);
 }
 
 function buildAnchorNode(
@@ -980,34 +1059,38 @@ function attachToAnchor(
 
     const updatePosition = () => {
       const t = findAnchorTarget(anchor.selector);
-      if (!t) return;
+      if (!t || isAnchorObscured(t)) return false;
       const targetRect = t.getBoundingClientRect();
       const overlayRect = overlay.getBoundingClientRect();
       const buttonRect = btn.getBoundingClientRect();
       const buttonOffsetLeft = buttonRect.left - overlayRect.left;
       const buttonOffsetTop = buttonRect.top - overlayRect.top;
       const gap = 8;
-      let left = targetRect.left - buttonRect.width - gap;
-      let top = targetRect.top + (targetRect.height - buttonRect.height) / 2;
-      if (left < gap) {
-        left = targetRect.right + gap;
-        if (left + buttonRect.width > window.innerWidth - gap) {
-          left = targetRect.left;
-          top = targetRect.bottom + gap;
-        }
+      const top = Math.max(gap, Math.min(
+        targetRect.top + (targetRect.height - buttonRect.height) / 2,
+        window.innerHeight - buttonRect.height - gap,
+      ));
+      for (const left of [targetRect.left - buttonRect.width - gap, targetRect.right + gap]) {
+        if (left < gap || left + buttonRect.width > window.innerWidth - gap
+          || top + buttonRect.height > window.innerHeight - gap) continue;
+        const candidate = new DOMRect(left, top, buttonRect.width, buttonRect.height);
+        if (!isOverlaySpaceClear(candidate)) continue;
+        overlay.style.top = `${top - buttonOffsetTop}px`;
+        overlay.style.left = `${left - buttonOffsetLeft}px`;
+        return true;
       }
-      left = Math.max(gap, Math.min(left, window.innerWidth - buttonRect.width - gap));
-      top = Math.max(gap, Math.min(top, window.innerHeight - buttonRect.height - gap));
-      overlay.style.top = `${top - buttonOffsetTop}px`;
-      overlay.style.left = `${left - buttonOffsetLeft}px`;
+      return false;
     };
 
-    updatePosition();
+    if (!updatePosition()) {
+      overlay.remove();
+      return false;
+    }
 
     // Reposition on scroll/resize and periodically (SPA layout shifts)
     const reposition = () => {
       if (!document.contains(overlay)) return;
-      updatePosition();
+      if (!updatePosition()) showFloating(btn, instanceId);
     };
     let repositionInterval: number | null = null;
     const cleanup = () => {
@@ -1256,6 +1339,7 @@ function showFloating(btn: HTMLButtonElement, instanceId: string): void {
 
   detachButtonPlacement(btn);
   btn.className = 'cam-floating';
+  btn.removeAttribute('style');
   btn.title = FLOATING_BUTTON_TITLE;
   setButtonContent(btn, createIconElement());
 
@@ -1374,6 +1458,10 @@ export function showButton(
 
     // Anchor not found yet — show floating immediately, observe for the anchor
     showFloating(btn, instanceId);
+    if (findAnchorTarget(anchor.selector)) {
+      startAnchorWatchdog(btn, anchor, instanceId);
+      return btn;
+    }
     console.log('[Copy as Markdown] Anchor not found yet, floating while observing…');
 
     observeForAnchor(btn, anchor, instanceId);
@@ -1425,11 +1513,10 @@ function observeForAnchor(
       if (attachToAnchor(btn, anchor, instanceId)) {
         if (isButtonObscured(btn)) showFloating(btn, instanceId);
         else console.log('[Copy as Markdown] Late-anchored inline');
-        startAnchorWatchdog(btn, anchor, instanceId);
       } else {
-        // Shouldn't happen, but be safe
         showFloating(btn, instanceId);
       }
+      startAnchorWatchdog(btn, anchor, instanceId);
     }
   });
 

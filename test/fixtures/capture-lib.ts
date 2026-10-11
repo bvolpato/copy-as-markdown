@@ -578,8 +578,14 @@ export async function verifyFixtureHtml(
       throw new Error(`${site.id}/${fixtureCase.id} fixture misses exclusion marker ${marker}`);
     }
   });
-  const page = await openFixturePage(browser, html, fixtureCase.url, scriptContent);
+  const page = await openFixturePage(browser, html, fixtureCase.url);
   try {
+    // Sanitized fixtures omit site CSS, so the declared anchor may start below the viewport.
+    if (fixtureCase.placement === 'anchor' && fixtureCase.anchorSelector) {
+      await page.$eval(fixtureCase.anchorSelector, (target) => target.scrollIntoView({ block: 'center', inline: 'center' }));
+    }
+    await page.evaluate(scriptContent);
+    await page.waitForSelector('#cam-copy-btn', { timeout: FIXTURE_TIMEOUT_MS });
     const state = await page.evaluate((anchorSelector, anchorPosition) => {
       const button = document.querySelector<HTMLElement>('#cam-copy-btn');
       const target = anchorSelector ? document.querySelector(anchorSelector) : null;

@@ -504,5 +504,122 @@ try {
       }, { timeout: 3000 });
     },
   }));
+  await check('Offscreen anchors fall back immediately and return when visible', () => fixture({
+    name: 'arXiv', url: 'https://arxiv.org/abs/1706.03762', ui: true,
+    html: '<h1 class="title">Paper title</h1><div style="height:1100px">Paper body</div><div class="submission-history">Submission history</div><div style="height:1000px"></div>',
+    afterLoad: async page => {
+      await page.setViewport({ width: 390, height: 844 });
+      await page.waitForSelector('.cam-floating-wrapper #cam-copy-btn', { timeout: 1500 });
+      await page.evaluate(() => {
+        window.__placementButton = document.querySelector('#cam-copy-btn');
+        window.scrollTo(0, 700);
+      });
+      await page.waitForSelector('.submission-history > #cam-copy-btn', { timeout: 1500 });
+      await page.evaluate(() => window.scrollTo(0, 0));
+      await page.waitForSelector('.cam-floating-wrapper #cam-copy-btn', { timeout: 1500 });
+      assert.equal(await page.evaluate(() => window.__placementButton === document.querySelector('#cam-copy-btn')), true);
+      assert.equal(await page.$$eval('#cam-copy-btn', buttons => buttons.length), 1);
+    },
+  }));
+  await check('Header controls stay available after scrolling and restore their native placement', () => fixture({
+    name: 'Wikipedia', url: 'https://en.wikipedia.org/wiki/Markdown', ui: true,
+    html: '<style>#p-views ul { display:flex; padding:0; margin:0; list-style:none } #p-views li { padding:12px }</style><nav id="p-views"><ul><li>Read</li><li>Edit</li></ul></nav><h1 id="firstHeading">Markdown</h1><div id="mw-content-text" style="height:2400px"><p>Article body</p></div>',
+    afterLoad: async page => {
+      await page.waitForSelector('#p-views #cam-copy-btn');
+      await page.evaluate(() => window.scrollTo(0, 1200));
+      await page.waitForSelector('.cam-floating-wrapper #cam-copy-btn', { timeout: 1500 });
+      const clickable = await page.evaluate(() => {
+        const button = document.querySelector('#cam-copy-btn');
+        const rect = button.getBoundingClientRect();
+        return button.contains(document.elementFromPoint(rect.left + rect.width / 2, rect.top + rect.height / 2));
+      });
+      assert.equal(clickable, true);
+      await page.evaluate(() => window.scrollTo(0, 0));
+      await page.waitForSelector('#p-views #cam-copy-btn', { timeout: 1500 });
+      assert.equal(await page.$$eval('#cam-copy-btn', buttons => buttons.length), 1);
+      assert.equal(await page.$$eval('[data-cam-anchor-wrapper]', wrappers => wrappers.length), 1);
+    },
+    expected: ['Article body'],
+  }));
+  await check('Crowded overlays use a stable floating control and restore only into free space', () => fixture({
+    name: 'YouTube', url: 'https://www.youtube.com/watch?v=placement', ui: true,
+    html: '<h1>Video title</h1><div id="actions" style="position:absolute;left:0;top:100px;width:100%;height:40px"><button>Like</button></div><div id="description" style="position:absolute;left:8px;top:148px">Description metadata</div>',
+    afterLoad: async page => {
+      await page.setViewport({ width: 390, height: 844 });
+      await page.waitForSelector('.cam-floating-wrapper #cam-copy-btn', { timeout: 1500 });
+      await page.evaluate(() => { window.__placementWrapper = document.querySelector('.cam-floating-wrapper'); });
+      await new Promise(resolve => setTimeout(resolve, 2200));
+      assert.equal(await page.evaluate(() => window.__placementWrapper === document.querySelector('.cam-floating-wrapper')), true);
+      assert.equal(await page.$('.cam-overlay-container'), null);
+      await page.evaluate(() => {
+        document.querySelector('#actions').style.cssText = 'position:absolute;left:300px;top:100px;width:140px;height:40px';
+      });
+      await page.setViewport({ width: 800, height: 600 });
+      await page.waitForSelector('.cam-overlay-container #cam-copy-btn', { timeout: 1500 });
+      await page.evaluate(() => {
+        for (const left of [100, 448]) {
+          const content = document.createElement('button');
+          content.className = 'native-control';
+          content.textContent = 'Native page action';
+          content.style.cssText = `position:absolute;left:${left}px;top:90px;width:190px;height:60px`;
+          document.body.appendChild(content);
+        }
+        window.dispatchEvent(new Event('resize'));
+      });
+      await page.waitForSelector('.cam-floating-wrapper #cam-copy-btn', { timeout: 1500 });
+      await page.evaluate(() => {
+        document.querySelectorAll('.native-control').forEach(control => control.remove());
+        window.dispatchEvent(new Event('resize'));
+      });
+      await page.waitForSelector('.cam-overlay-container #cam-copy-btn', { timeout: 1500 });
+      await page.evaluate(() => {
+        for (const left of [100, 448]) {
+          const content = document.createElement('p');
+          content.className = 'native-content';
+          content.textContent = 'Page text filling the lateral space';
+          content.style.cssText = `position:absolute;left:${left}px;top:90px;width:190px;font-size:24px;margin:0`;
+          document.body.appendChild(content);
+        }
+        window.dispatchEvent(new Event('resize'));
+      });
+      await page.waitForSelector('.cam-floating-wrapper #cam-copy-btn', { timeout: 1500 });
+      await page.evaluate(() => {
+        document.querySelectorAll('.native-content').forEach(content => content.remove());
+        window.dispatchEvent(new Event('resize'));
+      });
+      await page.waitForSelector('.cam-overlay-container #cam-copy-btn', { timeout: 1500 });
+      assert.equal(await page.$$eval('#cam-copy-btn', buttons => buttons.length), 1);
+    },
+    expected: ['Description metadata'],
+  }));
+  for (const kind of ['button', 'text']) {
+    await check(`Overlay placement avoids small ${kind} rectangles between sampling points`, () => fixture({
+      name: 'YouTube', url: `https://www.youtube.com/watch?v=small-${kind}`, ui: true,
+      html: '<h1>Video title</h1><div id="actions" style="position:absolute;left:300px;top:100px;width:140px;height:40px">Actions</div>',
+      afterLoad: async page => {
+        await page.waitForSelector('.cam-overlay-container #cam-copy-btn');
+        await page.evaluate(kind => {
+          const copy = document.querySelector('#cam-copy-btn').getBoundingClientRect();
+          const target = document.querySelector('#actions').getBoundingClientRect();
+          for (const left of [copy.left + 15, target.right + 23]) {
+            const obstacle = document.createElement(kind === 'button' ? 'button' : 'span');
+            obstacle.className = 'small-obstacle';
+            obstacle.style.cssText = `position:absolute;left:${left}px;top:${copy.top + 5}px;width:20px;height:20px;padding:0;border:0;font-size:16px;line-height:20px`;
+            if (kind === 'button') obstacle.setAttribute('aria-label', 'Native icon action');
+            else obstacle.textContent = 'x';
+            document.body.appendChild(obstacle);
+          }
+          window.dispatchEvent(new Event('resize'));
+        }, kind);
+        await page.waitForSelector('.cam-floating-wrapper #cam-copy-btn', { timeout: 1500 });
+        await page.evaluate(() => {
+          document.querySelectorAll('.small-obstacle').forEach(obstacle => obstacle.remove());
+          window.dispatchEvent(new Event('resize'));
+        });
+        await page.waitForSelector('.cam-overlay-container #cam-copy-btn', { timeout: 1500 });
+        assert.equal(await page.$$eval('#cam-copy-btn', buttons => buttons.length), 1);
+      },
+    }));
+  }
 } finally { await browser.close(); }
 assert.deepEqual(failures, [], `Catalog regressions failed: ${failures.join(', ')}`);
