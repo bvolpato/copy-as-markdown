@@ -317,7 +317,9 @@ function compareDomOrder(left: Element, right: Element): number {
 
 function hasUnrenderedHistory(): boolean {
   return Boolean(document.querySelector(
-    '[data-testid*="load-more"], button[aria-label*="older" i], button[aria-label*="previous" i], [data-virtualized="true"], [data-turn-key], [data-virtualized-turn-content]',
+    '[data-testid*="load-more"], button[aria-label*="older" i], button[aria-label*="previous" i], [data-virtualized="true"]',
+  )) || Array.from(document.querySelectorAll('[role="status"]')).some((status) => (
+    /loading (?:older|previous) messages/i.test(status.textContent || '')
   ));
 }
 

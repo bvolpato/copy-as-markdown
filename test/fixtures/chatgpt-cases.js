@@ -114,4 +114,18 @@ export const CHATGPT_CASES = [
     excludes: ['You said:', 'ChatGPT said:', 'Worked for 19s', 'Private date separator'],
     occurrences: { '## 👤 User': 2, '## 🤖 Assistant': 3, 'Nested current answer.': 1 },
   },
+  {
+    id: 'chatgpt',
+    extractor: 'ChatGPT',
+    url: 'https://chatgpt.com/c/fully-rendered',
+    html: `<!doctype html><html><head><title>Complete parser - ChatGPT</title></head><body><main>
+      ${currentTurn(0, 'One question.', '<p>One answer.</p>')}
+    </main></body></html>`,
+    ordered: ['## 👤 User', 'One question.', '## 🤖 Assistant', 'One answer.'],
+    contains: [
+      '> **Coverage:** Visible rendered conversation only; unloaded page history is not included.',
+    ],
+    excludes: ['older or virtualized history was not loaded'],
+    occurrences: { '## 👤 User': 1, '## 🤖 Assistant': 1 },
+  },
 ];
