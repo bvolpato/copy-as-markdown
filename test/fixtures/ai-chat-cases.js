@@ -1,4 +1,7 @@
+import { CHATGPT_CASES } from './chatgpt-cases.js';
+
 export const AI_CHAT_CASES = [
+  ...CHATGPT_CASES,
   {
     id: 'microsoft-copilot',
     extractor: 'Microsoft Copilot',
