@@ -10,6 +10,8 @@ import * as Utils from '../core/utils';
 import { addExtractionMetadata, limitCollection, limitMarkdown } from '../core/context';
 
 const MAX_TURNS = 200;
+const CURRENT_USER = '[data-user-message-bubble]';
+const CURRENT_ASSISTANT = '[data-markdown-text-style="assistant-message"]';
 
 type Role = 'user' | 'assistant';
 type Turn = { role: Role; element: Element; container: Element };
@@ -39,10 +41,7 @@ register({
 
   async extract() {
     const url = Utils.getCanonicalUrl();
-    const title = cleanTitle(
-      document.querySelector('h1')?.textContent?.trim()
-      || Utils.getPageTitle(),
-    ) || 'ChatGPT Conversation';
+    const title = conversationTitle();
     const metadata: Record<string, string | number> = {
       source: 'ChatGPT',
       title,
@@ -60,7 +59,6 @@ register({
     const turns = limitCollection(collectTurns(), MAX_TURNS);
     const parts: string[] = [`# ${title}`];
     if (model) parts.push('', `**Model:** ${model}`);
-    const seen = new Set<string>();
     const citationUrls = new Set<string>();
     let userCount = 0;
     let assistantCount = 0;
@@ -72,9 +70,7 @@ register({
       let content = Markdown.elementToMarkdown(cleaned);
       const images = standaloneImages(turn.container, turn.element);
       if (images.length) content = `${content}\n\n${images.join('\n')}`.trim();
-      const key = `${turn.role}:${normalize(content)}`;
-      if (!content || seen.has(key)) continue;
-      seen.add(key);
+      if (!content) continue;
 
       const citations = extractCitations(turn.container);
       citations.forEach((citation) => citationUrls.add(citation.href));
@@ -91,8 +87,12 @@ register({
 
     const captured = userCount + assistantCount;
     const structuralIncomplete = turns.truncated || hasUnrenderedHistory();
+    parts.push('', structuralIncomplete
+      ? '> **Coverage:** Visible rendered conversation only; older or virtualized history was not loaded.'
+      : '> **Coverage:** Visible rendered conversation only; unloaded page history is not included.');
     if (!captured) {
-      const fallback = document.querySelector('main, [role="main"], [class*="thread"], #__next');
+      const fallback = document.querySelector('[data-chatgpt-conversation-selection-target], [data-thread-find-target="conversation"]')
+        || document.querySelector('main, [role="main"], [class*="thread"], #__next');
       if (fallback) parts.push('', Markdown.elementToMarkdown(clean(fallback)));
     }
 
@@ -138,11 +138,13 @@ function collectTurns(): Turn[] {
         continue;
       }
       const user = queryFirst(root, [
+        CURRENT_USER,
         '[data-message-author-role="user"]',
         '[data-testid="user-message"]',
         '[data-role="user"]',
       ]);
       const assistant = queryFirst(root, [
+        CURRENT_ASSISTANT,
         '[data-message-author-role="assistant"]',
         '[data-testid="assistant-message"]',
         '[data-role="assistant"]',
@@ -150,25 +152,29 @@ function collectTurns(): Turn[] {
       if (user) result.push({ role: 'user', element: messageContent(user) || user, container: root });
       if (assistant) result.push({ role: 'assistant', element: messageContent(assistant) || assistant, container: root });
     }
-    return dedupeTurns(result);
   }
 
   const standalone = Array.from(document.querySelectorAll([
-    '[data-message-author-role="user"]',
-    '[data-message-author-role="assistant"]',
-    '[data-testid="user-message"]',
-    '[data-testid="assistant-message"]',
+    CURRENT_USER,
+    CURRENT_ASSISTANT,
+    ...(!roots.length ? [
+      '[data-message-author-role="user"]',
+      '[data-message-author-role="assistant"]',
+      '[data-testid="user-message"]',
+      '[data-testid="assistant-message"]',
+    ] : []),
   ].join(',')));
-  standalone.sort(compareDomOrder);
   for (const element of standalone) {
     const role = roleFor(element);
     if (!role) continue;
     result.push({ role, element: messageContent(element) || element, container: closestTurn(element) });
   }
-  return dedupeTurns(result);
+  return dedupeTurns(result.sort((left, right) => compareDomOrder(left.element, right.element)));
 }
 
 function roleFor(element: Element): Role | null {
+  if (element.matches(CURRENT_USER)) return 'user';
+  if (element.matches(CURRENT_ASSISTANT)) return 'assistant';
   const value = [
     element.getAttribute('data-turn'),
     element.getAttribute('data-message-author-role'),
@@ -183,7 +189,10 @@ function roleFor(element: Element): Role | null {
 }
 
 function messageContent(element: Element): Element | null {
+  if (element.matches(`${CURRENT_USER}, ${CURRENT_ASSISTANT}`)) return element;
   return queryFirst(element, [
+    CURRENT_USER,
+    CURRENT_ASSISTANT,
     '.markdown',
     '[data-testid="message-content"]',
     '[data-testid="conversation-turn-content"]',
@@ -195,13 +204,9 @@ function messageContent(element: Element): Element | null {
 
 function dedupeTurns(turns: Turn[]): Turn[] {
   const seenElements = new Set<Element>();
-  const seenContent = new Set<string>();
   return turns.filter((turn) => {
     if (seenElements.has(turn.element)) return false;
     seenElements.add(turn.element);
-    const key = `${turn.role}:${normalize(turn.element.textContent || '')}`;
-    if (!key.endsWith(':') && seenContent.has(key)) return false;
-    if (!key.endsWith(':')) seenContent.add(key);
     return true;
   });
 }
@@ -261,10 +266,17 @@ function clean(element: Element): Element {
     '[class*="toolbar"]', 'textarea',
     '[data-testid="writing-block-header-sticky-container"]',
     '[class*="avatar"]', '[class*="profile"]',
+    '[data-markdown-copy="exclude"]', '[data-d-component="favicon"]',
   ]);
 
   clone.querySelectorAll('[contenteditable="true"]').forEach((editable) => {
     if (!isWritingBlockEditor(editable)) editable.remove();
+  });
+
+  clone.querySelectorAll('span[data-d-default-strong]').forEach((span) => {
+    const strong = document.createElement('strong');
+    strong.append(...span.childNodes);
+    span.append(strong);
   });
 
   return clone;
@@ -295,7 +307,7 @@ function queryFirst(root: Element, selectors: string[]): Element | null {
 }
 
 function closestTurn(element: Element): Element {
-  return element.closest('section[data-testid^="conversation-turn-"], [data-message-id], article') || element;
+  return element.closest('[data-chatgpt-search-unit-key], section[data-testid^="conversation-turn-"], [data-message-id], article') || element;
 }
 
 function compareDomOrder(left: Element, right: Element): number {
@@ -306,7 +318,17 @@ function compareDomOrder(left: Element, right: Element): number {
 function hasUnrenderedHistory(): boolean {
   return Boolean(document.querySelector(
     '[data-testid*="load-more"], button[aria-label*="older" i], button[aria-label*="previous" i], [data-virtualized="true"]',
+  )) || Array.from(document.querySelectorAll('[role="status"]')).some((status) => (
+    /loading (?:older|previous) messages/i.test(status.textContent || '')
   ));
+}
+
+function conversationTitle(): string {
+  const heading = Array.from(document.querySelectorAll('h1')).find((element) => !element.closest([
+    CURRENT_USER, CURRENT_ASSISTANT, '[data-message-author-role]', '[data-message-id]',
+    '[data-testid^="conversation-turn-"]', '.markdown',
+  ].join(',')));
+  return cleanTitle(heading?.textContent?.trim() || Utils.getPageTitle()) || 'ChatGPT Conversation';
 }
 
 function conversationRoute(path: string): string {
