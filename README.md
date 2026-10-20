@@ -535,6 +535,8 @@ pnpm test:regression
 
 To use an existing headless shell installation, set `PUPPETEER_EXECUTABLE_PATH` to its executable path. Unset this variable if it points to regular Chrome. Tests launch their own browser and close it when finished.
 
+Synthetic fixtures check routing and Markdown output without external network requests. Discussion and source-file cases check comment order, duplicate content, literal code, truncation warnings, and removal of action controls. These checks complement captured public pages; they do not establish current live coverage of authenticated applications.
+
 ### Captured Public-Site Fixtures
 
 Public extractors can be checked against browser-rendered pages without committing raw page data:
@@ -555,7 +557,7 @@ pnpm fixtures:capture -- --site mdn --source wayback
 pnpm fixtures:verify
 ```
 
-The [catalog](test/sites/catalog.yaml) contains 30 captures across 25 extractor families, including four Hugging Face model, dataset, and file-tree pages. The [coverage inventory](test/sites/coverage.json) records public probes and gaps across the full extractor catalog. Capture checks the original copy button, extractor identity, placement, clipboard output, and `contentRequired` strings or `contentSelectors` before anonymizing the DOM. Bot challenges, login screens, and error pages fail capture.
+The [catalog](test/sites/catalog.yaml) contains anonymized public-page captures, including Hugging Face models, datasets, file trees, documentation references, and discussion threads. The [coverage inventory](test/sites/coverage.json) links the captures and retains historical public probes with their original timestamps. Capture checks the original copy button, extractor identity, placement, clipboard output, and `contentRequired` strings or `contentSelectors` before anonymizing the DOM. Bot challenges, login screens, and error pages fail capture.
 
 Raw reference screenshots stay under gitignored `.fixture-work/`. Committed fixtures contain synthetic text, normalized links, no scripts or media, a screenshot of sanitized DOM, expected Markdown, and source provenance. `linkPrefixes` can retain curated public route prefixes for path-aware file extractors; link suffixes are still replaced.
 

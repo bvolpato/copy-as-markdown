@@ -3,7 +3,7 @@
   "auditedAt": "2026-09-20T05:25:21.428Z",
   "scope": "Catalog-wide code and contract review. Public probes record observed results at their timestamps; capturedCases link to independently verified, anonymized real-page fixtures and source provenance. Failed probes may precede fixes documented by later captures. These checks do not establish live coverage of every route or authenticated application.",
   "registeredExtractorCount": 76,
-  "urlPatternCount": 320,
+  "urlPatternCount": 302,
   "extractors": [
     {
       "id": "amazon",
@@ -498,7 +498,9 @@
       "id": "hackernews",
       "name": "Hacker News",
       "registeredConfigurations": 1,
-      "capturedCases": [],
+      "capturedCases": [
+        "hackernews/dropbox-item"
+      ],
       "publicProbes": [
         {
           "url": "https://news.ycombinator.com/item?id=27814234",
@@ -575,7 +577,8 @@
       "name": "MDN Web Docs",
       "registeredConfigurations": 1,
       "capturedCases": [
-        "mdn/javascript-guide"
+        "mdn/javascript-guide",
+        "mdn/array-map-reference"
       ],
       "publicProbes": [
         {
@@ -1052,5 +1055,6 @@
         }
       ]
     }
-  ]
+  ],
+  "fixturesUpdatedAt": "2026-10-19T23:07:20.007Z"
 }

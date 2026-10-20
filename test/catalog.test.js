@@ -2,6 +2,8 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import puppeteer from 'puppeteer';
 import * as library from '../dist/library/index.js';
+import { DISCUSSION_CASES } from './fixtures/discussion-cases.js';
+import { BITBUCKET_CASES } from './fixtures/bitbucket-cases.js';
 
 await library.loadAllExtractors();
 const failures = [];
@@ -47,14 +49,14 @@ const browser = await puppeteer.launch({ headless: 'shell', args: ['--no-sandbox
 const browserCode = fs.readFileSync(new URL('../dist/library/browser.js', import.meta.url), 'utf8');
 const userscript = fs.readFileSync(new URL('../dist/userscript/copy-as-markdown.user.js', import.meta.url), 'utf8');
 const repeat = (count, make) => Array.from({ length: count }, (_, index) => make(index)).join('');
-async function fixture({ url, name, html, resources = {}, expected = [], excluded = [], ui = false, afterLoad }) {
+async function fixture({ url, name, html, head = '<title>Catalog fixture</title>', resources = {}, expected = [], excluded = [], ordered = [], occurrences = {}, ui = false, afterLoad }) {
   const context = await browser.createBrowserContext();
   const page = await context.newPage();
   try {
     await page.setRequestInterception(true);
     page.on('request', request => {
       const resource = resources[new URL(request.url()).pathname];
-      if (request.isNavigationRequest()) request.respond({ contentType: 'text/html; charset=utf-8', body: `<!doctype html><title>Catalog fixture</title>${html}` });
+      if (request.isNavigationRequest()) request.respond({ contentType: 'text/html; charset=utf-8', body: `<!doctype html><html><head>${head}</head><body>${html}</body></html>` });
       else if (resource) request.respond(resource);
       else request.abort();
     });
@@ -70,10 +72,22 @@ async function fixture({ url, name, html, resources = {}, expected = [], exclude
     }, { name });
     for (const value of expected) assert.ok(output.includes(value), `Missing ${JSON.stringify(value)}`);
     for (const value of excluded) assert.ok(!output.includes(value), `Unexpected ${JSON.stringify(value)}`);
+    let previous = -1;
+    for (const value of ordered) {
+      const index = output.indexOf(value, previous + 1);
+      assert.ok(index > previous, `Missing or out of order ${JSON.stringify(value)}`);
+      previous = index;
+    }
+    for (const [value, count] of Object.entries(occurrences)) {
+      assert.equal(output.split(value).length - 1, count, `Occurrence count for ${JSON.stringify(value)}`);
+    }
   } finally { await context.close(); }
 }
 
 try {
+  for (const fixtureCase of [...DISCUSSION_CASES, ...BITBUCKET_CASES]) {
+    await check(fixtureCase.id, () => fixture(fixtureCase));
+  }
   await check('Reddit includes sibling comment threads and excludes sidebar comments', () => fixture({
     name: 'Reddit', url: 'https://www.reddit.com/r/markdown/comments/abc123/thread/',
     html: `<main><shreddit-post data-post-id="t3_abc123" author="poster" score="42" comment-count="2">

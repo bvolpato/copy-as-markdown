@@ -1,5 +1,24 @@
 version: 1
 sites:
+  - id: hackernews
+    extractor: Hacker News
+    cases:
+      - id: dropbox-item
+        url: https://news.ycombinator.com/item?id=8863
+        readySelector: .titleline > a
+        placement: floating
+        minChars: 100
+        maxChars: 3000000
+        contentRequired:
+          - Dropbox
+          - "## Comments"
+        required:
+          - "## Comments"
+          - FIXTURE_
+        forbidden:
+          - Copy as Markdown
+        excludedSelectors:
+          - .yclinks
   - id: mdn
     extractor: MDN Web Docs
     cases:
@@ -25,6 +44,28 @@ sites:
         wayback:
           timestamp: "20260810224420"
           digest: Z73LB34TYPEICKR34H3QSDKHSHFSDAL3
+      - id: array-map-reference
+        url: https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Array/map
+        readySelector: "#content"
+        placement: anchor
+        anchorSelector: .reference-layout__header > h1
+        anchorPosition: after
+        minChars: 300
+        maxChars: 120000
+        contentRequired:
+          - Syntax
+          - Parameters
+          - Examples
+        required:
+          - FIXTURE_H1_
+          - "```"
+          - FIXTURE_CODE_
+        forbidden:
+          - Copy as Markdown
+        excludedSelectors:
+          - .reference-layout__toc
+          - mdn-placement-sidebar
+          - mdn-survey
   - id: openrouter
     extractor: OpenRouter
     cases:
