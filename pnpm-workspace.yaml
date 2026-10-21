@@ -1,6 +1,8 @@
 onlyBuiltDependencies:
   - esbuild
 minimumReleaseAge: 10080
+minimumReleaseAgeIgnoreMissingTime: false
+minimumReleaseAgeStrict: true
 allowBuilds:
   esbuild: true
   puppeteer: true
