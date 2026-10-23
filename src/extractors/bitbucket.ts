@@ -167,15 +167,17 @@ function extractWorkItem(
     '.activity-item[data-type="comment"]',
   ]);
   const limited = limitCollection(comments, MAX_COMMENTS);
+  const descriptionText = description ? normalize(clean(description).textContent || '') : '';
   const seen = new Set<string>();
   let captured = 0;
   for (const comment of limited.items) {
     const body = comment.querySelector(
       '[data-testid="comment-content"], [data-qa="comment-content"], .comment-content, .ak-renderer-document',
     ) || comment;
-    const markdown = Markdown.elementToMarkdown(clean(body));
+    const cleanedBody = clean(body);
+    const markdown = Markdown.elementToMarkdown(cleanedBody);
     const key = normalize(markdown);
-    if (!key || seen.has(key) || (description && normalize(description.textContent || '') === normalize(body.textContent || ''))) continue;
+    if (!key || seen.has(key) || (descriptionText && descriptionText === normalize(cleanedBody.textContent || ''))) continue;
     seen.add(key);
     if (!captured) parts.push('', '## Comments');
     const commentAuthor = comment.querySelector('[data-testid="author-name"], [data-qa="author"], .author')?.textContent?.trim() || 'Comment';
