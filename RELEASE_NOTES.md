@@ -4,27 +4,22 @@ Store listing copy and policy details live in [STORE_LISTING.md](STORE_LISTING.m
 
 ## Current release
 
-- Extension version: `1.5.2`
-- GitHub release: https://github.com/bvolpato/copy-as-markdown/releases/tag/v1.5.2
-- Chrome package: `copy-as-markdown-chrome-v1.5.2.zip`
-- Firefox package: `copy-as-markdown-firefox-v1.5.2.zip`
+- Extension version: `1.5.4`
+- GitHub release: https://github.com/bvolpato/copy-as-markdown/releases/tag/v1.5.4
+- Chrome package: `copy-as-markdown-chrome-v1.5.4.zip`
+- Firefox package: `copy-as-markdown-firefox-v1.5.4.zip`
 - Checksums: `SHA256SUMS` attached to GitHub release
 
-Version `1.5.2` keeps copy controls visible as you scroll and avoids placing overlay controls over page content on narrow layouts.
+Version `1.5.4` includes the ChatGPT renderer fix from 1.5.3 and prevents Bitbucket issue descriptions from being copied again as comments. Regression fixtures also cover Bitbucket discussions and file views, Hacker News discussions, and MDN articles.
 
-Store approval is separate from the GitHub release. Confirm the published version on [Chrome](https://chromewebstore.google.com/detail/copy-as-markdown/pcjanmkidppaeojkanbjbmmgpjfeecol) and [Firefox](https://addons.mozilla.org/en-US/firefox/addon/copy-as-markdown-addon/) after review.
+Store submission and approval are separate from the GitHub release. Confirm version `1.5.4` on [Chrome](https://chromewebstore.google.com/detail/copy-as-markdown/pcjanmkidppaeojkanbjbmmgpjfeecol) and [Firefox](https://addons.mozilla.org/en-US/firefox/addon/copy-as-markdown-addon/) after review.
 
 ## Version notes
 
 Paste this into Firefox version notes and any Chrome update or reviewer-notes field that requests a user-facing change summary:
 
 ```text
-Version 1.5.2 improves copy-button placement on responsive pages.
-
-- Keeps the copy control accessible when an inline toolbar scrolls out of view.
-- Uses a floating control when a narrow toolbar has no safe room for an overlay button.
-- Restores inline placement when the toolbar becomes usable again.
-- Limits full collision checks during scrolling to keep long pages responsive.
+Version 1.5.4 prevents Bitbucket issue descriptions from being duplicated as comments. It also includes the ChatGPT conversation renderer fix released in 1.5.3.
 
 All processing remains local. Authenticated integrations call only the current service's HTTPS APIs using the existing browser session. No remote code, analytics, or developer-operated data service is used.
 ```
@@ -32,7 +27,7 @@ All processing remains local. Authenticated integrations call only the current s
 ## Chrome reviewer notes
 
 ```text
-Version 1.5.2 improves copy-button visibility during scrolling and avoids overlaying page content on narrow layouts. Extraction starts only after the user clicks Copy as Markdown. Same-site HTTPS API calls use the user's existing browser session; results are processed in memory and copied only to the clipboard.
+Version 1.5.4 prevents Bitbucket issue descriptions from being duplicated as comments. It includes the ChatGPT conversation renderer fix from 1.5.3. Extraction starts only after the user clicks Copy as Markdown. Same-site HTTPS API calls use the user's existing browser session; results are processed in memory and copied only to the clipboard.
 
 The extension contains no remote executable code, analytics, ads, account system, or developer-operated data service. activeTab, scripting, and clipboardWrite are used for the user-triggered copy action. Automatic page buttons are limited to Datadog dashboards, Datadog notebooks, and W&B runs. Host permissions are unchanged.
 
@@ -52,16 +47,16 @@ Build environment:
 Build commands:
 pnpm install --frozen-lockfile
 pnpm package:all
-pnpm verify:release -- 1.5.2
+pnpm verify:release -- 1.5.4
 
-The Firefox artifact is dist/copy-as-markdown-firefox.zip. The build uses only dependencies locked in pnpm-lock.yaml and does not download or execute remote code at runtime.
+The Firefox artifact is dist/copy-as-markdown-firefox.zip. Submit the source archive from the signed v1.5.4 tag. The build uses only dependencies locked in pnpm-lock.yaml and does not download or execute remote code at runtime.
 ```
 
 ## Store update steps
 
 ### 1. Download and verify packages
 
-Download both extension ZIPs and `SHA256SUMS` from the [v1.5.2 release](https://github.com/bvolpato/copy-as-markdown/releases/tag/v1.5.2). Verify them before upload:
+Download both extension ZIPs and `SHA256SUMS` from the [v1.5.4 release](https://github.com/bvolpato/copy-as-markdown/releases/tag/v1.5.4). Verify them before upload:
 
 ```bash
 sha256sum -c SHA256SUMS --ignore-missing
@@ -70,7 +65,7 @@ sha256sum -c SHA256SUMS --ignore-missing
 ### 2. Update Chrome Web Store
 
 1. Open [Chrome Web Store Developer Dashboard](https://chrome.google.com/webstore/devconsole) and select Copy as Markdown.
-2. Open **Package**, choose **Upload new package**, and upload `copy-as-markdown-chrome-v1.5.2.zip`.
+2. Open **Package**, choose **Upload new package**, and upload `copy-as-markdown-chrome-v1.5.4.zip`.
 3. Review **Store listing**, **Privacy practices**, and **Distribution** against [STORE_LISTING.md](STORE_LISTING.md). Keep existing screenshots unless their UI is stale.
 4. Paste Chrome reviewer notes above where requested.
 5. Submit for review. Existing published version stays live during review. Choose deferred publishing only if manual rollout control is wanted.
@@ -80,9 +75,9 @@ Official instructions: https://developer.chrome.com/docs/webstore/update
 ### 3. Update Firefox Add-ons
 
 1. Open [Firefox Add-on Developer Hub](https://addons.mozilla.org/developers/addons), select Copy as Markdown, and choose **Upload New Version**.
-2. Upload `copy-as-markdown-firefox-v1.5.2.zip` and select Firefox as platform.
+2. Upload `copy-as-markdown-firefox-v1.5.4.zip` and select Firefox as platform.
 3. When asked whether source code is needed to build the extension, choose **Yes**.
-4. Upload the tagged source archive: https://github.com/bvolpato/copy-as-markdown/archive/refs/tags/v1.5.2.zip
+4. Upload the tagged source archive: https://github.com/bvolpato/copy-as-markdown/archive/refs/tags/v1.5.4.zip
 5. Paste version notes and Firefox reviewer notes above, then submit for review.
 
 Official instructions:
@@ -94,7 +89,7 @@ Official instructions:
 
 After approval:
 
-1. Confirm both store listings show version `1.5.2`.
+1. Confirm both store listings show version `1.5.4`.
 2. Install each store build in a clean browser profile.
 3. Smoke-test toolbar copy on a public article, selection-only copy, one supported inline-control page, and one authenticated Datadog or W&B page if accessible.
 4. Confirm output includes YAML frontmatter, structured Markdown body, and no injected Copy as Markdown controls.
