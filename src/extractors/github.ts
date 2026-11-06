@@ -19,8 +19,8 @@ export const githubExtractor = register({
     const path = window.location.pathname;
 
     // Detect page type
-    const isIssue = /\/issues\/\d+/.test(path);
-    const isPR = /\/pull\/\d+/.test(path);
+    const isIssue = /^\/[^/]+\/[^/]+\/issues\/\d+(?:\/|$)/.test(path);
+    const isPR = /^\/[^/]+\/[^/]+\/pull\/\d+(?:\/|$)/.test(path);
     const isRepo = /^\/[^/]+\/[^/]+\/?$/.test(path);
     const isCode = /^\/[^/]+\/[^/]+\/(?:blob|tree)\//.test(path);
     const changesRoute = parseChangesRoute(path);
@@ -316,29 +316,32 @@ function extractIssueOrPR(metadata: Record<string, string>, isPR: boolean): stri
   const type = isPR ? 'Pull Request' : 'Issue';
   metadata.type = type;
 
-  const titleEl = document.querySelector('.js-issue-title, .gh-header-title .markdown-title');
+  const titleEl = document.querySelector('[data-testid="issue-title"], .js-issue-title, h1 .markdown-title');
   const title = titleEl?.textContent?.trim() || Utils.getPageTitle();
   metadata.title = title;
 
-  const numberEl = document.querySelector('.gh-header-title .f1-light');
-  const number = numberEl?.textContent?.trim() || '';
+  const number = `#${window.location.pathname.split('/')[4]}`;
+  const bodyEl = document.querySelector('[data-testid="issue-body-viewer"]')
+    || Array.from(document.querySelectorAll('.comment-body, .js-comment-body, .markdown-body'))
+      .find((element) => !element.closest('.react-issue-comment'))
+    || null;
+  const bodyContainer = bodyEl?.closest('[data-testid="issue-body"], .timeline-comment, .js-timeline-item');
 
   // State (open/closed/merged)
-  const stateEl = document.querySelector('.State, [title="Status: Open"], [title="Status: Closed"], [title="Status: Merged"]');
+  const stateEl = document.querySelector('[data-testid="header-state"], [data-component="StateLabel"], .State, [title="Status: Open"], [title="Status: Closed"], [title="Status: Merged"]');
   const state = stateEl?.textContent?.trim() || '';
   if (state) metadata.state = state;
 
   // Author and date
-  const authorEl = document.querySelector('.gh-header-meta .author, .gh-header-meta a.Link--secondary');
-  const author = authorEl?.textContent?.trim() || '';
+  const author = discussionAuthor(document.querySelector('.gh-header-meta') || bodyContainer);
   if (author) metadata.author = author;
 
-  const timeEl = document.querySelector('.gh-header-meta relative-time');
+  const timeEl = (document.querySelector('.gh-header-meta') || bodyContainer)?.querySelector('relative-time');
   const date = timeEl?.getAttribute('datetime') || timeEl?.textContent?.trim() || '';
   if (date) metadata.created = date;
 
   // Labels
-  const labelEls = document.querySelectorAll('.js-issue-labels .IssueLabel, .sidebar-labels .IssueLabel');
+  const labelEls = document.querySelectorAll('.js-issue-labels .IssueLabel, .sidebar-labels .IssueLabel, [data-testid="issue-labels"] a');
   const labels = Array.from(labelEls).map((el) => el.textContent?.trim()).filter(Boolean);
   if (labels.length > 0) metadata.labels = labels.join(', ');
 
@@ -350,7 +353,6 @@ function extractIssueOrPR(metadata: Record<string, string>, isPR: boolean): stri
   parts.push('');
 
   // Body
-  const bodyEl = document.querySelector('.comment-body, .js-comment-body, .markdown-body');
   if (bodyEl) {
     parts.push('## Description\n');
     parts.push(Markdown.elementToMarkdown(bodyEl));
@@ -358,27 +360,36 @@ function extractIssueOrPR(metadata: Record<string, string>, isPR: boolean): stri
   }
 
   // Comments
-  const comments = document.querySelectorAll('.timeline-comment:not(:first-of-type) .comment-body, .js-timeline-item .comment-body');
-  if (comments.length > 1) {
+  const candidates = Array.from(document.querySelectorAll(
+    '.react-issue-comment [data-testid="markdown-body"], .timeline-comment .comment-body, .js-timeline-item .comment-body',
+  ));
+  const comments = candidates.filter((comment) => comment !== bodyEl
+    && !bodyEl?.contains(comment)
+    && !comment.contains(bodyEl)
+    && !candidates.some((other) => other !== comment && other.contains(comment)))
+    .map((element) => ({ element, markdown: Markdown.elementToMarkdown(element) }))
+    .filter(({ markdown }) => markdown.trim());
+  if (comments.length > 0) {
     parts.push('## Comments\n');
-    const seen = new Set<string>();
-    comments.forEach((comment, i) => {
-      if (i === 0) return; // skip first (it's the body)
-      const text = comment.textContent?.trim() || '';
-      if (seen.has(text) || !text) return;
-      seen.add(text);
-
-      const container = comment.closest('.timeline-comment, .js-timeline-item');
-      const commentAuthor = container?.querySelector('.author, a.Link--secondary')?.textContent?.trim() || '';
-      const commentTime = container?.querySelector('relative-time')?.getAttribute('datetime') || '';
+    comments.forEach(({ element: comment, markdown }) => {
+      const container = comment.closest('.react-issue-comment, .timeline-comment, .js-timeline-item');
+      const commentAuthor = discussionAuthor(container);
+      const time = container?.querySelector('relative-time');
+      const commentTime = time?.getAttribute('datetime') || time?.textContent?.trim() || '';
 
       parts.push(`### ${commentAuthor}${commentTime ? ` (${commentTime})` : ''}\n`);
-      parts.push(Markdown.elementToMarkdown(comment));
+      parts.push(markdown);
       parts.push('');
     });
   }
 
   return Markdown.buildPageMarkdown(metadata, parts.join('\n'));
+}
+
+function discussionAuthor(container: ParentNode | null | undefined): string {
+  const author = container?.querySelector('.author, [data-testid="issue-body-header-author"], [data-testid="avatar-link"], a.Link--secondary');
+  return author?.getAttribute('href')?.match(/^(?:https:\/\/(?:www\.)?github\.com)?\/([\w-]+)\/?$/)?.[1]
+    || author?.textContent?.trim() || '';
 }
 
 async function extractRepo(metadata: Record<string, string>): Promise<string> {

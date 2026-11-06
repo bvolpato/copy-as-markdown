@@ -17,18 +17,23 @@ url: "https://news.ycombinator.com/item?id=8863"
 - **FIXTURE_A_0032** (FIXTURE_A_0033):
   FIXTURE_DIV_0036
   FIXTURE_P_0037
+
   FIXTURE_P_0038
+
   FIXTURE_P_0039
 
 - **FIXTURE_A_0040** (FIXTURE_A_0041):
   FIXTURE_DIV_0045
   FIXTURE_P_0046
+
   FIXTURE_P_0047
+
   FIXTURE_P_0048
 
 - **FIXTURE_A_0049** (FIXTURE_A_0050):
   FIXTURE_DIV_0055
   FIXTURE_P_0056
+
   FIXTURE_P_0057
 
 - **FIXTURE_A_0058** (FIXTURE_A_0059):
@@ -37,6 +42,7 @@ url: "https://news.ycombinator.com/item?id=8863"
 - **FIXTURE_A_0066** (FIXTURE_A_0067):
   FIXTURE_DIV_0071
   FIXTURE_P_0072
+
   FIXTURE_P_0073
 
 - **FIXTURE_A_0074** (FIXTURE_A_0075):
@@ -46,7 +52,9 @@ url: "https://news.ycombinator.com/item?id=8863"
 - **FIXTURE_A_0081** (FIXTURE_A_0082):
   FIXTURE_DIV_0087
   FIXTURE_P_0088
+
   FIXTURE_P_0089
+
   FIXTURE_P_0090
 
 - **FIXTURE_A_0091** (FIXTURE_A_0092):
@@ -79,21 +87,33 @@ url: "https://news.ycombinator.com/item?id=8863"
 - **FIXTURE_A_0149** (FIXTURE_A_0150):
   FIXTURE_DIV_0154
   FIXTURE_P_0155
+
   FIXTURE_P_0156
 
 - **FIXTURE_A_0157** (FIXTURE_A_0158):
   FIXTURE_DIV_0162
   FIXTURE_P_0163
+
   FIXTURE_P_0164
+
   FIXTURE_P_0165
+
   FIXTURE_P_0166
+
   FIXTURE_P_0167
+
   FIXTURE_P_0168
+
   FIXTURE_P_0169
+
   FIXTURE_P_0170
+
   FIXTURE_P_0171
+
   FIXTURE_P_0172
+
   FIXTURE_P_0173
+
   FIXTURE_P_0174
 
 - **FIXTURE_A_0175** (FIXTURE_A_0176):
@@ -103,8 +123,11 @@ url: "https://news.ycombinator.com/item?id=8863"
 - **FIXTURE_A_0183** (FIXTURE_A_0184):
   FIXTURE_DIV_0188
   FIXTURE_P_0189
+
   FIXTURE_P_0190
+
   FIXTURE_P_0191
+
   FIXTURE_P_0192
 
 - **FIXTURE_A_0193** (FIXTURE_A_0194):
@@ -140,8 +163,11 @@ url: "https://news.ycombinator.com/item?id=8863"
 - **FIXTURE_A_0256** (FIXTURE_A_0257):
   FIXTURE_DIV_0262
   *FIXTURE_I_0263*FIXTURE_P_0264
+
   FIXTURE_P_0265
+
   FIXTURE_P_0266
+
   FIXTURE_P_0267
 
 - **FIXTURE_A_0268** (FIXTURE_A_0269):
@@ -151,9 +177,13 @@ url: "https://news.ycombinator.com/item?id=8863"
 - **FIXTURE_A_0276** (FIXTURE_A_0277):
   FIXTURE_DIV_0282
   FIXTURE_P_0283
+
   FIXTURE_P_0284
+
   FIXTURE_P_0285
+
   FIXTURE_P_0286
+
   FIXTURE_P_0287
 
 - **FIXTURE_A_0288** (FIXTURE_A_0289):
@@ -165,6 +195,7 @@ url: "https://news.ycombinator.com/item?id=8863"
 - **FIXTURE_A_0304** (FIXTURE_A_0305):
   FIXTURE_DIV_0309
   [FIXTURE_A_0310](https://example.invalid/fixture-link-0159)
+
   FIXTURE_P_0311
 
 - **FIXTURE_A_0312** (FIXTURE_A_0313):
@@ -174,6 +205,7 @@ url: "https://news.ycombinator.com/item?id=8863"
 - **FIXTURE_A_0319** (FIXTURE_A_0320):
   FIXTURE_DIV_0324
   FIXTURE_P_0325
+
   FIXTURE_P_0326
 
 - **FIXTURE_A_0327** (FIXTURE_A_0328):
@@ -193,6 +225,7 @@ url: "https://news.ycombinator.com/item?id=8863"
 - **FIXTURE_A_0354** (FIXTURE_A_0355):
   FIXTURE_DIV_0359
   FIXTURE_P_0360
+
   FIXTURE_P_0361
 
 - **FIXTURE_A_0362** (FIXTURE_A_0363):
@@ -208,6 +241,7 @@ url: "https://news.ycombinator.com/item?id=8863"
 - **FIXTURE_A_0383** (FIXTURE_A_0384):
   FIXTURE_DIV_0389
   FIXTURE_P_0390
+
   FIXTURE_P_0391
 
 - **FIXTURE_A_0392** (FIXTURE_A_0393):
@@ -255,8 +289,11 @@ url: "https://news.ycombinator.com/item?id=8863"
 - **FIXTURE_A_0476** (FIXTURE_A_0477):
   FIXTURE_DIV_0481
   FIXTURE_P_0482 [FIXTURE_A_0483](https://example.invalid/fixture-link-0264)
+
   FIXTURE_P_0484
+
   [FIXTURE_A_0485](https://example.invalid/fixture-link-0265)
+
   FIXTURE_P_0486
 
 - **FIXTURE_A_0487** (FIXTURE_A_0488):
@@ -294,4 +331,5 @@ url: "https://news.ycombinator.com/item?id=8863"
 - **FIXTURE_A_0551** (FIXTURE_A_0552):
   FIXTURE_DIV_0555
   [FIXTURE_A_0556](https://example.invalid/fixture-link-0311)
+
   FIXTURE_P_0557
