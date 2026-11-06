@@ -73,7 +73,7 @@ register({
         if (text) {
           parts.push(`${prefix}- **${commentAuthor}** (${commentAge}):`);
           // Indent the comment text
-          const lines = text.split('\n').filter((l) => l.trim());
+          const lines = text.split('\n');
           lines.forEach((line) => {
             parts.push(`${prefix}  ${line}`);
           });

@@ -1,5 +1,31 @@
 export const DISCUSSION_CASES = [
   {
+    id: 'hacker-news-comment-code-whitespace',
+    name: 'Hacker News',
+    url: 'https://news.ycombinator.com/item?id=42000003',
+    html: `<table><tr class="athing"><td><span class="titleline"><a>Code discussion</a></span></td></tr>
+      <tr class="comtr"><td><table><tr><td class="ind"><img width="0"></td><td>
+        <a class="hnuser">code-reader</a><div class="commtext"><p>Before code.</p>
+          <pre><code class="language-python">first()\n\nsecond()</code></pre><p>After code.</p>
+        </div>
+      </td></tr></table></td></tr></table>`,
+    expected: ['  ```python\n  first()\n  \n  second()\n  ```'],
+    ordered: ['Before code.', 'first()', 'second()', 'After code.'],
+  },
+  {
+    id: 'hacker-news-nested-comment-code-whitespace',
+    name: 'Hacker News',
+    url: 'https://news.ycombinator.com/item?id=42000004',
+    html: `<table><tr class="athing"><td><span class="titleline"><a>Nested code discussion</a></span></td></tr>
+      <tr class="comtr"><td><table><tr><td class="ind"><img width="40"></td><td>
+        <a class="hnuser">code-reader</a><div class="commtext"><p>Nested example.</p>
+          <pre><code class="language-python">if ready:\n\tfirst()  \n\n\n\tsecond()\n</code></pre>
+        </div>
+      </td></tr></table></td></tr></table>`,
+    expected: ['    ```python\n    if ready:\n    \tfirst()  \n    \n    \n    \tsecond()\n    ```'],
+    ordered: ['Nested example.', 'if ready:', 'first()', 'second()'],
+  },
+  {
     id: 'hacker-news-ask-post',
     name: 'Hacker News',
     url: 'https://news.ycombinator.com/item?id=42000001',

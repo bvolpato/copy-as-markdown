@@ -2,6 +2,42 @@ import { CHATGPT_CASES } from './chatgpt-cases.js';
 
 export const AI_CHAT_CASES = [
   ...CHATGPT_CASES,
+  ...['app/fixture', 'share/fixture', 'app'].map((route) => ({
+    id: 'gemini',
+    extractor: 'Gemini',
+    url: `https://gemini.google.com/${route}`,
+    html: `<!doctype html><html><head><title>Repeated turns - Gemini</title></head><body><main>
+      <conversation-turn>
+        <user-query><div class="query-text-line">Repeated question.</div></user-query>
+        <model-response><div class="markdown markdown-main-panel"><p>Repeated answer.</p></div></model-response>
+      </conversation-turn>
+      <conversation-turn>
+        <user-query><div class="query-text-line">Repeated question.</div></user-query>
+        <model-response><div class="markdown markdown-main-panel"><p>Repeated answer.</p></div></model-response>
+      </conversation-turn>
+      <textarea>Unsaved composer draft.</textarea>
+    </main></body></html>`,
+    contains: ['# Repeated turns'],
+    excludes: ['Unsaved composer draft.'],
+    ordered: ['## 👤 User', 'Repeated question.', '## 🤖 Gemini', 'Repeated answer.', '## 👤 User', 'Repeated question.', '## 🤖 Gemini', 'Repeated answer.'],
+    occurrences: { 'Repeated question.': 2, 'Repeated answer.': 2 },
+  })),
+  ...[
+    ['gemini', 'Gemini', 'https://gemini.google.com/app/fixture'],
+    ['claude', 'Claude', 'https://claude.ai/chat/fixture'],
+    ['grok', 'Grok', 'https://grok.com/c/fixture'],
+    ['meta-ai', 'Meta AI', 'https://www.meta.ai/c/fixture'],
+    ['perplexity', 'Perplexity', 'https://www.perplexity.ai/search/fixture'],
+  ].map(([id, extractor, url]) => ({
+    id, extractor, url,
+    html: `<main>${[0, 1].map(() => `
+      <div data-role="user"><div data-role="user"><p>Repeated question.</p></div></div>
+      <div data-role="assistant"><div data-role="assistant"><p>Repeated answer.</p></div></div>
+    `).join('')}</main>`,
+    contains: [],
+    ordered: ['Repeated question.', 'Repeated answer.', 'Repeated question.', 'Repeated answer.'],
+    occurrences: { 'Repeated question.': 2, 'Repeated answer.': 2 },
+  })),
   {
     id: 'microsoft-copilot',
     extractor: 'Microsoft Copilot',

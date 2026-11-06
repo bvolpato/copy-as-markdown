@@ -14,7 +14,9 @@ export const googleDocsExtractor = register({
   name: 'Google Docs',
   matches: [
     '*://docs.google.com/document/d/*',
+    '*://docs.google.com/document/u/*/d/*',
   ],
+  pathnameRegex: /^\/document\/(?:u\/\d+\/)?d\/[^/]+(?:\/|$)/,
   buttonPlacement: 'anchor',
   anchor: {
     selector: [
@@ -109,7 +111,7 @@ export const googleDocsExtractor = register({
 });
 
 function getGoogleDocId(): string {
-  return window.location.pathname.match(/\/document\/d\/([^/]+)/)?.[1] || '';
+  return window.location.pathname.match(/\/document\/(?:u\/\d+\/)?d\/([^/]+)/)?.[1] || '';
 }
 
 function getGoogleDocTitle(): string {

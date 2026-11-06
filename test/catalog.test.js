@@ -4,6 +4,7 @@ import puppeteer from 'puppeteer';
 import * as library from '../dist/library/index.js';
 import { DISCUSSION_CASES } from './fixtures/discussion-cases.js';
 import { BITBUCKET_CASES } from './fixtures/bitbucket-cases.js';
+import { GITHUB_CASES } from './fixtures/github-cases.js';
 
 await library.loadAllExtractors();
 const failures = [];
@@ -43,6 +44,22 @@ await check('X and Hacker News reject unrelated route suffixes', async () => {
   }
   assert.equal(matcher.match({ url: 'https://x.com/author/status/123/photo/1' })?.name, 'X (Twitter)');
   assert.equal(matcher.match({ url: 'https://news.ycombinator.com/item?id=123' })?.name, 'Hacker News');
+});
+await check('Gemini matches shared chats and app home without accepting unrelated routes', async () => {
+  const gemini = await library.loadExtractor('gemini');
+  const matcher = library.createExtractorMatcher({ extractors: [gemini] });
+  for (const path of ['/app', '/app?hl=en', '/app/chat-id', '/share/chat-id']) {
+    assert.equal(matcher.match({ url: `https://gemini.google.com${path}` })?.name, 'Gemini', path);
+  }
+  for (const path of ['/application', '/shareholder/chat-id', '/settings', '/updates']) {
+    assert.equal(matcher.match({ url: `https://gemini.google.com${path}` }), null, path);
+  }
+});
+await check('Google Workspace account routes reject invalid account indices and unrelated paths', () => {
+  const matcher = library.createExtractorMatcher();
+  for (const path of ['/document/u/name/d/id/edit', '/spreadsheets/u/2/other/id', '/presentation/u/2/d/']) {
+    assert.equal(matcher.match({ url: `https://docs.google.com${path}` }), null, path);
+  }
 });
 
 const browser = await puppeteer.launch({ headless: 'shell', args: ['--no-sandbox'] });
@@ -85,7 +102,7 @@ async function fixture({ url, name, html, head = '<title>Catalog fixture</title>
 }
 
 try {
-  for (const fixtureCase of [...DISCUSSION_CASES, ...BITBUCKET_CASES]) {
+  for (const fixtureCase of [...DISCUSSION_CASES, ...BITBUCKET_CASES, ...GITHUB_CASES]) {
     await check(fixtureCase.id, () => fixture(fixtureCase));
   }
   await check('Reddit includes sibling comment threads and excludes sidebar comments', () => fixture({
@@ -152,6 +169,60 @@ try {
     name: 'Google Sheets', url: 'https://docs.google.com/spreadsheets/d/audit/edit', html: '<main>Sheet</main>',
     resources: { '/spreadsheets/d/audit/export': { contentType: 'text/csv', body: csv } },
     expected: ['cell-511-54', '| BC |'], excluded: ['output_limits'],
+  }));
+
+  for (const account of [0, 2]) {
+    await check(`Google Docs recognizes account ${account} routes with a mocked export`, () => fixture({
+      name: 'Google Docs', url: `https://docs.google.com/document/u/${account}/d/audit-doc/edit`,
+      head: '<title>Account document - Google Docs</title>', html: '<main>Canvas editor</main>',
+      resources: { '/document/d/audit-doc/export': { contentType: 'text/html', body: '<html><body><h1>Exported document</h1><p>Complete document body.</p></body></html>' } },
+      expected: ['doc_id: audit-doc', '# Account document', 'Complete document body.'],
+      excluded: ['Could not determine', 'Canvas editor'],
+    }));
+    await check(`Google Sheets recognizes account ${account} routes with a mocked export`, () => fixture({
+      name: 'Google Sheets', url: `https://docs.google.com/spreadsheets/u/${account}/d/audit-sheet/edit#gid=42`,
+      html: '<main>Canvas grid</main>',
+      resources: { '/spreadsheets/d/audit-sheet/export': { contentType: 'text/csv', body: 'Name,Value\nExported row,42\n' } },
+      expected: ['spreadsheet_id: audit-sheet', '| Exported row | 42 |'],
+      excluded: ['Could not determine', 'Canvas grid'],
+    }));
+    await check(`Google Slides recognizes account ${account} routes with a mocked export`, () => fixture({
+      name: 'Google Slides', url: `https://docs.google.com/presentation/u/${account}/d/audit-deck/edit`,
+      html: '<main>Canvas slides</main>',
+      resources: { '/presentation/d/audit-deck/htmlpresent': { contentType: 'text/html', body: '<html><body><div class="slide" title="Slide 1"><div class="slide-content"><h1>Exported slide</h1><p>Complete slide body.</p></div></div></body></html>' } },
+      expected: ['presentation_id: audit-deck', 'Complete slide body.'],
+      excluded: ['Could not determine', 'Canvas slides'],
+    }));
+  }
+
+  const signInPage = '<html><head><title>Sign in</title></head><body>ACCOUNT SIGN-IN SCREEN</body></html>';
+  await check('Google Docs rejects sign-in pages and reports denied exports', () => fixture({
+    name: 'Google Docs', url: 'https://docs.google.com/document/u/2/d/denied-doc/edit',
+    html: '<main>Canvas editor</main>',
+    resources: {
+      '/document/d/denied-doc/export': { contentType: 'text/html', body: signInPage },
+      '/document/d/denied-doc/mobilebasic': { status: 403, body: 'ACCESS DENIED RESPONSE' },
+    },
+    expected: ['Could not export this Google Doc.'],
+    excluded: ['ACCOUNT SIGN-IN SCREEN', 'ACCESS DENIED RESPONSE', 'Canvas editor'],
+  }));
+  await check('Google Sheets uses HTML query content when CSV access is denied', () => fixture({
+    name: 'Google Sheets', url: 'https://docs.google.com/spreadsheets/u/2/d/fallback-sheet/edit#gid=42',
+    html: '<main>Canvas grid</main>',
+    resources: {
+      '/spreadsheets/d/fallback-sheet/export': { status: 403, body: 'ACCESS DENIED RESPONSE' },
+      '/spreadsheets/d/fallback-sheet/gviz/tq': { contentType: 'text/html', body: '<table><tr><th>Name</th><th>Value</th></tr><tr><td>Fallback row</td><td>42</td></tr></table>' },
+    },
+    expected: ['| Fallback row | 42 |'], excluded: ['ACCESS DENIED RESPONSE', 'Canvas grid'],
+  }));
+  await check('Google Slides rejects sign-in pages and retains visible slide content', () => fixture({
+    name: 'Google Slides', url: 'https://docs.google.com/presentation/u/2/d/fallback-deck/edit',
+    html: '<div class="punch-viewer-content"><div class="slide"><div class="slide-content"><h1>Visible slide</h1><p>Visible slide body.</p></div></div></div>',
+    resources: {
+      '/presentation/d/fallback-deck/htmlpresent': { contentType: 'text/html', body: signInPage },
+      '/presentation/d/fallback-deck/export/txt': { status: 403, body: 'ACCESS DENIED RESPONSE' },
+    },
+    expected: ['Visible slide body.'], excluded: ['ACCOUNT SIGN-IN SCREEN', 'ACCESS DENIED RESPONSE'],
   }));
 
   const table = `<table>${repeat(212, row => `<tr>${repeat(55, column => `<td>cell-${row}-${column}</td>`)}</tr>`)}</table>`;

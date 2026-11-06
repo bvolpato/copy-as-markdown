@@ -43,6 +43,26 @@ One click, and the page's content lands in your clipboard as structured Markdown
 
 ## Install
 
+### Install from a checkout
+
+Run `./install.sh` to choose an extension or userscript, then Chrome, Chromium, Brave, Edge, or Firefox. Extension installs offer the official store or a local build. The installer requires Node.js; local builds also require pnpm.
+
+```bash
+./install.sh
+./install.sh --type extension --browser chrome
+./install.sh --type extension --browser firefox --local
+./install.sh --type extension --browser chrome --copy-to "$HOME/.local/share/copy-as-markdown/chrome"
+./install.sh --type userscript --browser brave
+```
+
+Local installs build the current checkout. `--copy-to` copies the unpacked extension into a new directory and refuses to overwrite an existing path. The installer opens the browser's extension page and prints the remaining steps. Chromium browsers use **Load unpacked**; Firefox uses **Load Temporary Add-on**, which lasts until Firefox restarts.
+
+For userscripts, install Tampermonkey or Violentmonkey in the selected browser first. The installer serves an installation page and the built `.user.js` file on `127.0.0.1`, then opens the page. Confirm installation in the userscript manager and press Ctrl+C in the terminal when finished. If the browser shows script text or downloads the file, import the printed script URL through the manager's dashboard.
+
+For Tampermonkey in Chrome, Chromium, Brave, or Edge, open the manager's extension settings and enable **Allow User Scripts**. Enabling **Developer mode** is an alternative. See [Tampermonkey's permission instructions](https://www.tampermonkey.net/faq.php?q=Q209). These settings allow installed userscripts to run; importing a script alone does not enable them.
+
+Use `--skip-build` for existing `dist/` outputs, `--no-open` to print URLs without launching a browser, or `--port 8787` to choose the userscript server's port. Run `./install.sh --help` for all options.
+
 ### <img src="assets/icon.svg" width="20" alt=""> Userscript (Tampermonkey / Violentmonkey)
 
 The fastest way to get started. Works in any browser with a userscript manager.

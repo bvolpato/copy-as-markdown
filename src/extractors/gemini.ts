@@ -1,6 +1,6 @@
 /**
  * Google Gemini conversation extractor.
- * Supports rendered app, chat, gem, and spark routes.
+ * Supports rendered app, shared chat, chat, gem, and spark routes.
  */
 
 import { register } from '../core/registry';
@@ -16,12 +16,13 @@ type Turn = { role: Role; element: Element; container: Element };
 register({
   name: 'Gemini',
   matches: [
-    '*://gemini.google.com/app/*',
+    '*://gemini.google.com/app*',
+    '*://gemini.google.com/share/*',
     '*://gemini.google.com/chat/*',
     '*://gemini.google.com/gem/*',
     '*://gemini.google.com/spark/*',
   ],
-  pathnameRegex: /^\/(?:app|chat|gem|spark)(?:\/|$)/,
+  pathnameRegex: /^\/(?:app|share|chat|gem|spark)(?:\/|$)/,
 
   async extract() {
     const title = cleanTitle(Utils.getPageTitle()) || 'Gemini Conversation';
@@ -40,7 +41,6 @@ register({
     const turns = limitCollection(collectTurns(), MAX_TURNS);
     const parts: string[] = [`# ${title}`];
     if (model) parts.push('', `**Model:** ${model}`);
-    const seen = new Set<string>();
     const citationUrls = new Set<string>();
     let userCount = 0;
     let assistantCount = 0;
@@ -52,9 +52,7 @@ register({
       let content = Markdown.elementToMarkdown(cleaned);
       const images = standaloneImages(turn.container, turn.element);
       if (images.length) content = `${content}\n\n${images.join('\n')}`.trim();
-      const key = `${turn.role}:${normalize(content)}`;
-      if (!content || seen.has(key)) continue;
-      seen.add(key);
+      if (!content) continue;
 
       const citations = extractCitations(turn.container);
       citations.forEach((citation) => citationUrls.add(citation.href));
@@ -187,14 +185,11 @@ function messageContent(element: Element): Element | null {
 
 function dedupeTurns(turns: Turn[]): Turn[] {
   const seenElements = new Set<Element>();
-  const seenContent = new Set<string>();
   return turns.filter((turn) => {
     if (seenElements.has(turn.element)) return false;
     seenElements.add(turn.element);
-    const key = `${turn.role}:${normalize(turn.element.textContent || '')}`;
-    if (!key.endsWith(':') && seenContent.has(key)) return false;
-    if (!key.endsWith(':')) seenContent.add(key);
-    return true;
+    return !turns.some((other) => other.role === turn.role
+      && other.element !== turn.element && other.element.contains(turn.element));
   });
 }
 
@@ -280,6 +275,7 @@ function hasUnrenderedHistory(): boolean {
 }
 
 function conversationRoute(path: string): string {
+  if (/^\/share\//.test(path)) return 'share';
   if (/^\/spark\//.test(path)) return 'spark';
   if (/^\/gem\//.test(path)) return 'gem';
   if (/^\/chat\//.test(path)) return 'chat';
