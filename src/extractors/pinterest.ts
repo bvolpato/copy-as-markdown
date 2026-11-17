@@ -39,7 +39,7 @@ register({
     '*://pinterest.com/*',
     '*://*.pinterest.com/*',
   ],
-  pathnameRegex: /^\/(?:pin\/[^/]+|ideas(?:\/|$)|search\/(?:pins|boards|ideas)(?:\/|$)|[^/]+\/saved(?:\/|$))\/?$/,
+  pathnameRegex: /^\/(?:pin\/[^/]+|ideas(?:\/[^/]+(?:\/\d+)?)?|search\/(?:pins|boards|ideas)|[^/]+\/saved)\/?$/,
   buttonPlacement: 'anchor',
   anchor: {
     selector: [

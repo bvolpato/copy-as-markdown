@@ -7,9 +7,7 @@ export const deepSeekExtractor = registerAiConversationExtractor({
   source: 'DeepSeek',
   assistantLabel: 'DeepSeek',
   matches: [
-    '*://chat.deepseek.com/a/chat*',
-    '*://chat.deepseek.com/share*',
-    '*://chat.deepseek.com/',
+    '*://chat.deepseek.com/*',
   ],
   pathnameRegex: /^(?:\/$|\/a\/chat(?:\/|$)|\/share(?:\/|$))/i,
   route(pathname) {

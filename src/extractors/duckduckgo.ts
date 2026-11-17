@@ -12,6 +12,11 @@ register({
   matches: [
     '*://duckduckgo.com/*',
     '*://www.duckduckgo.com/*',
+    '*://html.duckduckgo.com/*',
+    '*://lite.duckduckgo.com/*',
+    '*://safe.duckduckgo.com/*',
+    '*://noai.duckduckgo.com/*',
+    '*://safe-noai.duckduckgo.com/*',
   ],
   pathnameRegex: /^\/(?:$|html(?:\/|$)|lite(?:\/|$)|search(?:\/|$))/,
   buttonPlacement: 'anchor',
@@ -75,28 +80,44 @@ register({
     );
     let resultCount = 0;
     const seen = new Set<string>();
-    if (results.length) {
-      parts.push('## Search Results\n');
-      results.forEach((result) => {
-        const title = cleanText(result.querySelector(
-          '.result__title, h2 a, h2, [data-testid="result-title"]',
-        )?.textContent || '');
-        const link = firstSafeLink(result.querySelectorAll<HTMLAnchorElement>(
-          '.result__a[href], h2 a[href], [data-testid="result-title-a"][href], a[href]',
-        ));
-        const snippet = cleanText(result.querySelector(
-          '.result__snippet, .result__body, [data-result="snippet"], [data-testid="result-snippet"], p',
-        )?.textContent || '');
-        if (!title || !link) return;
-        const key = `${title}\n${link}`;
-        if (seen.has(key)) return;
-        seen.add(key);
-        resultCount += 1;
-        parts.push(`### ${resultCount}. ${escapeMarkdownText(title)}\n`);
-        parts.push(`**URL:** ${link}\n`);
-        if (snippet) parts.push(`${snippet}\n`);
-      });
+    function appendResult(title: string, link: string, snippet: string): void {
+      if (!title || !link) return;
+      const key = `${title}\n${link}`;
+      if (seen.has(key)) return;
+      seen.add(key);
+      if (resultCount === 0) parts.push('## Search Results\n');
+      resultCount += 1;
+      parts.push(`### ${resultCount}. ${escapeMarkdownText(title)}\n`);
+      parts.push(`**URL:** ${link}\n`);
+      if (snippet) parts.push(`${snippet}\n`);
     }
+
+    results.forEach((result) => {
+      const title = cleanText(result.querySelector(
+        '.result__title, h2 a, h2, [data-testid="result-title"]',
+      )?.textContent || '');
+      const link = firstSafeLink(result.querySelectorAll<HTMLAnchorElement>(
+        '.result__a[href], h2 a[href], [data-testid="result-title-a"][href], a[href]',
+      ));
+      const snippet = cleanText(result.querySelector(
+        '.result__snippet, .result__body, [data-result="snippet"], [data-testid="result-snippet"], p',
+      )?.textContent || '');
+      appendResult(title, link, snippet);
+    });
+
+    document.querySelectorAll<HTMLAnchorElement>('a.result-link[href]').forEach((link) => {
+      let row = link.closest('tr')?.nextElementSibling;
+      let snippet = '';
+      while (row && !row.querySelector('a.result-link')) {
+        const cell = row.querySelector('.result-snippet');
+        if (cell) {
+          snippet = cleanText(cell.textContent || '');
+          break;
+        }
+        row = row.nextElementSibling;
+      }
+      appendResult(cleanText(link.textContent || ''), safeSearchUrl(link.href), snippet);
+    });
 
     const related = Array.from(document.querySelectorAll<HTMLAnchorElement>(
       '.related-searches a[href], .tile--c a[href], [data-testid="related-search"] a[href]',

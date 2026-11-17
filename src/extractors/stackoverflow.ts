@@ -16,6 +16,7 @@ register({
     '*://askubuntu.com/questions/*',
     '*://*.stackexchange.com/questions/*',
   ],
+  pathnameRegex: /^\/questions\/\d+(?:\/|$)/,
   buttonPlacement: 'anchor',
   anchor: {
     selector: [
