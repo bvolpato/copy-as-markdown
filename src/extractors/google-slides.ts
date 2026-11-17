@@ -40,7 +40,7 @@ type SlideBlock = {
 register({
   name: 'Google Slides',
   matches: ['*://docs.google.com/presentation/d/*', '*://docs.google.com/presentation/u/*/d/*'],
-  pathnameRegex: /^\/presentation\/(?:u\/\d+\/)?d\/[^/]+(?:\/|$)/,
+  pathnameRegex: /^\/presentation\/(?:u\/\d+\/)?d\/(?!e(?:\/|$))[^/]+(?:\/|$)/,
   options: [
     {
       id: 'current',
@@ -162,7 +162,7 @@ register({
 });
 
 function getPresentationId(): string {
-  return window.location.pathname.match(/\/presentation\/(?:u\/\d+\/)?d\/([^/]+)/)?.[1] || '';
+  return window.location.pathname.match(/\/presentation\/(?:u\/\d+\/)?d\/(?!e(?:\/|$))([^/]+)/)?.[1] || '';
 }
 
 function getPresentationTitle(): string {

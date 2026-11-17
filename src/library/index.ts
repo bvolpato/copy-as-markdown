@@ -88,9 +88,12 @@ export function createExtractorMatcher(
       return [];
     }
 
-    return selected
-      .filter((extractor) => matchesExtractor(extractor, url.href)
-        || Boolean(input.document && extractor.detect?.(input.document)))
+    const urlMatches = selected.filter((extractor) => matchesExtractor(extractor, url.href));
+    const candidates = urlMatches.length > 0
+      ? urlMatches
+      : selected.filter((extractor) => Boolean(input.document && extractor.detect?.(input.document)));
+
+    return candidates
       .filter((extractor) => options.when?.({
         url,
         document: input.document,

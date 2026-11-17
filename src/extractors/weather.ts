@@ -10,16 +10,10 @@ import * as Utils from '../core/utils';
 register({
   name: 'Weather.com',
   matches: [
-    '*://www.weather.com/weather/today/*',
-    '*://www.weather.com/weather/hourbyhour/*',
-    '*://www.weather.com/weather/tenday/*',
-    '*://www.weather.com/weather/alerts/*',
-    '*://weather.com/weather/today/*',
-    '*://weather.com/weather/hourbyhour/*',
-    '*://weather.com/weather/tenday/*',
-    '*://weather.com/weather/alerts/*',
+    '*://www.weather.com/*',
+    '*://weather.com/*',
   ],
-  pathnameRegex: /^\/weather\/(?:today|hourbyhour|tenday|alerts)\/[^/?#]+/,
+  pathnameRegex: /^\/(?:weather\/(?:today|hourbyhour|tenday|alerts)\/[^/]+(?:\/[^/]+)*|(?:[a-z]{2}-[A-Z]{2}\/)?[a-z]{2}\/(?:[^/]+\/)+(?:today|tenday|alerts|hourbyhour(?:\/day-\d+)?))\/?$/,
   buttonPlacement: 'anchor',
   anchor: {
     selector: [
@@ -107,12 +101,16 @@ register({
       ]);
       if (rows.length) parts.push('## Hourly Forecast', '', ...rows.map((row) => `- ${row}`), '');
     } else if (route === 'daily') {
-      const rows = extractRows([
-        '[data-testid*="DailyForecast"] [data-testid*="Details"]',
-        '[data-testid*="DailyForecast"]',
-        '[data-testid*="daily"]',
-        '[class*="DailyForecast"]',
-      ]);
+      const rows = extractRows(
+        document.querySelector('[data-testid="daily-item"]')
+          ? ['[data-testid="daily-item"]']
+          : [
+            '[data-testid*="DailyForecast"] [data-testid*="Details"]',
+            '[data-testid*="DailyForecast"]',
+            '[data-testid*="daily"]',
+            '[class*="DailyForecast"]',
+          ],
+      );
       if (rows.length) parts.push('## 10-Day Forecast', '', ...rows.map((row) => `- ${row}`), '');
     }
 
@@ -129,9 +127,11 @@ register({
 type JsonRecord = Record<string, unknown>;
 
 function routeKind(pathname: string): string {
-  if (pathname.startsWith('/weather/hourbyhour/')) return 'hourly';
-  if (pathname.startsWith('/weather/tenday/')) return 'daily';
-  if (pathname.startsWith('/weather/alerts/')) return 'alerts';
+  const forecast = pathname.match(/^\/weather\/([^/]+)\//)?.[1]
+    || pathname.match(/\/(today|hourbyhour|tenday|alerts)(?:\/day-\d+)?\/?$/)?.[1];
+  if (forecast === 'hourbyhour') return 'hourly';
+  if (forecast === 'tenday') return 'daily';
+  if (forecast === 'alerts') return 'alerts';
   return 'current';
 }
 

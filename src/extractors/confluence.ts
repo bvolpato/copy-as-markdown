@@ -10,7 +10,7 @@ import { register } from '../core/registry';
 import { PageMetadata } from '../core/types';
 import * as Utils from '../core/utils';
 
-const CUSTOM_CONFLUENCE_URL = /^https?:\/\/(?:(?:[^/?#]*\.)?confluence[^/?#]*(?::\d+)?\/(?:display\/[^/]+\/|pages\/viewpage\.action)|[^/?#]+(?::\d+)?\/confluence\/(?:display\/[^/]+\/|pages\/viewpage\.action))(?:[^#]*)$/i;
+const CUSTOM_CONFLUENCE_URL = /^https?:\/\/(?:(?:[^/?#]*\.)?confluence[^/?#]*(?::\d+)?\/(?:display\/[^/]+\/|pages\/viewpage\.action)|[^/?#]+(?::\d+)?\/confluence\/(?:display\/[^/]+\/|pages\/viewpage\.action)).*$/i;
 
 type ConfluenceComment = { author: string; date: string; body: string };
 type JsonObject = Record<string, unknown>;

@@ -23,7 +23,7 @@ type GridExtraction = {
 register({
   name: 'Google Sheets',
   matches: ['*://docs.google.com/spreadsheets/d/*', '*://docs.google.com/spreadsheets/u/*/d/*'],
-  pathnameRegex: /^\/spreadsheets\/(?:u\/\d+\/)?d\/[^/]+(?:\/|$)/,
+  pathnameRegex: /^\/spreadsheets\/(?:u\/\d+\/)?d\/(?!e(?:\/|$))[^/]+(?:\/|$)/,
   buttonPlacement: 'anchor',
   anchor: {
     selector: [
@@ -112,7 +112,7 @@ register({
 });
 
 function getSpreadsheetId(): string {
-  return window.location.pathname.match(/\/spreadsheets\/(?:u\/\d+\/)?d\/([^/]+)/)?.[1] || '';
+  return window.location.pathname.match(/\/spreadsheets\/(?:u\/\d+\/)?d\/(?!e(?:\/|$))([^/]+)/)?.[1] || '';
 }
 
 function getSpreadsheetTitle(): string {
