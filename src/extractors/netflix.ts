@@ -10,12 +10,10 @@ import * as Utils from '../core/utils';
 register({
   name: 'Netflix',
   matches: [
-    '*://www.netflix.com/watch/*',
-    '*://www.netflix.com/title/*',
-    '*://netflix.com/watch/*',
-    '*://netflix.com/title/*',
+    '*://www.netflix.com/*',
+    '*://netflix.com/*',
   ],
-  pathnameRegex: /^\/(?:watch|title)\/\d+(?:\/[^/?#]*)?\/?$/,
+  pathnameRegex: /^\/(?:[a-z]{2}(?:-[a-z]{2})?\/)?(?:watch|title)\/\d+(?:\/[^/?#]*)?\/?$/,
   buttonPlacement: 'anchor',
   anchor: {
     selector: '[data-uia="metadata"] h2, [data-uia="video-title"], [data-uia="title-info"], h1',
@@ -67,7 +65,7 @@ register({
       '[data-uia="video-rating"]',
       '[data-uia="rating"]',
     ]) || stringValue(payload?.aggregateRating && asRecord(payload.aggregateRating)?.ratingValue);
-    const route = window.location.pathname.startsWith('/watch/') ? 'watch' : 'title';
+    const route = window.location.pathname.match(/^\/(?:[a-z]{2}(?:-[a-z]{2})?\/)?(watch|title)\//)?.[1] || 'title';
 
     const metadata: Record<string, string> = {
       source: 'Netflix', title, url, route, year, maturity, duration, genres, creator, rating,
@@ -91,7 +89,7 @@ register({
       parts.push('## Title Information', '', Markdown.elementToMarkdown(clone), '');
     }
 
-    const episode = window.location.pathname.startsWith('/watch/') ? firstText([
+    const episode = route === 'watch' ? firstText([
       '[data-uia="video-episode-title"]',
       '[data-uia="episode-title"]',
       '.episode-title',

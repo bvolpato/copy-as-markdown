@@ -102,7 +102,7 @@ function getMlflowRoute(contextDocument: Document = document): MlflowRoute | nul
   const hashRunRoute = parseRunPath(hashPath);
   if (hashRunRoute) return { kind: 'run', ...hashRunRoute, prefix };
 
-  const comparisonRoute = parseComparisonPath(hashPath, hashSearch);
+  const comparisonRoute = parseComparisonPath(hashPath, hashSearch, contextDocument);
   if (comparisonRoute) return { kind: 'comparison', ...comparisonRoute, prefix };
 
   const pathRunRoute = parseRunPath(url.pathname);
@@ -150,11 +150,12 @@ function parseRunPath(path: string): Omit<MlflowRunRoute, 'kind' | 'prefix'> | n
 function parseComparisonPath(
   path: string,
   search: URLSearchParams,
+  contextDocument: Document,
 ): Omit<MlflowComparisonRoute, 'kind' | 'prefix'> | null {
   const match = path.match(/^\/experiments\/([^/?#]+)\/runs\/?$/);
   if (!match) return null;
   const chartMode = search.get('compareRunsMode')?.toUpperCase() === 'CHART';
-  const chartArea = document.querySelector('[data-testid="experiment-view-compare-runs-chart-area"]');
+  const chartArea = contextDocument.querySelector('[data-testid="experiment-view-compare-runs-chart-area"]');
   if (!chartMode && !chartArea) return null;
   try {
     return {
