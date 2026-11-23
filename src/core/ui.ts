@@ -733,6 +733,27 @@ function isOverlaySpaceClear(rect: DOMRect): boolean {
   const controls = 'a, button, input, select, textarea, img, svg, video, canvas, iframe, [role="button"]';
   const overlaps = (other: DOMRect): boolean => other.width > 0 && other.height > 0
     && other.left < rect.right && other.right > rect.left && other.top < rect.bottom && other.bottom > rect.top;
+
+  // Fast O(1) hit-test early reject at center and corners before full geometry walk.
+  if (typeof document.elementsFromPoint === 'function') {
+    const insetX = Math.min(2, rect.width / 4);
+    const insetY = Math.min(2, rect.height / 4);
+    const samplePoints: Array<[number, number]> = [
+      [(rect.left + rect.right) / 2, (rect.top + rect.bottom) / 2],
+      [rect.left + insetX, rect.top + insetY],
+      [rect.right - insetX, rect.top + insetY],
+      [rect.left + insetX, rect.bottom - insetY],
+      [rect.right - insetX, rect.bottom - insetY],
+    ];
+    for (const [x, y] of samplePoints) {
+      if (x < 0 || y < 0 || x >= window.innerWidth || y >= window.innerHeight) continue;
+      for (const hit of document.elementsFromPoint(x, y)) {
+        if (hit.closest(`[${UI_INSTANCE_ATTR}]`)) continue;
+        if (hit.matches(controls) && getComputedStyle(hit).visibility === 'visible') return false;
+      }
+    }
+  }
+
   for (const element of document.querySelectorAll(controls)) {
     if (element.closest(`[${UI_INSTANCE_ATTR}]`)) continue;
     for (const controlRect of element.getClientRects()) {
@@ -744,8 +765,16 @@ function isOverlaySpaceClear(rect: DOMRect): boolean {
   const text = document.createTreeWalker(document.body, NodeFilter.SHOW_ELEMENT | NodeFilter.SHOW_TEXT, {
     acceptNode(node) {
       if (node instanceof Element) {
-        if (node.hasAttribute(UI_INSTANCE_ATTR) || node.matches('script, style, template, noscript')) return NodeFilter.FILTER_REJECT;
+        if (
+          node.hasAttribute(UI_INSTANCE_ATTR)
+          || node.matches('script, style, template, noscript')
+          || (node as HTMLElement).hidden
+          || (node as HTMLElement).style?.display === 'none'
+        ) {
+          return NodeFilter.FILTER_REJECT;
+        }
         if (overlaps(node.getBoundingClientRect())) return NodeFilter.FILTER_SKIP;
+        if (!node.textContent?.trim()) return NodeFilter.FILTER_REJECT;
         // Range bounds include overflowing and positioned descendant text.
         range.selectNodeContents(node);
         return overlaps(range.getBoundingClientRect()) ? NodeFilter.FILTER_SKIP : NodeFilter.FILTER_REJECT;
@@ -895,10 +924,19 @@ function buildAnchorNode(
   btn: HTMLButtonElement,
   anchor: AnchorConfig,
   instanceId: string,
+  target?: Element,
 ): HTMLElement {
   applyInlineCss(btn, anchor.css);
 
   if (!anchor.wrapperTag) return btn;
+  if (
+    anchor.wrapperTag.toLowerCase() === 'li'
+    && target
+    && target.tagName !== 'UL'
+    && target.tagName !== 'OL'
+  ) {
+    return btn;
+  }
 
   const wrapper = document.createElement(anchor.wrapperTag);
   wrapper.setAttribute(WRAPPER_ATTR, 'true');
@@ -1168,7 +1206,7 @@ function attachToAnchor(
     return true;
   }
 
-  const insertionNode = buildAnchorNode(btn, anchor, instanceId);
+  const insertionNode = buildAnchorNode(btn, anchor, instanceId, target);
 
   switch (position) {
     case 'prepend':
@@ -1249,13 +1287,33 @@ function setFloatingPosition(wrapper: HTMLElement, position: FloatingPosition): 
 
 function watchFloatingParent(wrapper: FloatingWrapperElement, instanceId: string): () => void {
   let active = true;
+  let frame: number | null = null;
+  const popupSelector = 'dialog:modal, [popover]:popover-open';
+
   const updateParent = () => {
+    frame = null;
     if (!active || !isActiveInstance(instanceId)) return;
+    // Fast-path: skip forced layout/hit-testing when already on root and no modal/popover exists.
+    if (wrapper.parentElement === document.documentElement && !document.querySelector(popupSelector)) {
+      return;
+    }
     const parent = getFloatingParent();
     if (wrapper.parentElement !== parent) parent.appendChild(wrapper);
   };
 
-  const observer = new MutationObserver(updateParent);
+  const scheduleUpdate = () => {
+    if (!active || frame !== null) return;
+    frame = window.requestAnimationFrame(updateParent);
+  };
+
+  const observer = new MutationObserver((records) => {
+    // Ignore mutations inside our own UI nodes.
+    const relevant = records.some((record) => {
+      const target = record.target instanceof Element ? record.target : record.target.parentElement;
+      return !target?.closest(`[${UI_INSTANCE_ATTR}]`);
+    });
+    if (relevant) scheduleUpdate();
+  });
   observer.observe(document.documentElement, {
     childList: true,
     subtree: true,
@@ -1267,6 +1325,7 @@ function watchFloatingParent(wrapper: FloatingWrapperElement, instanceId: string
 
   return () => {
     active = false;
+    if (frame !== null) window.cancelAnimationFrame(frame);
     observer.disconnect();
     document.removeEventListener('toggle', updateParent, true);
     document.removeEventListener('close', updateParent, true);
@@ -1543,7 +1602,9 @@ function observeForAnchor(
 
   cancelAnchorObserver();
 
-  const observer = new MutationObserver(() => {
+  let checkFrame: number | null = null;
+  const checkAnchor = () => {
+    checkFrame = null;
     if (settled) return;
     if (!isActiveInstance(instanceId)) {
       settled = true;
@@ -1576,6 +1637,11 @@ function observeForAnchor(
       }
       startAnchorWatchdog(btn, anchor, instanceId);
     }
+  };
+
+  const observer = new MutationObserver(() => {
+    if (settled || checkFrame !== null) return;
+    checkFrame = window.requestAnimationFrame(checkAnchor);
   });
 
   observer.observe(document.body, { childList: true, subtree: true });
@@ -1585,6 +1651,10 @@ function observeForAnchor(
   activeAnchorTimeout = window.setTimeout(() => {
     if (!settled) {
       settled = true;
+      if (checkFrame !== null) {
+        window.cancelAnimationFrame(checkFrame);
+        checkFrame = null;
+      }
       observer.disconnect();
       if (activeAnchorObserver === observer) activeAnchorObserver = null;
       activeAnchorTimeout = null;

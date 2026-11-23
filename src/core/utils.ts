@@ -107,6 +107,7 @@ export function formatDate(dateStr: string): string {
   if (!dateStr) return '';
   try {
     const d = new Date(dateStr);
+    if (Number.isNaN(d.getTime())) return dateStr.trim();
     return d.toLocaleDateString('en-US', {
       year: 'numeric',
       month: 'long',
@@ -115,6 +116,112 @@ export function formatDate(dateStr: string): string {
   } catch {
     return dateStr;
   }
+}
+
+/**
+ * Perform a fetch request with a bounded timeout.
+ */
+export async function fetchWithTimeout(
+  input: RequestInfo | URL,
+  init: RequestInit = {},
+  timeoutMs = 8000,
+): Promise<Response> {
+  if (init.signal || typeof AbortController === 'undefined') {
+    return fetch(input, init);
+  }
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await fetch(input, { ...init, signal: controller.signal });
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+/**
+ * Iterative minimum for arbitrarily large numeric arrays without spread stack limits.
+ */
+export function safeMin(values: readonly number[]): number {
+  let min = Infinity;
+  for (let i = 0; i < values.length; i += 1) {
+    if (values[i] < min) min = values[i];
+  }
+  return min;
+}
+
+/**
+ * Iterative maximum for arbitrarily large numeric arrays without spread stack limits.
+ */
+export function safeMax(values: readonly number[]): number {
+  let max = -Infinity;
+  for (let i = 0; i < values.length; i += 1) {
+    if (values[i] > max) max = values[i];
+  }
+  return max;
+}
+
+/**
+ * Create a per-extraction memoized visibility checker to avoid repeated ancestor getComputedStyle walks.
+ */
+export function createVisibilityChecker(): (element: Element | null) => boolean {
+  const cache = new WeakMap<Element, boolean>();
+
+  function check(element: Element | null): boolean {
+    if (!element) return false;
+    const cached = cache.get(element);
+    if (cached !== undefined) return cached;
+
+    if (element.getAttribute('aria-hidden') === 'true' || element.hasAttribute('hidden')) {
+      cache.set(element, false);
+      return false;
+    }
+
+    const htmlEl = element as HTMLElement;
+    const inlineStyle = htmlEl.style;
+    if (
+      inlineStyle
+      && (inlineStyle.display === 'none' || inlineStyle.visibility === 'hidden' || inlineStyle.visibility === 'collapse')
+    ) {
+      cache.set(element, false);
+      return false;
+    }
+
+    const view = element.ownerDocument?.defaultView;
+    const style = view?.getComputedStyle(element);
+    if (
+      style
+      && (
+        style.display === 'none'
+        || style.visibility === 'hidden'
+        || style.visibility === 'collapse'
+        || style.opacity === '0'
+        || style.contentVisibility === 'hidden'
+      )
+    ) {
+      cache.set(element, false);
+      return false;
+    }
+
+    const parent = element.parentElement;
+    if (parent instanceof HTMLSlotElement && parent.assignedNodes({ flatten: true }).length > 0) {
+      cache.set(element, false);
+      return false;
+    }
+    if (parent?.shadowRoot && !element.assignedSlot) {
+      cache.set(element, false);
+      return false;
+    }
+
+    const nextParent = element.assignedSlot
+      || parent
+      || (element.getRootNode() instanceof ShadowRoot ? (element.getRootNode() as ShadowRoot).host : null);
+
+    const visible = nextParent ? check(nextParent) : true;
+    cache.set(element, visible);
+    return visible;
+  }
+
+  return check;
 }
 
 /**

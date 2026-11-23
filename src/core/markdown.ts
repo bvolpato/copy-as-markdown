@@ -49,12 +49,15 @@ const LETTER_OR_MARK = /[\p{Letter}\p{Mark}]/u;
 const LATIN = /\p{Script=Latin}/u;
 const EXTENDED_PICTOGRAPHIC = /\p{Extended_Pictographic}/u;
 
+const PURE_PRINTABLE_ASCII = /^[\t\n\r\x20-\x7e]*$/;
+
 /**
  * Normalize compatibility characters and remove common invisible watermark
  * channels without transliterating ordinary non-ASCII language text.
  */
 export function normalizeUnicodeText(text: string): string {
   if (!text) return '';
+  if (PURE_PRINTABLE_ASCII.test(text)) return text;
 
   const characters = Array.from(text.normalize('NFKC'));
   const output: string[] = [];
@@ -431,7 +434,7 @@ export function nodeToMarkdown(
 
     case 'IMG': {
       const alt = escapeMarkdownLinkText(normalizeWhitespace(el.getAttribute('alt') || ''));
-      const src = el.getAttribute('src') || '';
+      const src = resolveImageSource(el);
       const fullSrc = safeMarkdownLinkUrl(src, el.ownerDocument?.baseURI, false);
       return fullSrc ? `![${alt}](${fullSrc})` : alt;
     }
@@ -683,6 +686,48 @@ export function cleanMarkdown(md: string): string {
     .trim());
 }
 
+function isPlaceholderImage(src: string): boolean {
+  const trimmed = src.trim();
+  if (!trimmed) return true;
+  if (/^data:image\/(?:gif|svg\+xml);/i.test(trimmed)) return true;
+  if (trimmed.startsWith('about:blank')) return true;
+  return false;
+}
+
+function pickSrcsetUrl(srcset: string | null): string {
+  if (!srcset) return '';
+  const candidates = srcset
+    .split(',')
+    .map((entry) => entry.trim().split(/\s+/)[0])
+    .filter((candidate) => candidate && !isPlaceholderImage(candidate));
+  return candidates[candidates.length - 1] || '';
+}
+
+function resolveImageSource(el: HTMLElement): string {
+  const img = el as HTMLImageElement;
+  const directSrc = el.getAttribute('src') || '';
+  if (directSrc && !isPlaceholderImage(directSrc)) return directSrc;
+
+  for (const attr of ['data-src', 'data-lazy-src', 'data-original', 'data-actualsrc']) {
+    const candidate = el.getAttribute(attr);
+    if (candidate && !isPlaceholderImage(candidate)) return candidate;
+  }
+
+  const fromSrcset = pickSrcsetUrl(el.getAttribute('srcset') || el.getAttribute('data-srcset'));
+  if (fromSrcset) return fromSrcset;
+
+  const picture = el.parentElement?.tagName === 'PICTURE' ? el.parentElement : null;
+  if (picture) {
+    for (const source of picture.querySelectorAll('source[srcset], source[data-srcset]')) {
+      const candidate = pickSrcsetUrl(source.getAttribute('srcset') || source.getAttribute('data-srcset'));
+      if (candidate) return candidate;
+    }
+  }
+
+  if (img.currentSrc && !isPlaceholderImage(img.currentSrc)) return img.currentSrc;
+  return directSrc;
+}
+
 function safeMarkdownLinkUrl(value: string, baseUrl?: string, allowMailto = true): string {
   if (!value) return '';
   try {
@@ -699,6 +744,7 @@ type TrustedHtmlPolicy = {
 };
 
 type TrustedTypesFactory = {
+  defaultPolicy?: TrustedHtmlPolicy | null;
   createPolicy(name: string, rules: { createHTML(input: string): string }): TrustedHtmlPolicy;
 };
 
@@ -707,20 +753,30 @@ const TRUSTED_HTML_POLICY_KEY = '__copyAsMarkdownTrustedHtmlPolicy';
 export function parseHtmlDocument(html: string): Document {
   const globalWithTrustedTypes = globalThis as typeof globalThis & {
     trustedTypes?: TrustedTypesFactory;
-    [TRUSTED_HTML_POLICY_KEY]?: TrustedHtmlPolicy;
+    [TRUSTED_HTML_POLICY_KEY]?: TrustedHtmlPolicy | null;
   };
   const trustedTypes = globalWithTrustedTypes.trustedTypes;
   let input: string | unknown = html;
 
   if (trustedTypes) {
     let policy = globalWithTrustedTypes[TRUSTED_HTML_POLICY_KEY];
-    if (!policy) {
-      policy = trustedTypes.createPolicy('copy-as-markdown-html', {
-        createHTML: (value) => value,
-      });
+    if (policy === undefined) {
+      try {
+        policy = trustedTypes.createPolicy('copy-as-markdown-html', {
+          createHTML: (value) => value,
+        });
+      } catch {
+        policy = trustedTypes.defaultPolicy || null;
+      }
       globalWithTrustedTypes[TRUSTED_HTML_POLICY_KEY] = policy;
     }
-    input = policy.createHTML(html);
+    if (policy) {
+      try {
+        input = policy.createHTML(html);
+      } catch {
+        input = html;
+      }
+    }
   }
 
   return new DOMParser().parseFromString(input as string, 'text/html');

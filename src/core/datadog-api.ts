@@ -1,3 +1,5 @@
+import * as Utils from './utils';
+
 export type DatadogSeriesCandidate = {
   label: string;
   values: number[];
@@ -61,10 +63,22 @@ export function materializeDatadogQuery(
 ): string {
   let materialized = query;
   for (const [name, { prefix, value }] of variables) {
-    const replacement = !value || value === '*' ? '*' : `${prefix}:${value}`;
+    const trimmed = value.trim();
+    const rawValue = !trimmed || trimmed === '*' ? '*' : trimmed;
+    let scopedReplacement: string;
+    if (rawValue === '*') {
+      scopedReplacement = '*';
+    } else if (!prefix) {
+      scopedReplacement = rawValue;
+    } else if (rawValue.includes(',')) {
+      const parts = rawValue.split(',').map((part) => part.trim()).filter(Boolean);
+      scopedReplacement = parts.length > 1 ? `${prefix} IN (${parts.join(',')})` : `${prefix}:${parts[0] || '*'}`;
+    } else {
+      scopedReplacement = `${prefix}:${rawValue}`;
+    }
     materialized = materialized
-      .replace(new RegExp(`\\$${escapeRegExp(name)}\\.value\\b`, 'g'), replacement)
-      .replace(new RegExp(`\\$${escapeRegExp(name)}\\b`, 'g'), replacement);
+      .replace(new RegExp(`\\$${escapeRegExp(name)}\\.value\\b`, 'g'), () => rawValue)
+      .replace(new RegExp(`\\$${escapeRegExp(name)}\\b`, 'g'), () => scopedReplacement);
   }
   return materialized;
 }
@@ -74,23 +88,23 @@ export async function fetchDatadogSeriesCandidates(
   fromMs: number,
   toMs: number,
 ): Promise<DatadogSeriesCandidate[]> {
-  const responses = await Promise.all(queries.map(async ({ query, alias }) => {
+  const responses = await mapWithConcurrency(queries, 4, async ({ query, alias }) => {
     try {
       const url = new URL('/api/v1/query', window.location.origin);
       url.searchParams.set('from', String(Math.floor(fromMs / 1000)));
       url.searchParams.set('to', String(Math.floor(toMs / 1000)));
       url.searchParams.set('query', query);
-      const response = await fetch(url.toString(), {
+      const response = await Utils.fetchWithTimeout(url.toString(), {
         credentials: 'include',
         headers: { Accept: 'application/json' },
-      });
+      }, 8000);
       if (!response.ok) return [];
       const payload = await response.json() as ApiResponse;
       return (payload.series || []).map((series) => toCandidate(series, alias));
     } catch {
       return [];
     }
-  }));
+  });
 
   return deduplicateLabels(responses.flat().filter(
     (candidate): candidate is DatadogSeriesCandidate => candidate !== null,
@@ -98,7 +112,7 @@ export async function fetchDatadogSeriesCandidates(
 }
 
 export function datadogLiveSpanToMs(value: string | undefined, fallbackMs: number): number {
-  const match = value?.trim().match(/^(\d+(?:\.\d+)?)\s*([smhdw])$/i);
+  const match = value?.trim().match(/^(\d+(?:\.\d+)?)\s*(mo|[smhdwy])$/i);
   if (!match) return fallbackMs;
   const unitMs: Record<string, number> = {
     s: 1000,
@@ -106,6 +120,8 @@ export function datadogLiveSpanToMs(value: string | undefined, fallbackMs: numbe
     h: 3_600_000,
     d: 86_400_000,
     w: 604_800_000,
+    mo: 2_592_000_000,
+    y: 31_536_000_000,
   };
   return Number(match[1]) * unitMs[match[2].toLowerCase()];
 }
@@ -115,6 +131,7 @@ export async function mapWithConcurrency<T, R>(
   concurrency: number,
   transform: (value: T) => Promise<R>,
 ): Promise<R[]> {
+  const safeConcurrency = Math.max(1, Math.floor(concurrency) || 1);
   const results = new Array<R>(values.length);
   let nextIndex = 0;
 
@@ -126,7 +143,7 @@ export async function mapWithConcurrency<T, R>(
   }
 
   await Promise.all(
-    Array.from({ length: Math.min(concurrency, values.length) }, () => worker()),
+    Array.from({ length: Math.min(safeConcurrency, values.length) }, () => worker()),
   );
   return results;
 }

@@ -39,6 +39,10 @@ interface ManifestBase {
   description: string;
   permissions: string[];
   icons: Record<string, string>;
+  commands: Record<string, {
+    suggested_key: { default: string; mac?: string };
+    description: string;
+  }>;
   content_scripts: Array<{
     matches: string[];
     js: string[];
@@ -74,7 +78,7 @@ function bundle(isUserscript: boolean): string {
     format: 'iife',
     target: 'es2020',
     write: false,
-    minify: false,       // keep readable for userscript installs
+    minify: !isUserscript, // keep readable for userscript installs; minify extension content scripts
     sourcemap: false,
     logLevel: 'warning',
     define: {
@@ -157,10 +161,9 @@ function collectMatchPatterns(extensionPageButtonOnly = false): string[] {
   for (const file of files) {
     const content = fs.readFileSync(path.join(extractorDir, file), 'utf-8');
     if (extensionPageButtonOnly && !/extensionPageButton\s*:\s*true/.test(content)) continue;
-    const matchBlock = content.match(/matches:\s*\[([\s\S]*?)\]/);
-    if (matchBlock) {
-      const items = matchBlock[1].match(/'([^']+)'/g);
-      if (items) items.forEach((item) => patterns.add(item.replace(/'/g, '')));
+    for (const matchBlock of content.matchAll(/matches:\s*\[([\s\S]*?)\]/g)) {
+      const items = matchBlock[1].match(/['"]([^'"]+)['"]/g);
+      if (items) items.forEach((item) => patterns.add(item.slice(1, -1)));
     }
   }
   return [...patterns];
@@ -181,7 +184,7 @@ function buildUserscriptHeader(): string {
 // @author       Bruno Volpato
 // @license      MIT
 // @match        *://*/*
-// @grant        GM_setClipboard
+// @noframes
 // @grant        none
 // @icon         ${'data:image/svg+xml;base64,' + Buffer.from(getSVGIcon()).toString('base64')}
 // @homepageURL  https://github.com/bvolpato/copy-as-markdown
@@ -208,6 +211,12 @@ function buildChromeManifest(automaticPageButtonPatterns: string[]): ChromeManif
     icons: { '16': 'icons/icon-16.png', '48': 'icons/icon-48.png', '128': 'icons/icon-128.png' },
     background: { service_worker: 'background.js' },
     action: { default_icon: { '16': 'icons/icon-16.png', '48': 'icons/icon-48.png' }, default_title: 'Copy as Markdown' },
+    commands: {
+      _execute_action: {
+        suggested_key: { default: 'Alt+Shift+M', mac: 'Alt+Shift+M' },
+        description: 'Copy current page or selection as Markdown',
+      },
+    },
     content_scripts: [{
       matches: automaticPageButtonPatterns,
       js: ['content.js'],
@@ -227,6 +236,12 @@ function buildFirefoxManifest(automaticPageButtonPatterns: string[]): FirefoxMan
     permissions: ['activeTab', 'clipboardWrite'],
     icons: { '16': 'icons/icon-16.png', '48': 'icons/icon-48.png', '128': 'icons/icon-128.png' },
     background: { scripts: ['background.js'] },
+    commands: {
+      _execute_browser_action: {
+        suggested_key: { default: 'Alt+Shift+M', mac: 'Alt+Shift+M' },
+        description: 'Copy current page or selection as Markdown',
+      },
+    },
     content_scripts: [{
       matches: automaticPageButtonPatterns,
       js: ['content.js'],

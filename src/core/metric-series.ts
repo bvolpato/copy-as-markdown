@@ -1,3 +1,5 @@
+import { safeMax, safeMin } from './utils';
+
 export type MetricPoint = {
   step?: number;
   timestamp?: number;
@@ -39,12 +41,10 @@ export function metricSeriesToMarkdown(
     .filter((series) => series.name && series.points.length > 0)
     .sort((left, right) => left.name.localeCompare(right.name));
   const includedSeries = allSeries.slice(0, maxSeries);
-  const perSeriesLimit = includedSeries.length > 0
-    ? Math.max(1, Math.floor(maxHistoryPoints / includedSeries.length))
-    : maxHistoryPoints;
-  const history = includedSeries.map((series) => ({
+  const perSeriesLimits = allocatePointBudgets(includedSeries, maxHistoryPoints);
+  const history = includedSeries.map((series, index) => ({
     ...series,
-    renderedPoints: sampleEvenly(series.points, perSeriesLimit),
+    renderedPoints: sampleEvenly(series.points, perSeriesLimits[index]),
   }));
   const pointsTotal = allSeries.reduce((total, series) => total + series.points.length, 0);
   const pointsIncluded = history.reduce((total, series) => total + series.renderedPoints.length, 0);
@@ -79,8 +79,8 @@ export function metricSeriesToMarkdown(
           String(points.length),
           stepRange,
           formatNumber(values[0]),
-          formatNumber(Math.min(...values)),
-          formatNumber(Math.max(...values)),
+          formatNumber(safeMin(values)),
+          formatNumber(safeMax(values)),
           formatNumber(values.reduce((sum, value) => sum + value, 0) / values.length),
           formatNumber(values[values.length - 1]),
           sparkline(values),
@@ -111,6 +111,32 @@ export function metricSeriesToMarkdown(
   };
 }
 
+function allocatePointBudgets(
+  seriesList: Array<{ points: MetricPoint[] }>,
+  totalBudget: number,
+): number[] {
+  const count = seriesList.length;
+  if (count === 0) return [];
+  const limits = new Array<number>(count).fill(0);
+  let remaining = Math.max(count, totalBudget);
+  const active = new Set<number>(seriesList.map((_, index) => index));
+
+  while (active.size > 0 && remaining > 0) {
+    const share = Math.max(1, Math.floor(remaining / active.size));
+    let progressed = false;
+    for (const index of [...active]) {
+      const capacity = seriesList[index].points.length - limits[index];
+      const grant = Math.min(capacity, share, remaining);
+      limits[index] += grant;
+      remaining -= grant;
+      if (grant > 0) progressed = true;
+      if (limits[index] >= seriesList[index].points.length) active.delete(index);
+    }
+    if (!progressed) break;
+  }
+  return limits.map((limit) => Math.max(1, limit));
+}
+
 function normalizePoints(points: MetricPoint[]): MetricPoint[] {
   const normalized = points
     .filter(({ value }) => Number.isFinite(value))
@@ -119,10 +145,17 @@ function normalizePoints(points: MetricPoint[]): MetricPoint[] {
       timestamp: isFiniteNumber(timestamp) ? timestamp : undefined,
       value,
     }));
-  normalized.sort((left, right) =>
-    (left.step ?? left.timestamp ?? 0) - (right.step ?? right.timestamp ?? 0)
-      || (left.timestamp ?? 0) - (right.timestamp ?? 0),
-  );
+  normalized.sort((left, right) => {
+    if (left.step !== undefined && right.step !== undefined && left.step !== right.step) {
+      return left.step - right.step;
+    }
+    if (left.timestamp !== undefined && right.timestamp !== undefined && left.timestamp !== right.timestamp) {
+      return left.timestamp - right.timestamp;
+    }
+    if (left.step !== undefined && right.step === undefined) return -1;
+    if (left.step === undefined && right.step !== undefined) return 1;
+    return 0;
+  });
   return normalized;
 }
 
@@ -154,8 +187,8 @@ function sampleEvenly<T>(values: T[], limit: number): T[] {
 
 function sparkline(values: number[], width = 32): string {
   const sampled = sampleEvenly(values, width);
-  const min = Math.min(...sampled);
-  const max = Math.max(...sampled);
+  const min = safeMin(sampled);
+  const max = safeMax(sampled);
   if (min === max) return SPARKLINE_BLOCKS[3].repeat(sampled.length);
   return sampled.map((value) => {
     const index = Math.round((value - min) / (max - min) * (SPARKLINE_BLOCKS.length - 1));
@@ -164,7 +197,11 @@ function sparkline(values: number[], width = 32): string {
 }
 
 function formatTimestamp(value: number): string {
-  const milliseconds = Math.abs(value) < 1_000_000_000_000 ? value * 1000 : value;
+  const abs = Math.abs(value);
+  let milliseconds = value;
+  if (abs < 1_000_000_000_000) milliseconds = value * 1000;
+  else if (abs >= 1e17) milliseconds = value / 1e6;
+  else if (abs >= 1e14) milliseconds = value / 1e3;
   const date = new Date(milliseconds);
   return Number.isNaN(date.getTime()) ? String(value) : date.toISOString();
 }
