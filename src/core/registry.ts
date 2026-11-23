@@ -151,6 +151,17 @@ export function getAll(): Extractor[] {
   return [...extractors];
 }
 
+const REGEX_META_CHARS = new Set('.+?^${}()|[]\\');
+
+function escapeRegexLiteral(value: string): string {
+  let escaped = '';
+  for (let i = 0; i < value.length; i++) {
+    const ch = value[i];
+    escaped += REGEX_META_CHARS.has(ch) ? `\\${ch}` : ch;
+  }
+  return escaped;
+}
+
 export function matchPatternToRegex(pattern: string): RegExp {
   const cached = patternRegexCache.get(pattern);
   if (cached) return cached;
@@ -161,19 +172,25 @@ export function matchPatternToRegex(pattern: string): RegExp {
     patternRegexCache.set(pattern, never);
     return never;
   }
-  const [, scheme, authority, path] = match;
-  const escape = (value: string) => value.replace(/[.+?^${}()|[\]\\]/g, '\\$&');
+  const [, rawScheme, authority, path] = match;
+  const scheme = rawScheme === '*'
+    ? 'https?'
+    : rawScheme === 'https'
+      ? 'https'
+      : rawScheme === 'http'
+        ? 'http'
+        : 'file';
   const portMatch = authority.match(/^(.*?)(:\d+|:\*)?$/)!;
   const hostname = portMatch[1];
   const host = hostname === '*'
     ? '[^/?#:@]+'
     : hostname.startsWith('*.')
-      ? `(?:[^/?#:@]+\\.)?${escape(hostname.slice(2))}`
-      : escape(hostname);
+      ? `(?:[^/?#:@]+\\.)?${escapeRegexLiteral(hostname.slice(2))}`
+      : escapeRegexLiteral(hostname);
   const port = scheme === 'file' ? '' : portMatch[2] && portMatch[2] !== ':*'
-    ? escape(portMatch[2]) : '(?::\\d+)?';
-  const pathname = path.split('*').map(escape).join('.*');
-  const compiled = new RegExp(`^${scheme === '*' ? 'https?' : scheme}://${host}${port}${pathname}$`);
+    ? escapeRegexLiteral(portMatch[2]) : '(?::\\d+)?';
+  const pathname = path.split('*').map(escapeRegexLiteral).join('.*');
+  const compiled = new RegExp(`^${scheme}://${host}${port}${pathname}$`);
   patternRegexCache.set(pattern, compiled);
   return compiled;
 }
