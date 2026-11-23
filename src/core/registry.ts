@@ -87,7 +87,7 @@ function getCompiledPatterns(extractor: Extractor): RegExp[] {
 }
 
 export function defineExtractor(config: ExtractorConfig): Extractor {
-  const extractor: Extractor = {
+  return {
     name: config.name,
     matches: config.matches || [],
     regex: config.regex || null,
@@ -99,11 +99,6 @@ export function defineExtractor(config: ExtractorConfig): Extractor {
     extensionPageButton: config.extensionPageButton || false,
     anchor: config.anchor || null,
   };
-  compiledExtractorPatterns.set(
-    extractor,
-    extractor.matches.map((pattern) => matchPatternToRegex(pattern)),
-  );
-  return extractor;
 }
 
 export function register(config: ExtractorConfig): Extractor {
