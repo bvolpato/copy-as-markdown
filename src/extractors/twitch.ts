@@ -18,8 +18,10 @@ register({
     '*://twitch.tv/*/clip/*',
     '*://twitch.tv/clip/*',
     '*://twitch.tv/*',
+    '*://clips.twitch.tv/*',
+    '*://m.twitch.tv/*',
   ],
-  pathnameRegex: /^\/(?:videos\/\d+|clip\/[^/?#]+|[A-Za-z0-9_]{2,25}\/clip\/[^/?#]+|(?!(?:directory|search|downloads|settings|subscriptions|inventory|jobs|p|login|signup|friends)(?:\/|$))[A-Za-z0-9_]{2,25}\/?$)/,
+  pathnameRegex: /^\/(?:videos\/\d+|clip\/[^/?#]+|[A-Za-z0-9_]{2,25}\/(?:clip\/[^/?#]+|(?:about|videos|clips|schedule)\/?$)|(?!(?:directory|search|downloads|settings|subscriptions|inventory|jobs|p|login|signup|friends|wallet|drops|turbo|prime|store|moderator|popout)(?:\/|$))[A-Za-z0-9_-]{2,80}\/?$)/,
   buttonPlacement: 'anchor',
   anchor: {
     selector: [
@@ -35,20 +37,30 @@ register({
 
   async extract() {
     const url = Utils.getCanonicalUrl();
-    const route = routeKind(window.location.pathname);
+    const route = routeKind(window.location.pathname, window.location.hostname);
     const payload = firstStructuredPayload();
-    const title = firstText([
+    const streamOrVideoTitle = firstText([
       '[data-a-target="video-title"]',
       '[data-a-target="stream-title"]',
       '[data-test-selector="title"]',
-      'h1',
-    ]) || stringValue(payload?.name) || Utils.getMeta('title') || Utils.getPageTitle();
-    const channel = firstText([
+    ]);
+    const channelFromDom = firstText([
       '[data-a-target="video-info-channel-name"]',
       '[data-a-target="channel-name"]',
       '[data-a-target="streamer-name"]',
+      '.channel-info-content h1',
+      'h1.tw-title',
       'a[data-a-target="preview-card-channel-link"]',
-    ]) || stringValue(asRecord(payload?.author)?.name) || stringValue(payload?.author);
+    ]);
+    const title = streamOrVideoTitle
+      || firstText(['h1'])
+      || stringValue(payload?.streamTitle || payload?.name)
+      || Utils.getMeta('title')
+      || Utils.getPageTitle();
+    const channel = channelFromDom
+      || stringValue(payload?.channelName)
+      || stringValue(asRecord(payload?.author)?.name)
+      || stringValue(payload?.author);
     const game = firstText([
       '[data-a-target="video-game-name"]',
       '[data-a-target="game-link"]',
@@ -65,6 +77,7 @@ register({
       'meta[itemprop="duration"]',
     ], true) || stringValue(payload?.duration);
     const views = firstText([
+      '[data-a-target="animated-channel-viewers-count"]',
       '[data-a-target="video-views"]',
       '[data-a-target="stream-viewer-count"]',
       '[data-a-target="clip-views"]',
@@ -83,7 +96,11 @@ register({
       game, published, duration, views,
     };
     const parts: string[] = [`# ${title}`, ''];
-    if (channel) parts.push(`**Channel:** ${channelUrl ? `[${channel}](${channelUrl})` : channel}`);
+    if (channel && channel !== title) {
+      parts.push(`**Channel:** ${channelUrl ? `[${channel}](${channelUrl})` : channel}`);
+    } else if (channel && channelUrl) {
+      parts.push(`**Channel:** [${channel}](${channelUrl})`);
+    }
     if (game) parts.push(`**Category:** ${game}`);
     if (published) parts.push(`**Published:** ${published}`);
     if (duration) parts.push(`**Duration:** ${duration}`);
@@ -113,7 +130,8 @@ register({
 
 type JsonRecord = Record<string, unknown>;
 
-function routeKind(pathname: string): string {
+function routeKind(pathname: string, hostname = ''): string {
+  if (/^clips\.twitch\.tv$/i.test(hostname)) return 'clip';
   if (pathname.startsWith('/videos/')) return 'video';
   if (pathname.startsWith('/clip/') || /\/clip\//.test(pathname)) return 'clip';
   return 'channel';
@@ -152,6 +170,7 @@ function firstStructuredPayload(): JsonRecord | null {
   )) {
     const raw = script.textContent || '';
     if (!raw || raw.length > 8_000_000) continue;
+    if (!/(?:VideoObject|BroadcastEvent|"videoId"|"streamTitle"|"channelName")/.test(raw)) continue;
     try {
       const parsed: unknown = JSON.parse(raw);
       const found = findRecord(parsed);
@@ -175,7 +194,13 @@ function findRecord(value: unknown, depth = 0): JsonRecord | null {
   if (typeof value !== 'object') return null;
   const record = value as JsonRecord;
   const type = stringValue(record['@type']);
-  if (/VideoObject|BroadcastEvent|Person/i.test(type) || record.videoId || record.streamTitle || record.channelName) return record;
+  if (/VideoObject|BroadcastEvent/i.test(type)) return record;
+  if (
+    (record.videoId || record.streamTitle || record.channelName)
+    && (record.name || record.title || record.description || record.streamTitle)
+  ) {
+    return record;
+  }
   for (const child of Object.values(record)) {
     const found = findRecord(child, depth + 1);
     if (found) return found;

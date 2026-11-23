@@ -11,14 +11,17 @@ register({
   name: 'Booking.com',
   matches: [
     '*://www.booking.com/hotel/*',
-    '*://www.booking.com/searchresults.html*',
+    '*://www.booking.com/searchresults*.html*',
     '*://booking.com/hotel/*',
-    '*://booking.com/searchresults.html*',
+    '*://booking.com/searchresults*.html*',
+    '*://m.booking.com/hotel/*',
+    '*://m.booking.com/searchresults*.html*',
   ],
-  pathnameRegex: /^\/(?:hotel\/[^/?#]+|searchresults\.html)/,
+  pathnameRegex: /^\/(?:hotel\/[^/?#]+|searchresults(?:\.[a-z]{2}(?:-[a-z]{2})?)?\.html)/i,
   buttonPlacement: 'anchor',
   anchor: {
     selector: [
+      '#hp_hotel_name',
       '[data-testid="property-header"]',
       '[data-testid="property-card"] h3',
       'h1',
@@ -30,17 +33,22 @@ register({
 
   async extract() {
     const url = Utils.getCanonicalUrl();
-    const route = window.location.pathname.startsWith('/searchresults.html') ? 'search' : 'hotel';
+    const isSearch = /^\/searchresults(?:\.[a-z]{2}(?:-[a-z]{2})?)?\.html/i.test(window.location.pathname);
+    const route = isSearch ? 'search' : 'hotel';
+
+    if (isSearch) {
+      return extractSearchResults(url);
+    }
+
     const payload = firstHotelPayload();
     const title = firstText([
+      '#hp_hotel_name',
       '[data-testid="property-header"] h2',
       '[data-testid="property-header"] h1',
-      '[data-testid="property-card"] h3',
       'h1',
     ]) || stringValue(payload?.name) || Utils.getMeta('title') || Utils.getPageTitle();
     const location = firstText([
       '[data-testid="property-header"] [data-testid*="address"]',
-      '[data-testid="property-card"] [data-testid*="address"]',
       '[data-testid="address"]',
       '[data-testid*="location"]',
     ]) || stringValue(payload?.address && asRecord(payload.address)?.streetAddress)
@@ -59,65 +67,83 @@ register({
       '[data-testid="price-and-discounted-price"]',
       '[data-testid="price-for-x-nights"]',
       '[data-testid="price"]',
-      '[data-testid="property-card-price"]',
     ]) || stringValue(asRecord(payload?.offers)?.price) || stringValue(payload?.price);
     const description = firstText([
+      '#property_description_content',
       '[data-testid="property-description"]',
       '[data-testid="property-header"] + section',
       '[data-testid="hotel-description"]',
     ]) || stringValue(payload?.description) || Utils.getMeta('description');
-    const hotelUrl = document.querySelector<HTMLAnchorElement>(
-      '[data-testid="property-card"] h3 a, [data-testid="property-header"] a[href*="/hotel/"]',
-    )?.href || stringValue(payload?.url);
 
     const metadata: Record<string, string> = {
       source: 'Booking.com', title, url, route, location, rating,
-      reviews: reviewCount, price, hotel_url: hotelUrl,
+      reviews: reviewCount, price,
     };
     const parts: string[] = [`# ${title}`, ''];
     if (location) parts.push(`**Location:** ${location}`);
-    if (rating || reviewCount) parts.push(`**Rating:** ${rating}${reviewCount ? ` (${reviewCount} reviews)` : ''}`);
+    if (rating && reviewCount) parts.push(`**Rating:** ${rating} (${reviewCount} reviews)`);
+    else if (rating) parts.push(`**Rating:** ${rating}`);
+    else if (reviewCount) parts.push(`**Reviews:** ${reviewCount}`);
     if (price) parts.push(`**Price:** ${price}`);
-    if (hotelUrl && route === 'search') parts.push(`**Hotel:** ${hotelUrl}`);
     parts.push('');
     if (description) parts.push('## Description', '', description, '');
 
-    if (route === 'search') {
-      const cards = Array.from(document.querySelectorAll('[data-testid="property-card"]'));
-      if (cards.length) {
-        parts.push('## Search Results', '');
-        cards.forEach((card, index) => {
-          const cardTitle = card.querySelector('h3')?.textContent?.trim() || '';
-          const cardLocation = card.querySelector('[data-testid*="address"], [data-testid*="location"]')?.textContent?.trim() || '';
-          const cardRating = card.querySelector('[data-testid="review-score"], [aria-label*="Scored"]')?.textContent?.trim() || '';
-          const cardPrice = card.querySelector('[data-testid*="price"]')?.textContent?.trim() || '';
-          if (cardTitle) {
-            parts.push(`### ${index + 1}. ${cardTitle}`);
-            if (cardLocation) parts.push(`**Location:** ${cardLocation}`);
-            if (cardRating) parts.push(`**Rating:** ${cardRating}`);
-            if (cardPrice) parts.push(`**Price:** ${cardPrice}`);
-            parts.push('');
-          }
-        });
-      }
-    } else {
-      const amenities = extractRows([
-        '[data-testid="property-facilities"] li',
-        '[data-testid="facility-list"] li',
-        '[data-testid*="facility"] li',
-      ]);
-      if (amenities.length) parts.push('## Amenities', '', ...amenities.map((item) => `- ${item}`), '');
-      const rooms = extractRows([
-        '[data-testid="room-list"] [data-testid*="room"]',
-        '[data-testid="rooms-table"] tr',
-        '[data-testid*="room"]',
-      ]);
-      if (rooms.length) parts.push('## Rooms', '', ...rooms.map((room) => `- ${room}`), '');
-    }
+    const amenities = extractRows([
+      '[data-testid="property-facilities"] li',
+      '[data-testid="facility-list"] li',
+      '[data-testid*="facility"] li',
+    ]);
+    if (amenities.length) parts.push('## Amenities', '', ...amenities.map((item) => `- ${item}`), '');
+
+    const rooms = extractRows([
+      '#hprt-table tbody tr',
+      '[data-testid="rooms-table"] tr',
+      '[data-testid="room-list"] [data-testid*="room"]',
+    ]);
+    if (rooms.length) parts.push('## Rooms', '', ...rooms.map((room) => `- ${room}`), '');
 
     return Markdown.buildPageMarkdown(metadata, parts.join('\n'));
   },
 });
+
+function extractSearchResults(url: string): string {
+  const title = firstText([
+    'h1',
+    '[data-testid="search-header"] h1',
+  ]) || Utils.getMeta('title') || Utils.getPageTitle() || 'Booking.com Search Results';
+  const description = Utils.getMeta('description');
+  const metadata: Record<string, string> = {
+    source: 'Booking.com',
+    title,
+    url,
+    route: 'search',
+  };
+
+  const parts: string[] = [`# ${title}`, ''];
+  if (description) parts.push(description, '');
+
+  const cards = Array.from(document.querySelectorAll('[data-testid="property-card"]'));
+  if (cards.length) {
+    parts.push('## Search Results', '');
+    cards.forEach((card, index) => {
+      const cardTitle = card.querySelector('[data-testid="title"], h3')?.textContent?.replace(/\s+/g, ' ').trim() || '';
+      const cardLink = card.querySelector<HTMLAnchorElement>('[data-testid="title-link"], h3 a, a[href*="/hotel/"]')?.href || '';
+      const cardLocation = card.querySelector('[data-testid*="address"], [data-testid*="location"]')?.textContent?.replace(/\s+/g, ' ').trim() || '';
+      const cardRating = card.querySelector('[data-testid="review-score"], [aria-label*="Scored"]')?.textContent?.replace(/\s+/g, ' ').trim() || '';
+      const cardPrice = card.querySelector('[data-testid*="price"]')?.textContent?.replace(/\s+/g, ' ').trim() || '';
+      if (cardTitle) {
+        parts.push(`### ${index + 1}. ${cardTitle}`);
+        if (cardLink) parts.push(`**URL:** ${cardLink}`);
+        if (cardLocation) parts.push(`**Location:** ${cardLocation}`);
+        if (cardRating) parts.push(`**Rating:** ${cardRating}`);
+        if (cardPrice) parts.push(`**Price:** ${cardPrice}`);
+        parts.push('');
+      }
+    });
+  }
+
+  return Markdown.buildPageMarkdown(metadata, parts.join('\n'));
+}
 
 type JsonRecord = Record<string, unknown>;
 
@@ -150,6 +176,7 @@ function firstHotelPayload(): JsonRecord | null {
   )) {
     const raw = script.textContent || '';
     if (!raw || raw.length > 8_000_000) continue;
+    if (!/(?:Hotel|LodgingBusiness|"hotelId"|"propertyId"|"hotel_id")/.test(raw)) continue;
     try {
       const parsed: unknown = JSON.parse(raw);
       const found = findHotelRecord(parsed);

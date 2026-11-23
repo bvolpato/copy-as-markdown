@@ -12,10 +12,9 @@ import * as Utils from '../core/utils';
 
 const ISSUE_KEY_PATTERN = '[A-Z][A-Z0-9_]*-\\d+';
 const CUSTOM_JIRA_URL = new RegExp(
-  `^https?://(?:[A-Z0-9.-]*jira[A-Z0-9.-]*(?::\\d+)?/(?:browse|issues)/${ISSUE_KEY_PATTERN}`
-  + `|[A-Z0-9.-]+(?::\\d+)?/jira/(?:[^?#]*/)?(?:browse|issues)/${ISSUE_KEY_PATTERN}`
-  + `|[A-Z0-9.-]*jira[A-Z0-9.-]*(?::\\d+)?/secure/ViewIssue\\.jsp\\?[^#]*(?:key|selectedIssue)=${ISSUE_KEY_PATTERN}`
-  + `|(?:[A-Z0-9-]+\\.)?atlassian\\.net(?::\\d+)?/jira/[^?#]*(?:/(?:browse|issues)/${ISSUE_KEY_PATTERN}|[?&]selectedIssue=${ISSUE_KEY_PATTERN}))(?:[/?#&].*)?$`,
+  `^https?://(?:[A-Z0-9.-]*jira[A-Z0-9.-]*(?::\\d+)?/(?:(?:browse|issues)/${ISSUE_KEY_PATTERN}|(?:issues/?|secure/(?:ViewIssue\\.jspa?|RapidBoard\\.jspa))\\?[^#]*(?:key|selectedIssue)=${ISSUE_KEY_PATTERN})`
+  + `|[A-Z0-9.-]+(?::\\d+)?/jira/(?:[^?#]*/)?(?:(?:browse|issues)/${ISSUE_KEY_PATTERN}|(?:issues/?|secure/(?:ViewIssue\\.jspa?|RapidBoard\\.jspa))\\?[^#]*(?:key|selectedIssue)=${ISSUE_KEY_PATTERN})`
+  + `|(?:[A-Z0-9-]+\\.)?atlassian\\.net(?::\\d+)?/(?:jira/[^?#]*(?:/(?:browse|issues)/${ISSUE_KEY_PATTERN}|[?&]selectedIssue=${ISSUE_KEY_PATTERN})|issues/${ISSUE_KEY_PATTERN}|issues/?\\?[^#]*selectedIssue=${ISSUE_KEY_PATTERN}|secure/(?:ViewIssue\\.jspa?|RapidBoard\\.jspa)\\?[^#]*(?:key|selectedIssue)=${ISSUE_KEY_PATTERN}))(?:[/?#&].*)?$`,
   'i',
 );
 
@@ -52,6 +51,8 @@ const JIRA_CORE_FIELD_NAMES: Record<string, string> = {
   affectsVersions: 'Affects Versions',
   environment: 'Environment',
   parent: 'Parent',
+  subtasks: 'Subtasks',
+  attachment: 'Attachments',
   security: 'Security Level',
 };
 
@@ -66,13 +67,16 @@ const JIRA_NOISE_FIELD_NAMES = new Set([
   'rank (obsolete)',
   'work ratio',
 ]);
-const JIRA_OPAQUE_FIELD_VALUE = /(?:\b(?:cachedValue|devSummaryJson|summaryBean)=|\b[A-Za-z_$][\w.$]*Bean@[\da-f]+\b)/i;
+const JIRA_OPAQUE_FIELD_VALUE = /(?:\b(?:cachedValue|devSummaryJson|summaryBean)=|\b[A-Za-z_$][\w.$]*(?:Bean|Sprint)@[\da-f]+\b|com\.atlassian\.greenhopper\.service\.sprint\.Sprint@[\da-f]+)/i;
+
+let isVisible: (element: Element | null) => boolean = Utils.createVisibilityChecker();
 
 export const jiraExtractor = register({
   name: 'Jira',
   matches: [
     '*://*.atlassian.net/browse/*',
     '*://*.atlassian.net/secure/ViewIssue.jsp*',
+    '*://*.atlassian.net/secure/RapidBoard.jspa*',
   ],
   regex: CUSTOM_JIRA_URL,
   buttonPlacement: 'anchor',
@@ -90,6 +94,7 @@ export const jiraExtractor = register({
   },
 
   async extract() {
+    isVisible = Utils.createVisibilityChecker();
     const domIssueKey = getIssueKey();
     const api = domIssueKey ? await fetchJiraIssue(domIssueKey) : null;
     const issueKey = api?.issueKey || domIssueKey;
@@ -187,22 +192,25 @@ const JIRA_DESCRIPTION_NOISE = [
 ];
 
 async function fetchJiraIssue(issueKey: string): Promise<JiraApiExtraction | null> {
-  const apiUrl = buildJiraApiUrl(issueKey);
-  if (!apiUrl) return null;
+  const candidates: Array<{ url: string; contentSource: string }> = [
+    { url: buildJiraApiUrl(issueKey, '3'), contentSource: 'Jira Cloud REST API v3' },
+    { url: buildJiraApiUrl(issueKey, '2'), contentSource: 'Jira REST API v2' },
+  ];
 
-  try {
-    const payload = await fetchAtlassianJson(apiUrl);
-    return parseJiraApiIssue(payload, issueKey);
-  } catch (error) {
-    console.warn('[Copy as Markdown] Jira REST fetch failed; using rendered DOM', error);
-    return null;
+  for (const candidate of candidates) {
+    try {
+      const payload = await fetchAtlassianJson(candidate.url);
+      return parseJiraApiIssue(payload, issueKey, candidate.contentSource);
+    } catch (error) {
+      console.warn(`[Copy as Markdown] Jira REST fetch failed (${candidate.contentSource})`, error);
+    }
   }
+  return null;
 }
 
-function buildJiraApiUrl(issueKey: string): string {
-  const cloud = window.location.hostname.toLowerCase().endsWith('.atlassian.net');
-  const contextPath = cloud ? '' : getJiraContextPath();
-  const version = cloud ? '3' : 'latest';
+function buildJiraApiUrl(issueKey: string, version: '3' | '2'): string {
+  const cloudHost = window.location.hostname.toLowerCase().endsWith('.atlassian.net');
+  const contextPath = cloudHost ? '' : getJiraContextPath();
   const url = new URL(
     `${contextPath}/rest/api/${version}/issue/${encodeURIComponent(issueKey)}`,
     window.location.origin,
@@ -214,13 +222,20 @@ function buildJiraApiUrl(issueKey: string): string {
 
 function getJiraContextPath(): string {
   const path = window.location.pathname;
+  if (/^\/jira\/(?:software|core|servicedesk|your-work|projects)\b/i.test(path)) {
+    return '';
+  }
   const marker = path.search(/\/(?:browse|issues|secure)\//i);
   if (marker > 0) return path.slice(0, marker).replace(/\/$/, '');
   const jiraMarker = path.toLowerCase().indexOf('/jira/');
   return jiraMarker >= 0 ? path.slice(0, jiraMarker + '/jira'.length) : '';
 }
 
-function parseJiraApiIssue(payload: JsonObject, requestedKey: string): JiraApiExtraction {
+function parseJiraApiIssue(
+  payload: JsonObject,
+  requestedKey: string,
+  contentSource: string,
+): JiraApiExtraction {
   const fields = asObject(payload.fields);
   if (!fields) throw new Error('Jira REST response omitted issue fields');
   const renderedFields = asObject(payload.renderedFields) || {};
@@ -241,9 +256,7 @@ function parseJiraApiIssue(payload: JsonObject, requestedKey: string): JiraApiEx
     comments: comments.items,
     commentsTotal: comments.total,
     links: extractApiIssueLinks(fields.issuelinks, issueKey),
-    contentSource: window.location.hostname.toLowerCase().endsWith('.atlassian.net')
-      ? 'Jira Cloud REST API v3'
-      : 'Jira REST API',
+    contentSource,
   };
 }
 
@@ -253,7 +266,7 @@ function extractApiFields(
   names: JsonObject,
 ): NamedValue[] {
   const excluded = new Set([
-    'summary', 'description', 'comment', 'issuelinks', 'attachment', 'subtasks', 'project',
+    'summary', 'description', 'comment', 'issuelinks', 'project',
   ]);
   const values = new Map<string, NamedValue>();
 
@@ -261,13 +274,52 @@ function extractApiFields(
     if (excluded.has(fieldId) || rawValue === null || rawValue === undefined) return;
     const rawName = stringValue(names[fieldId]) || jiraFieldName(fieldId);
     if (!shouldIncludeJiraField(fieldId, rawName, rawValue)) return;
-    const renderedValue = renderedFields[fieldId];
-    const value = formatJiraField(renderedValue) || formatJiraField(rawValue);
-    if (JIRA_OPAQUE_FIELD_VALUE.test(value)) return;
+
+    let value = '';
+    if (fieldId === 'parent') {
+      value = formatJiraParent(rawValue);
+    } else if (fieldId === 'subtasks') {
+      value = formatJiraSubtasks(rawValue);
+    } else if (fieldId === 'attachment') {
+      value = formatJiraAttachments(rawValue);
+    } else {
+      const renderedValue = renderedFields[fieldId];
+      value = formatJiraField(renderedValue) || formatJiraField(rawValue);
+    }
+    if (!value || JIRA_OPAQUE_FIELD_VALUE.test(value)) return;
     addField(values, rawName, value);
   });
 
   return Array.from(values.values());
+}
+
+function formatJiraParent(rawValue: unknown): string {
+  const parent = asObject(rawValue);
+  if (!parent) return '';
+  const key = stringValue(parent.key).toUpperCase();
+  const parentFields = asObject(parent.fields);
+  const summary = normalizeText(stringValue(parentFields?.summary));
+  if (key && summary) return `${key}: ${summary}`;
+  return key || summary;
+}
+
+function formatJiraSubtasks(rawValue: unknown): string {
+  return objectArray(rawValue)
+    .map((task) => {
+      const key = stringValue(task.key).toUpperCase();
+      const taskFields = asObject(task.fields);
+      const summary = normalizeText(stringValue(taskFields?.summary));
+      return key && summary ? `${key}: ${summary}` : (key || summary);
+    })
+    .filter(Boolean)
+    .join(', ');
+}
+
+function formatJiraAttachments(rawValue: unknown): string {
+  return objectArray(rawValue)
+    .map((item) => normalizeText(stringValue(item.filename)))
+    .filter(Boolean)
+    .join(', ');
 }
 
 function jiraFieldName(fieldId: string): string {
@@ -363,17 +415,17 @@ function buildJiraIssueUrl(issueKey: string): string {
 }
 
 function getIssueKey(): string {
+  const url = new URL(window.location.href);
+  const queryKey = url.searchParams.get('selectedIssue') || url.searchParams.get('key');
   const pathMatches = [
     window.location.pathname.match(/\/(?:browse|issues)\/([A-Z][A-Z0-9_]*-\d+)/i)?.[1],
     window.location.pathname.match(/\/([A-Z][A-Z0-9_]*-\d+)(?:\/|$)/i)?.[1],
   ];
-  const url = new URL(window.location.href);
-  const queryKey = url.searchParams.get('selectedIssue') || url.searchParams.get('key');
   const domKey = textOf(document.querySelector(
     '[data-testid="issue.views.issue-base.foundation.breadcrumbs.current-issue.item"], '
     + '[data-testid*="issue-key"], #key-val, #issuekey',
   )).match(new RegExp(ISSUE_KEY_PATTERN, 'i'))?.[0];
-  return [...pathMatches, queryKey, domKey]
+  return [queryKey, ...pathMatches, domKey]
     .find((value) => value && new RegExp(`^${ISSUE_KEY_PATTERN}$`, 'i').test(value))
     ?.toUpperCase() || '';
 }
@@ -442,7 +494,7 @@ function addField(fields: Map<string, NamedValue>, rawName: string, rawValue: st
   if (!name || !value || value === '-' || /^(description|summary|comments?|activity)$/i.test(name)) return;
   const key = name.toLowerCase();
   const existing = fields.get(key);
-  if (!existing || value.length < existing.value.length) fields.set(key, { name, value });
+  if (!existing || value.length > existing.value.length) fields.set(key, { name, value });
 }
 
 function normalizeFieldName(value: string): string {
@@ -547,24 +599,10 @@ function markdownFromContent(element: Element, noise: string[]): string {
 
 function firstVisible(selectors: string[]): Element | null {
   for (const selector of selectors) {
-    const element = Array.from(document.querySelectorAll(selector)).find(isVisible);
+    const element = Array.from(document.querySelectorAll(selector)).find((el) => isVisible(el));
     if (element) return element;
   }
   return null;
-}
-
-function isVisible(element: Element): boolean {
-  let current: Element | null = element;
-  while (current) {
-    if (
-      current.hasAttribute('hidden')
-      || current.getAttribute('aria-hidden') === 'true'
-      || (current instanceof HTMLElement
-        && (current.style.display === 'none' || current.style.visibility === 'hidden'))
-    ) return false;
-    current = current.parentElement;
-  }
-  return true;
 }
 
 function metaContent(name: string): string {

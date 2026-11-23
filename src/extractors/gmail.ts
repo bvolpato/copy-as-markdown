@@ -5,6 +5,7 @@
 
 import { register } from '../core/registry';
 import * as Markdown from '../core/markdown';
+import * as Utils from '../core/utils';
 import { addExtractionMetadata, limitMarkdown } from '../core/context';
 
 type GmailMessage = {
@@ -84,10 +85,22 @@ register({
   },
 });
 
+const GMAIL_TWO_SEGMENT_VIEWS = new Set([
+  'label',
+  'search',
+  'category',
+  'advanced-search',
+  'section',
+]);
+
 function getThreadId(): string {
-  const hash = decodeHash(window.location.hash).replace(/^#/, '');
-  const segments = hash.split('/').filter(Boolean);
+  const rawHash = decodeHash(window.location.hash).replace(/^#/, '');
+  const cleanHash = rawHash.split('?')[0];
+  const segments = cleanHash.split('/').filter(Boolean);
   if (segments.length < 2) return '';
+  if (GMAIL_TWO_SEGMENT_VIEWS.has(segments[0].toLowerCase()) && segments.length < 3) {
+    return '';
+  }
   const candidate = segments[segments.length - 1];
   if (!/^[A-Za-z0-9_-]{12,}$/.test(candidate)) return '';
   return candidate;
@@ -108,29 +121,88 @@ function getLiveThreadTitle(): string {
   );
 }
 
+function getGmailIk(): string {
+  const globalWindow = window as typeof window & { GLOBALS?: unknown[]; IK?: unknown };
+  if (typeof globalWindow.IK === 'string' && /^[a-f0-9]{6,}$/i.test(globalWindow.IK)) {
+    return globalWindow.IK;
+  }
+  if (Array.isArray(globalWindow.GLOBALS)) {
+    const candidate = globalWindow.GLOBALS[9];
+    if (typeof candidate === 'string' && /^[a-f0-9]{6,}$/i.test(candidate)) {
+      return candidate;
+    }
+  }
+  const link = document.querySelector<HTMLElement>('a[href*="ik="], link[href*="ik="]');
+  const linkHref = link?.getAttribute('href') || '';
+  const linkIk = linkHref.match(/[?&]ik=([a-f0-9]{6,})\b/i)?.[1];
+  if (linkIk) return linkIk;
+
+  for (const script of Array.from(document.scripts)) {
+    const text = script.textContent || '';
+    if (!text.includes('ik')) continue;
+    const match = text.match(/(?:["']ik["']\s*[,:]\s*["']|var\s+IK\s*=\s*["']|[?&]ik=)([a-f0-9]{6,})/i);
+    if (match?.[1]) return match[1];
+  }
+  return '';
+}
+
+function getGmailPermThreadInfo(): { permthid: string; legacyId: string } {
+  const scope = document.querySelector('[role="main"]') || document;
+  const permEl = scope.querySelector<HTMLElement>('[data-thread-perm-id]');
+  const legacyEl = scope.querySelector<HTMLElement>('[data-legacy-thread-id]');
+  return {
+    permthid: permEl?.getAttribute('data-thread-perm-id')?.trim() || '',
+    legacyId: legacyEl?.getAttribute('data-legacy-thread-id')?.trim() || '',
+  };
+}
+
 function getPrintViewUrl(threadId: string): string {
-  const accountPath = window.location.pathname.match(/^\/mail\/u\/[^/]+\//)?.[0] || '/mail/u/0/';
+  const accountPath = window.location.pathname.match(/^\/mail\/(?:b\/[^/]+\/)?u\/[^/]+\//)?.[0] || '/mail/u/0/';
   const url = new URL(accountPath, window.location.origin);
   url.searchParams.set('ui', '2');
+  const ik = getGmailIk();
+  if (ik) url.searchParams.set('ik', ik);
   url.searchParams.set('view', 'pt');
   url.searchParams.set('search', 'all');
-  url.searchParams.set('th', threadId);
+  const { permthid, legacyId } = getGmailPermThreadInfo();
+  if (permthid) {
+    url.searchParams.set('permthid', permthid);
+  }
+  url.searchParams.set('th', legacyId || threadId);
   return url.href;
 }
 
+function isGoogleSignInResponse(response: Response, html: string): boolean {
+  try {
+    const parsedUrl = response.url ? new URL(response.url) : null;
+    if (parsedUrl && /(?:^|\.)accounts\.google\.com$/i.test(parsedUrl.hostname)) {
+      return true;
+    }
+  } catch {
+    // ignore invalid response URL
+  }
+  if (response.url.includes('ServiceLogin')) return true;
+  if (/<title[^>]*>\s*(?:sign in|google accounts)\b/i.test(html)) return true;
+  const hasSignInForm = /<form[^>]+(?:ServiceLogin|accounts\.google\.com)/i.test(html)
+    || /name=["'](?:identifier|Passwd)["']/i.test(html);
+  if (hasSignInForm) {
+    const visibleText = html.replace(/<script[\s\S]*?<\/script>|<style[\s\S]*?<\/style>|<[^>]+>/gi, ' ')
+      .replace(/\s+/g, ' ')
+      .trim();
+    if (visibleText.length < 2000) return true;
+  }
+  return false;
+}
+
 async function fetchPrintView(threadId: string): Promise<string> {
-  const response = await fetch(getPrintViewUrl(threadId), {
+  const response = await Utils.fetchWithTimeout(getPrintViewUrl(threadId), {
     credentials: 'include',
   });
   if (!response.ok) throw new Error(`Gmail print request returned ${response.status}`);
 
   const html = await response.text();
   if (!html.trim()) throw new Error('Gmail print request returned an empty response');
-  if (
-    response.url.includes('ServiceLogin')
-    || /accounts\.google\.com/i.test(html)
-    || /<title>\s*sign in/i.test(html)
-  ) {
+  if (isGoogleSignInResponse(response, html)) {
     throw new Error('Gmail print request redirected to sign-in');
   }
   return html;
@@ -148,10 +220,51 @@ function parsePrintView(html: string): { title: string; messages: GmailMessage[]
   return { title, messages };
 }
 
+function isAttachmentFooterRow(row: HTMLTableRowElement): boolean {
+  if (row.querySelector('table.att')) return true;
+  const text = normalizeText(row.textContent || '');
+  if (/^\d+\s+attachments?\b/i.test(text)) return true;
+  const attLinks = row.querySelectorAll('a[href*="view=att"], a[href*="disp=att"]');
+  if (attLinks.length === 0) return false;
+  const clone = row.cloneNode(true) as HTMLElement;
+  clone.querySelectorAll('a[href*="view=att"], a[href*="disp=att"], table.att, hr, img').forEach((n) => n.remove());
+  const remaining = normalizeText(clone.textContent || '').replace(/^\d+\s+attachments?\s*/i, '').trim();
+  return remaining.length < 20;
+}
+
+function isHeaderRecipientRow(row: HTMLTableRowElement): boolean {
+  if (row.querySelector('p, blockquote, ul, ol, pre, table')) return false;
+  const text = normalizeText(row.textContent || '');
+  return /^(?:to|cc|bcc|reply-to|draft|mailed-by|signed-by)\b/i.test(text);
+}
+
 function parsePrintMessage(table: HTMLTableElement): GmailMessage {
   const rows = Array.from(table.rows).filter((row) => row.closest('table') === table);
-  const bodyRow = rows[rows.length - 1];
-  const headerRows = rows.slice(0, -1);
+  const headerRows: HTMLTableRowElement[] = [];
+  const bodyRows: HTMLTableRowElement[] = [];
+  const attachmentRows: HTMLTableRowElement[] = [];
+
+  rows.forEach((row, index) => {
+    if (index === 0) {
+      headerRows.push(row);
+    } else if (bodyRows.length === 0 && isHeaderRecipientRow(row) && index < rows.length - 1) {
+      headerRows.push(row);
+    } else if (isAttachmentFooterRow(row)) {
+      attachmentRows.push(row);
+    } else {
+      bodyRows.push(row);
+    }
+  });
+
+  if (bodyRows.length === 0 && rows.length > 1) {
+    const fallback = rows[rows.length - 1];
+    if (!attachmentRows.includes(fallback)) {
+      const idx = headerRows.indexOf(fallback);
+      if (idx >= 0) headerRows.splice(idx, 1);
+      bodyRows.push(fallback);
+    }
+  }
+
   const headerRoot = table.ownerDocument.createElement('div');
   headerRows.forEach((row) => headerRoot.appendChild(row.cloneNode(true)));
 
@@ -167,11 +280,17 @@ function parsePrintMessage(table: HTMLTableElement): GmailMessage {
   const recipients = normalizeText(
     headerRows.slice(1).map((row) => row.textContent || '').join(' '),
   );
-  const bodyCell = bodyRow
-    ? Array.from(bodyRow.cells).find((cell) => cell.colSpan > 1) || bodyRow.cells[bodyRow.cells.length - 1]
-    : null;
-  const body = bodyCell ? messageBodyToMarkdown(bodyCell) : '';
-  const attachments = bodyCell ? collectAttachments(bodyCell) : [];
+  const bodyCells = bodyRows
+    .map((row) => Array.from(row.cells).find((cell) => cell.colSpan > 1) || row.cells[row.cells.length - 1])
+    .filter((cell): cell is HTMLTableCellElement => Boolean(cell));
+  const body = bodyCells
+    .map((cell) => messageBodyToMarkdown(cell))
+    .filter(Boolean)
+    .join('\n\n');
+  const attachments = Array.from(new Set([
+    ...bodyCells.flatMap((cell) => collectAttachments(cell)),
+    ...attachmentRows.flatMap((row) => collectAttachments(row)),
+  ]));
 
   return { sender, recipients, date, body, attachments };
 }
@@ -191,9 +310,19 @@ function extractLiveMessages(): GmailMessage[] {
     const sender = senderEmail && !senderName.includes(senderEmail)
       ? `${senderName} <${senderEmail}>`.trim()
       : senderName || senderEmail;
-    const recipients = normalizeText(
-      root.querySelector('.g2, .hb, [data-tooltip^="Show details"]')?.textContent || '',
-    );
+    const recipientElements = Array.from(root.querySelectorAll<HTMLElement>('.g2'));
+    const recipients = recipientElements.length > 0
+      ? normalizeText(
+        recipientElements
+          .map((el) => {
+            const email = el.getAttribute('email') || '';
+            const name = normalizeText(el.textContent || '');
+            return email && name && !name.includes(email) ? `${name} <${email}>` : name || email;
+          })
+          .filter(Boolean)
+          .join(', '),
+      )
+      : normalizeText(root.querySelector('.hb, [data-tooltip^="Show details"]')?.textContent || '');
     const dateElement = root.querySelector<HTMLElement>('.g3[title], .g3, time');
     const date = dateElement?.getAttribute('title')
       || dateElement?.getAttribute('datetime')
@@ -241,8 +370,9 @@ function collectAttachments(root: ParentNode): string[] {
       || element.getAttribute('data-tooltip')
       || element.textContent
       || '';
-    const name = normalizeText(value.replace(/^Download attachment\s*/i, ''));
-    if (name) names.add(name);
+    const name = normalizeText(value.replace(/^Download(?:\s+attachment)?\s*/i, ''));
+    if (!name || /^(?:download|all attachments?|save to drive|add to drive)$/i.test(name)) return;
+    names.add(name);
   });
   return Array.from(names);
 }

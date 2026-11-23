@@ -11,7 +11,7 @@ import { addExtractionMetadata, limitCollection, limitMarkdown } from '../core/c
 const MAX_TURNS = 200;
 
 type Role = 'user' | 'assistant';
-type Turn = { role: Role; element: Element; container: Element };
+type Turn = { role: Role; element: Element; container: Element; blocks?: Element[] };
 
 register({
   name: 'Claude',
@@ -19,12 +19,15 @@ register({
     '*://claude.ai/chat/*',
     '*://claude.ai/share/*',
     '*://claude.ai/project/*',
+    '*://claude.ai/new*',
+    '*://claude.ai/public/artifacts/*',
+    '*://claude.ai/artifacts/*',
   ],
-  pathnameRegex: /^\/(?:chat|share|project)\//,
+  pathnameRegex: /^\/(?:chat|share|project|artifacts)\/|^\/public\/artifacts\/|^\/new(?:\/|$)/,
 
   buttonPlacement: 'anchor',
   anchor: {
-    selector: '[data-testid="wiggle-controls-actions"]',
+    selector: '[data-testid="wiggle-controls-actions"], [data-testid="chat-header-actions"], header [data-testid*="share"], main header',
     position: 'overlay',
     style: 'icon',
     css: {
@@ -41,10 +44,7 @@ register({
       url: Utils.getCanonicalUrl(),
       route: conversationRoute(window.location.pathname),
     };
-    const model = document.querySelector('[data-model], [data-model-name], [data-testid*="model"]')
-      ?.getAttribute('data-model')
-      || document.querySelector('[data-model-name]')?.getAttribute('data-model-name')
-      || '';
+    const model = extractModel();
     if (model) metadata.model = model;
 
     const turns = limitCollection(collectTurns(), MAX_TURNS);
@@ -57,9 +57,14 @@ register({
     let codeBlockCount = 0;
 
     for (const turn of turns.items) {
-      const cleaned = clean(turn.element);
-      let content = Markdown.elementToMarkdown(cleaned);
-      const images = standaloneImages(turn.container, turn.element);
+      const contentNodes = turn.blocks && turn.blocks.length > 0 ? turn.blocks : [turn.element];
+      const cleanedNodes = contentNodes.map((node) => clean(node));
+      let content = cleanedNodes
+        .map((node) => Markdown.elementToMarkdown(node))
+        .filter(Boolean)
+        .join('\n\n')
+        .trim();
+      const images = standaloneImages(turn.container, contentNodes);
       if (images.length) content = `${content}\n\n${images.join('\n')}`.trim();
       if (!content) continue;
 
@@ -67,8 +72,8 @@ register({
       citations.forEach((citation) => citationUrls.add(citation.href));
       if (turn.role === 'user') userCount += 1;
       else assistantCount += 1;
-      imageCount += cleaned.querySelectorAll('img[src]').length + images.length;
-      codeBlockCount += cleaned.querySelectorAll('pre').length;
+      imageCount += cleanedNodes.reduce((sum, node) => sum + node.querySelectorAll('img[src]').length, 0) + images.length;
+      codeBlockCount += cleanedNodes.reduce((sum, node) => sum + node.querySelectorAll('pre').length, 0);
 
       parts.push('', `## ${turn.role === 'user' ? '👤 User' : '🤖 Claude'}`, '', content);
       if (turn.role === 'assistant' && citations.length) {
@@ -107,13 +112,52 @@ register({
   },
 });
 
+const MARKDOWN_BLOCK_SELECTOR = '.standard-markdown, .progressive-markdown, .markdown, .prose';
+
+function extractModel(): string {
+  const dataModel = document.querySelector('[data-model]')?.getAttribute('data-model')?.trim();
+  if (dataModel) return dataModel;
+  const dataModelName = document.querySelector('[data-model-name]')?.getAttribute('data-model-name')?.trim();
+  if (dataModelName) return dataModelName;
+  const isVisible = Utils.createVisibilityChecker();
+  for (const el of document.querySelectorAll('[data-testid*="model"]')) {
+    if (!isVisible(el)) continue;
+    const text = normalize(el.textContent || '');
+    if (text && text.length <= 100) return text;
+  }
+  return '';
+}
+
+function topLevelBlocks(root: Element, selector: string): Element[] {
+  const matches = Array.from(root.querySelectorAll(selector));
+  return matches.filter((node) => !matches.some((other) => other !== node && other.contains(node)));
+}
+
+function buildTurn(role: Role, target: Element, container: Element): Turn {
+  if (role === 'assistant') {
+    const contentContainer = queryFirst(target, [
+      '[data-testid="message-content"]',
+      '[data-testid*="message-content"]',
+    ]);
+    const scope = contentContainer || target;
+    const blocks = topLevelBlocks(scope, MARKDOWN_BLOCK_SELECTOR);
+    if (blocks.length > 1) {
+      return { role, element: scope, container, blocks };
+    }
+    if (blocks.length === 1) {
+      return { role, element: blocks[0], container };
+    }
+    return { role, element: scope, container };
+  }
+  return { role, element: messageContent(target) || target, container };
+}
+
 function collectTurns(): Turn[] {
   const result: Turn[] = [];
   const roots = firstElements([
-    '[role="article"]',
     '[data-message-id]',
+    '[role="article"]',
     '[data-testid="message"]',
-    '[data-testid*="message"]',
     '[data-role="user"], [data-role="assistant"]',
   ]);
 
@@ -121,7 +165,7 @@ function collectTurns(): Turn[] {
     for (const root of roots) {
       const explicitRole = roleFor(root);
       if (explicitRole) {
-        result.push({ role: explicitRole, element: messageContent(root) || root, container: root });
+        result.push(buildTurn(explicitRole, root, root));
         continue;
       }
       const user = queryFirst(root, [
@@ -131,20 +175,26 @@ function collectTurns(): Turn[] {
         '[data-role="user"]',
       ]);
       if (user) {
-        result.push({ role: 'user', element: messageContent(user) || user, container: root });
-        continue;
+        result.push(buildTurn('user', user, root));
       }
       const assistant = queryFirst(root, [
         '[data-testid="assistant-message"]',
         '[data-testid*="assistant-message"]',
         '[data-message-author-role="assistant"]',
         '[data-role="assistant"]',
-        '.standard-markdown',
-        '.progressive-markdown',
       ]);
-      if (assistant) result.push({ role: 'assistant', element: messageContent(assistant) || assistant, container: root });
+      if (assistant && assistant !== user) {
+        result.push(buildTurn('assistant', assistant, root));
+      } else if (!assistant) {
+        const markdownBlocks = topLevelBlocks(root, '.standard-markdown, .progressive-markdown')
+          .filter((block) => !user || !user.contains(block));
+        if (markdownBlocks.length > 1) {
+          result.push({ role: 'assistant', element: markdownBlocks[0], container: root, blocks: markdownBlocks });
+        } else if (markdownBlocks.length === 1) {
+          result.push({ role: 'assistant', element: markdownBlocks[0], container: root });
+        }
+      }
     }
-    return dedupeTurns(result);
   }
 
   const standalone = Array.from(document.querySelectorAll([
@@ -161,9 +211,10 @@ function collectTurns(): Turn[] {
   ].join(',')));
   standalone.sort(compareDomOrder);
   for (const element of standalone) {
-    const role = roleFor(element) || (/standard-markdown|progressive-markdown/i.test(element.className) ? 'assistant' : null);
+    const className = typeof element.className === 'string' ? element.className : '';
+    const role = roleFor(element) || (/standard-markdown|progressive-markdown/i.test(className) ? 'assistant' : null);
     if (!role) continue;
-    result.push({ role, element: messageContent(element) || element, container: closestTurn(element) });
+    result.push(buildTurn(role, element, closestTurn(element)));
   }
   return dedupeTurns(result);
 }
@@ -175,10 +226,10 @@ function roleFor(element: Element): Role | null {
     element.getAttribute('data-author'),
     element.getAttribute('aria-label'),
     element.getAttribute('data-testid'),
-    element.className,
+    typeof element.className === 'string' ? element.className : '',
   ].filter(Boolean).join(' ').toLowerCase();
-  if (/user|human|you|prompt/.test(value)) return 'user';
-  if (/assistant|claude|model|response|answer|standard-markdown|progressive-markdown/.test(value)) return 'assistant';
+  if (/(?:^|[\s_-])(user|human|you|prompt|query)(?:$|[\s_-])/.test(value)) return 'user';
+  if (/(?:^|[\s_-])(assistant|claude|model|response|answer|standard-markdown|progressive-markdown)(?:$|[\s_-])/.test(value)) return 'assistant';
   return null;
 }
 
@@ -196,12 +247,15 @@ function messageContent(element: Element): Element | null {
 
 function dedupeTurns(turns: Turn[]): Turn[] {
   const seenElements = new Set<Element>();
-  return turns.filter((turn) => {
+  const unique = turns.filter((turn) => {
     if (seenElements.has(turn.element)) return false;
     seenElements.add(turn.element);
-    return !turns.some((other) => other.role === turn.role
-      && other.element !== turn.element && other.element.contains(turn.element));
+    return true;
   });
+  return unique.filter((turn) => !unique.some((other) => other.role === turn.role
+    && other.element !== turn.element
+    && (other.element.contains(turn.element)
+      || Boolean(other.blocks?.some((block) => block === turn.element || block.contains(turn.element))))));
 }
 
 function extractCitations(container: Element): Array<{ label: string; href: string }> {
@@ -227,12 +281,17 @@ function extractCitations(container: Element): Array<{ label: string; href: stri
   return result;
 }
 
-function standaloneImages(container: Element, content: Element): string[] {
-  const existing = new Set(Array.from(content.querySelectorAll<HTMLImageElement>('img[src]')).map(imageSource));
+function standaloneImages(container: Element, contentNodes: Element[]): string[] {
+  const existing = new Set(
+    contentNodes
+      .flatMap((node) => Array.from(node.querySelectorAll<HTMLImageElement>('img[src]')))
+      .map((image) => safeImageUrl(imageSource(image)))
+      .filter(Boolean),
+  );
   const result: string[] = [];
   for (const image of container.querySelectorAll<HTMLImageElement>('img[src]')) {
-    if (content.contains(image) || image.getAttribute('aria-hidden') === 'true') continue;
-    const source = imageSource(image);
+    if (contentNodes.some((node) => node.contains(image)) || image.getAttribute('aria-hidden') === 'true') continue;
+    const source = safeImageUrl(imageSource(image));
     if (!source || existing.has(source)) continue;
     const alt = image.getAttribute('alt') || '';
     const meaningful = Boolean(image.closest('figure, [data-find-omitted] .grid, [data-testid*="image"], [class*="image"]'))
@@ -250,7 +309,7 @@ function clean(element: Element): Element {
     ...Utils.NOISE_SELECTORS,
     'button', 'h2.sr-only[data-find-omitted]', '[data-message-action-bar]',
     '[data-testid*="actions"]', '[data-testid*="feedback"]',
-    '[class*="toolbar"]', '[class*="avatar"]', 'textarea',
+    '[class*="toolbar"]:not(.code-toolbar)', '[class*="avatar"]', 'textarea',
     '[contenteditable="true"]',
   ]);
 }
@@ -289,6 +348,8 @@ function hasUnrenderedHistory(): boolean {
 function conversationRoute(path: string): string {
   if (/^\/share\//.test(path)) return 'shared';
   if (/^\/project\//.test(path)) return 'project';
+  if (/^\/(?:public\/)?artifacts\//.test(path)) return 'artifact';
+  if (/^\/new(?:\/|$)/.test(path)) return 'new';
   return 'authenticated';
 }
 
@@ -296,10 +357,28 @@ function imageSource(image: HTMLImageElement): string {
   return image.currentSrc || image.src || image.getAttribute('src') || '';
 }
 
+function escapeMarkdownDestination(value: string): string {
+  return value.replace(/\(/g, '%28').replace(/\)/g, '%29');
+}
+
 function safeHttpUrl(value: string): string {
   try {
     const url = new URL(value, document.baseURI);
-    return /^https?:$/.test(url.protocol) ? url.href : '';
+    return /^https?:$/.test(url.protocol) ? escapeMarkdownDestination(url.href) : '';
+  } catch {
+    return '';
+  }
+}
+
+function safeImageUrl(value: string): string {
+  const trimmed = value.trim();
+  if (!trimmed) return '';
+  if (/^data:image\/(?:avif|gif|jpe?g|png|webp);base64,/i.test(trimmed)) {
+    return escapeMarkdownDestination(trimmed);
+  }
+  try {
+    const url = new URL(trimmed, document.baseURI);
+    return /^(?:https?|blob):$/.test(url.protocol) ? escapeMarkdownDestination(url.href) : '';
   } catch {
     return '';
   }

@@ -11,17 +11,11 @@ url: "https://www.theguardian.com/commentisfree/2022/jul/15/the-guardian-view-on
 
 [FIXTURE_SPAN_0025](https://example.invalid/fixture-link-0018)[FIXTURE_SPAN_0026](https://example.invalid/fixture-link-0019)
 
-# FIXTURE_H1_0027
-
 FIXTURE_DIV_0028
 
 [FIXTURE_A_0029](https://example.invalid/fixture-link-0020)
 
 FIXTURE_P_0030
-
-FIXTURE_SPAN_0031FIXTURE_DETAILS_0032
-
-FIXTURE_BUTTON_0033
 
 https://example.invalid/fixture-link-0021
 

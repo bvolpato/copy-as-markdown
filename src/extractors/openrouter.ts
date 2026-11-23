@@ -25,8 +25,9 @@ type EndpointCatalog = {
 };
 
 const NON_MODEL_PREFIXES = [
-  'api', 'apps', 'benchmarks', 'chat', 'compare', 'docs', 'models',
-  'rankings', 'settings', 'workspaces',
+  'announcements', 'api', 'apps', 'benchmarks', 'chat', 'collections',
+  'compare', 'credits', 'docs', 'enterprise', 'keys', 'models', 'pricing',
+  'privacy', 'provider', 'rankings', 'settings', 'terms', 'workspaces',
 ];
 
 const TOKEN_PRICING_UNITS: Record<string, string> = {
@@ -55,7 +56,7 @@ register({
     '*://www.openrouter.ai/*',
   ],
   pathnameRegex: new RegExp(
-    `^/(?!(${NON_MODEL_PREFIXES.join('|')})(?:/|$))[^/?#]+/[^/?#]+/?$`,
+    `^/(?!(?:${NON_MODEL_PREFIXES.join('|')})(?:/|$))[^/?#]+/[^/?#]+(?:/(?:providers|api|apps|uptime|activity))?/?$`,
     'i',
   ),
 
@@ -64,8 +65,9 @@ register({
     const url = Utils.getCanonicalUrl();
     const software = findJsonLd('SoftwareApplication');
     const faq = findJsonLd('FAQPage');
-    const model = route ? await fetchModel(route) : null;
-    const endpoints = route ? await fetchEndpoints(route, model) : null;
+    const [model, endpoints] = route
+      ? await Promise.all([fetchModel(route), fetchEndpoints(route)])
+      : [null, null];
 
     const modelId = stringValue(model?.id)
       || (route ? `${route.author}/${route.slug}` : '')
@@ -141,7 +143,9 @@ register({
 });
 
 function getModelRoute(): ModelRoute | null {
-  const match = window.location.pathname.match(/^\/([^/]+)\/([^/]+)\/?$/);
+  const match = window.location.pathname.match(
+    /^\/([^/]+)\/([^/]+)(?:\/(?:providers|api|apps|uptime|activity))?\/?$/i,
+  );
   if (!match || NON_MODEL_PREFIXES.includes(match[1].toLowerCase())) return null;
   try {
     return {
@@ -159,18 +163,13 @@ async function fetchModel(route: ModelRoute): Promise<JsonRecord | null> {
   return asRecord(payload?.data);
 }
 
-async function fetchEndpoints(
-  route: ModelRoute,
-  model: JsonRecord | null,
-): Promise<EndpointCatalog | null> {
+async function fetchEndpoints(route: ModelRoute): Promise<EndpointCatalog | null> {
   const author = encodeURIComponent(route.author);
   const slug = encodeURIComponent(route.slug);
-  const architecture = asRecord(model?.architecture);
-  const outputModalities = stringArray(architecture?.output_modalities);
-  const imageOnly = outputModalities.includes('image') && !outputModalities.includes('text');
-  const paths = imageOnly
-    ? [`/api/v1/images/models/${author}/${slug}/endpoints`, `/api/v1/models/${author}/${slug}/endpoints`]
-    : [`/api/v1/models/${author}/${slug}/endpoints`, `/api/v1/images/models/${author}/${slug}/endpoints`];
+  const paths = [
+    `/api/v1/models/${author}/${slug}/endpoints`,
+    `/api/v1/images/models/${author}/${slug}/endpoints`,
+  ];
 
   for (const path of paths) {
     const payload = await fetchJson(path);
@@ -182,20 +181,19 @@ async function fetchEndpoints(
 }
 
 async function fetchJson(path: string): Promise<JsonRecord | null> {
-  const controller = new AbortController();
-  const timeout = window.setTimeout(() => controller.abort(), 5_000);
   try {
-    const response = await fetch(path, {
-      credentials: 'same-origin',
-      headers: { Accept: 'application/json' },
-      signal: controller.signal,
-    });
+    const response = await Utils.fetchWithTimeout(
+      path,
+      {
+        credentials: 'same-origin',
+        headers: { Accept: 'application/json' },
+      },
+      5_000,
+    );
     if (!response.ok) return null;
     return asRecord(await response.json());
   } catch {
     return null;
-  } finally {
-    window.clearTimeout(timeout);
   }
 }
 

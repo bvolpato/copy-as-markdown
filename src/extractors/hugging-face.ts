@@ -8,16 +8,26 @@ import * as Utils from '../core/utils';
 type JsonRecord = Record<string, unknown>;
 type RepositoryKind = 'model' | 'dataset' | 'space';
 
+type RepositoryView = 'card' | 'tree' | 'blob' | 'discussions' | 'commits' | 'commit';
+
 type RepositoryRoute = {
   kind: RepositoryKind;
   owner: string;
   name: string;
   repository: string;
   basePath: string;
-  view: 'card' | 'tree';
+  view: RepositoryView;
   revision?: string;
   directory?: string;
+  filePath?: string;
+  subPath?: string;
 };
+
+type PageRoute =
+  | { kind: 'paper'; id: string }
+  | { kind: 'collection'; slug: string };
+
+type ParsedRoute = RepositoryRoute | PageRoute;
 
 type FileEntry = {
   path: string;
@@ -46,8 +56,9 @@ const MODEL_RESERVED_PATH_PREFIXES = [
   'tasks',
 ];
 const MODEL_RESERVED_PREFIXES = new Set(MODEL_RESERVED_PATH_PREFIXES);
+const REPO_SUBVIEW = '(?:/(?:tree/[^/?#]+(?:/.*)?|blob/[^/?#]+/.+|discussions(?:/.*)?|commits(?:/.*)?|commit/[^/?#]+))?';
 const REPOSITORY_PATHNAME = new RegExp(
-  `^/(?:datasets/[^/?#]+/[^/?#]+|spaces/[^/?#]+/[^/?#]+|(?!(?:${MODEL_RESERVED_PATH_PREFIXES.join('|')})(?:/|$))[^/?#]+/[^/?#]+)(?:/tree/[^/?#]+(?:/.*)?)?/?$`,
+  `^/(?:datasets/[^/?#]+/[^/?#]+${REPO_SUBVIEW}|spaces/[^/?#]+/[^/?#]+${REPO_SUBVIEW}|papers/[^/?#]+(?:/.*)?|collections/[^/?#]+(?:/.*)?|(?!(?:${MODEL_RESERVED_PATH_PREFIXES.join('|')})(?:/|$))[^/?#]+/[^/?#]+${REPO_SUBVIEW})/?$`,
   'i',
 );
 
@@ -56,68 +67,139 @@ export const huggingFaceExtractor = register({
   matches: [
     '*://huggingface.co/*',
     '*://www.huggingface.co/*',
+    '*://hf.co/*',
+    '*://www.hf.co/*',
   ],
   pathnameRegex: REPOSITORY_PATHNAME,
 
   async extract() {
     const route = parseRoute(window.location.pathname);
     if (!route) return buildFallback();
+    if (route.kind === 'paper' || route.kind === 'collection') {
+      return extractHubPage(route);
+    }
 
-    const repositoryData = getRepositoryData(route.kind);
+    const headerData = getHeaderData(route.kind);
+    const repositoryData = getRepositoryData(route.kind, headerData);
     const title = getTitle(route, repositoryData);
     const metadata = buildMetadata(route, repositoryData, title);
 
-    return route.view === 'tree'
-      ? extractTree(route, metadata, repositoryData, title)
-      : extractCard(route, metadata, repositoryData, title);
+    if (route.view === 'tree') {
+      return extractTree(route, metadata, repositoryData, headerData, title);
+    }
+    if (route.view === 'blob') {
+      return extractBlob(route, metadata, repositoryData, headerData, title);
+    }
+    if (route.view === 'discussions' || route.view === 'commits' || route.view === 'commit') {
+      return extractRepositorySubpage(route, metadata, repositoryData, headerData, title);
+    }
+    return extractCard(route, metadata, repositoryData, headerData, title);
   },
 });
 
-function parseRoute(pathname: string): RepositoryRoute | null {
+function parseRoute(pathname: string): ParsedRoute | null {
   const parts = pathname.split('/').filter(Boolean);
+  const firstLower = (parts[0] || '').toLowerCase();
+
+  if (firstLower === 'papers' && parts[1]) {
+    const id = parts.slice(1).map(decodePart).join('/');
+    return id ? { kind: 'paper', id } : null;
+  }
+  if (firstLower === 'collections' && parts[1]) {
+    const slug = parts.slice(1).map(decodePart).join('/');
+    return slug ? { kind: 'collection', slug } : null;
+  }
+
   let kind: RepositoryKind;
   let ownerIndex: number;
 
-  if (parts[0] === 'datasets' || parts[0] === 'spaces') {
-    kind = parts[0] === 'datasets' ? 'dataset' : 'space';
+  if (firstLower === 'datasets' || firstLower === 'spaces') {
+    kind = firstLower === 'datasets' ? 'dataset' : 'space';
     ownerIndex = 1;
   } else {
     kind = 'model';
     ownerIndex = 0;
-    if (MODEL_RESERVED_PREFIXES.has((parts[0] || '').toLowerCase())) return null;
+    if (MODEL_RESERVED_PREFIXES.has(firstLower)) return null;
   }
 
   const owner = decodePart(parts[ownerIndex]);
   const name = decodePart(parts[ownerIndex + 1]);
   if (!owner || !name) return null;
 
-  const baseLength = ownerIndex + 2;
-  const suffix = parts.slice(baseLength);
-  if (suffix.length === 0) {
-    return {
-      kind,
-      owner,
-      name,
-      repository: `${owner}/${name}`,
-      basePath: repositoryBasePath(kind, owner, name),
-      view: 'card',
-    };
-  }
-  if (suffix[0] !== 'tree' || !suffix[1]) return null;
-
-  const revision = decodePart(suffix[1]);
-  if (!revision) return null;
-  const directory = suffix.slice(2).map(decodePart).join('/');
-  return {
+  const baseRoute = {
     kind,
     owner,
     name,
     repository: `${owner}/${name}`,
     basePath: repositoryBasePath(kind, owner, name),
-    view: 'tree',
-    revision,
-    ...(directory ? { directory } : {}),
   };
+
+  const suffix = parts.slice(ownerIndex + 2);
+  if (suffix.length === 0) {
+    return { ...baseRoute, view: 'card' };
+  }
+
+  const view = suffix[0].toLowerCase();
+  if (view === 'tree' && suffix[1]) {
+    const parsed = parseRevisionAndPath(suffix.slice(1));
+    if (!parsed) return null;
+    return {
+      ...baseRoute,
+      view: 'tree',
+      revision: parsed.revision,
+      ...(parsed.path ? { directory: parsed.path } : {}),
+    };
+  }
+  if (view === 'blob' && suffix[1]) {
+    const parsed = parseRevisionAndPath(suffix.slice(1));
+    if (!parsed || !parsed.path) return null;
+    return {
+      ...baseRoute,
+      view: 'blob',
+      revision: parsed.revision,
+      filePath: parsed.path,
+    };
+  }
+  if (view === 'discussions' || view === 'commits') {
+    const rest = suffix.slice(1).map(decodePart);
+    if (rest.some((part) => !part)) return null;
+    return {
+      ...baseRoute,
+      view,
+      ...(rest.length ? { subPath: rest.join('/') } : {}),
+    };
+  }
+  if (view === 'commit' && suffix[1] && suffix.length === 2) {
+    const sha = decodePart(suffix[1]);
+    if (!sha) return null;
+    return {
+      ...baseRoute,
+      view: 'commit',
+      revision: sha,
+    };
+  }
+  return null;
+}
+
+function parseRevisionAndPath(segments: string[]): { revision: string; path: string } | null {
+  if (segments.length === 0) return null;
+  if (
+    segments[0].toLowerCase() === 'refs'
+    && segments[1]
+    && segments[2]
+    && /^(?:pr|convert|heads|tags)$/i.test(segments[1])
+  ) {
+    const refParts = segments.slice(0, 3).map(decodePart);
+    if (refParts.some((part) => !part)) return null;
+    const rest = segments.slice(3).map(decodePart);
+    if (rest.some((part) => !part)) return null;
+    return { revision: refParts.join('/'), path: rest.join('/') };
+  }
+  const revision = decodePart(segments[0]);
+  if (!revision) return null;
+  const rest = segments.slice(1).map(decodePart);
+  if (rest.some((part) => !part)) return null;
+  return { revision, path: rest.join('/') };
 }
 
 function repositoryBasePath(kind: RepositoryKind, owner: string, name: string): string {
@@ -134,9 +216,11 @@ function decodePart(value: string | undefined): string {
   }
 }
 
-function getRepositoryData(kind: RepositoryKind): JsonRecord | null {
-  const payload = getHeaderData(kind);
-  const repository = asRecord(payload?.[REPOSITORY_KEYS[kind]]);
+function getRepositoryData(
+  kind: RepositoryKind,
+  headerData: JsonRecord | null,
+): JsonRecord | null {
+  const repository = asRecord(headerData?.[REPOSITORY_KEYS[kind]]);
   if (kind !== 'model') return repository;
 
   const evaluation = parseDataProps(document.querySelector('[data-target="ModelEvalResults"]'));
@@ -209,6 +293,11 @@ function buildMetadata(
   if (route.view === 'tree') {
     metadata.revision = route.revision;
     if (route.directory) metadata.directory = route.directory;
+  } else if (route.view === 'blob') {
+    metadata.revision = route.revision;
+    if (route.filePath) metadata.file_path = route.filePath;
+  } else if (route.view === 'commit' && route.revision) {
+    metadata.revision = route.revision;
   }
   return metadata;
 }
@@ -222,12 +311,13 @@ function extractCard(
   route: RepositoryRoute,
   metadata: PageMetadata,
   repositoryData: JsonRecord | null,
+  headerData: JsonRecord | null,
   title: string,
 ): string {
   metadata.type = `${kindLabel(route.kind)} Repository`;
   metadata.truncated = 'false';
 
-  const parts = [`# ${title}`, overviewMarkdown(route, repositoryData)];
+  const parts = [`# ${title}`, overviewMarkdown(route, repositoryData, headerData)];
   const tags = getTags(route.kind, repositoryData);
   if (tags.length > 0) {
     metadata.tags = tags.join(', ');
@@ -265,9 +355,12 @@ function extractCard(
   return Markdown.buildPageMarkdown(metadata, parts.filter(Boolean).join('\n\n'));
 }
 
-function overviewMarkdown(route: RepositoryRoute, repositoryData: JsonRecord | null): string {
+function overviewMarkdown(
+  route: RepositoryRoute,
+  repositoryData: JsonRecord | null,
+  headerData: JsonRecord | null,
+): string {
   const cardData = asRecord(repositoryData?.cardData);
-  const headerData = getHeaderData(route.kind);
   const publisher = asRecord(headerData?.author);
   const discussions = asRecord(headerData?.discussionsStats);
   const runtime = asRecord(repositoryData?.runtime);
@@ -514,6 +607,7 @@ function extractTree(
   route: RepositoryRoute,
   metadata: PageMetadata,
   repositoryData: JsonRecord | null,
+  headerData: JsonRecord | null,
   title: string,
 ): string {
   metadata.type = `${kindLabel(route.kind)} Repository Directory`;
@@ -531,7 +625,7 @@ function extractTree(
   const location = route.directory ? `${route.repository}/${route.directory}` : route.repository;
   const parts = [
     `# ${title}: ${route.directory || 'Files'}`,
-    overviewMarkdown(route, repositoryData),
+    overviewMarkdown(route, repositoryData, headerData),
     `**Revision:** \`${route.revision}\``,
   ];
 
@@ -598,8 +692,9 @@ function getFileEntries(route: RepositoryRoute): FileEntry[] {
 
 function entryHref(route: RepositoryRoute, type: FileEntry['type'], path: string): string {
   const view = type === 'directory' ? 'tree' : 'blob';
+  const encodedRevision = (route.revision || 'main').split('/').map(encodeURIComponent).join('/');
   const encodedPath = path.split('/').map(encodeURIComponent).join('/');
-  const relative = `${route.basePath}/${view}/${encodeURIComponent(route.revision || 'main')}/${encodedPath}`;
+  const relative = `${route.basePath}/${view}/${encodedRevision}/${encodedPath}`;
   return new URL(relative, window.location.origin).href;
 }
 
@@ -617,11 +712,13 @@ function parseEntryLink(route: RepositoryRoute, href: string): Pick<FileEntry, '
   const base = route.kind === 'model'
     ? [route.owner, route.name]
     : [route.kind === 'dataset' ? 'datasets' : 'spaces', route.owner, route.name];
-  if (!base.every((part, index) => parts[index] === part)) return null;
-  const view = parts[base.length];
+  if (!base.every((part, index) => parts[index]?.toLowerCase() === part.toLowerCase())) return null;
+  const view = parts[base.length]?.toLowerCase();
   if (view !== 'tree' && view !== 'blob') return null;
-  if (parts[base.length + 1] !== route.revision) return null;
-  const path = parts.slice(base.length + 2).join('/');
+  const revisionParts = (route.revision || '').split('/').filter(Boolean);
+  if (revisionParts.length === 0) return null;
+  if (!revisionParts.every((part, index) => parts[base.length + 1 + index] === part)) return null;
+  const path = parts.slice(base.length + 1 + revisionParts.length).join('/');
   if (!path) return null;
   return { path, type: view === 'tree' ? 'directory' : 'file' };
 }
@@ -720,6 +817,122 @@ function asRecord(value: unknown): JsonRecord | null {
   return value && typeof value === 'object' && !Array.isArray(value)
     ? value as JsonRecord
     : null;
+}
+
+function extractBlob(
+  route: RepositoryRoute,
+  metadata: PageMetadata,
+  repositoryData: JsonRecord | null,
+  headerData: JsonRecord | null,
+  title: string,
+): string {
+  metadata.type = `${kindLabel(route.kind)} Repository File`;
+  metadata.scope = 'rendered repository file';
+  metadata.content_source = 'rendered Hugging Face file DOM';
+  metadata.truncated = 'false';
+
+  const parts = [
+    `# ${title}: ${route.filePath || 'File'}`,
+    overviewMarkdown(route, repositoryData, headerData),
+    route.revision ? `**Revision:** \`${route.revision}\`` : '',
+  ];
+
+  const fileRoot = document.querySelector(
+    '.blob-content, [data-target="BlobContent"], main .prose, main pre, main, [role="main"]',
+  );
+  let captured = false;
+  if (fileRoot) {
+    const cleaned = Utils.removeNoise(fileRoot, [
+      ...Utils.NOISE_SELECTORS,
+      'button',
+      '[data-target="CopyButton"]',
+    ]);
+    const body = Markdown.elementToMarkdown(cleaned).trim();
+    if (body) {
+      parts.push(`## File Content\n\n${body}`);
+      captured = true;
+    }
+  }
+  metadata.completeness = captured ? 'complete_rendered_file' : 'metadata_only';
+  metadata.complete = String(captured);
+  return Markdown.buildPageMarkdown(metadata, parts.filter(Boolean).join('\n\n'));
+}
+
+function extractRepositorySubpage(
+  route: RepositoryRoute,
+  metadata: PageMetadata,
+  repositoryData: JsonRecord | null,
+  headerData: JsonRecord | null,
+  title: string,
+): string {
+  const viewLabel = route.view === 'discussions'
+    ? 'Discussions'
+    : route.view === 'commits'
+      ? 'Commits'
+      : 'Commit';
+  metadata.type = `${kindLabel(route.kind)} Repository ${viewLabel}`;
+  metadata.scope = `rendered repository ${route.view}`;
+  metadata.content_source = `rendered Hugging Face ${route.view} DOM`;
+  metadata.truncated = 'false';
+
+  const parts = [
+    `# ${title}: ${viewLabel}`,
+    overviewMarkdown(route, repositoryData, headerData),
+    route.revision ? `**Commit:** \`${route.revision}\`` : '',
+  ];
+
+  const main = document.querySelector('main, [role="main"]');
+  let captured = false;
+  if (main) {
+    const cleaned = Utils.removeNoise(main, [
+      ...Utils.NOISE_SELECTORS,
+      'button',
+      '[data-target="CopyButton"]',
+      `[data-target="${HEADER_TARGETS[route.kind]}"]`,
+    ]);
+    const body = Markdown.elementToMarkdown(cleaned).trim();
+    if (body) {
+      parts.push(body);
+      captured = true;
+    }
+  }
+  metadata.completeness = captured ? 'visible_only' : 'metadata_only';
+  metadata.complete = String(captured);
+  return Markdown.buildPageMarkdown(metadata, parts.filter(Boolean).join('\n\n'));
+}
+
+function extractHubPage(route: PageRoute): string {
+  const main = document.querySelector('main, [role="main"]');
+  const heading = main?.querySelector('h1');
+  const title = (heading ? textOf(heading) : '')
+    || Utils.getPageTitle().replace(/\s*[·|\-]\s*Hugging Face\s*$/i, '').trim()
+    || (route.kind === 'paper' ? `Paper ${route.id}` : `Collection ${route.slug}`);
+  const metadata: PageMetadata = {
+    source: 'Hugging Face',
+    type: route.kind === 'paper' ? 'Paper' : 'Collection',
+    title,
+    url: Utils.getCanonicalUrl(),
+    completeness: 'visible_only',
+  };
+  if (route.kind === 'paper') metadata.paper_id = route.id;
+  else metadata.collection = route.slug;
+
+  let body = '';
+  if (main) {
+    const cleaned = Utils.removeNoise(main, [
+      ...Utils.NOISE_SELECTORS,
+      'button',
+      '[data-target="CopyButton"]',
+    ]);
+    const firstH1 = cleaned.querySelector('h1');
+    if (firstH1 && textOf(firstH1).toLowerCase() === title.toLowerCase()) {
+      firstH1.remove();
+    }
+    body = Markdown.elementToMarkdown(cleaned).trim();
+  }
+  metadata.complete = String(body.length > 0);
+  const content = body ? `# ${title}\n\n${body}` : `# ${title}\n\n*Could not extract page content.*`;
+  return Markdown.buildPageMarkdown(metadata, content);
 }
 
 function buildFallback(): string {

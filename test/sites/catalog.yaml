@@ -306,6 +306,18 @@ sites:
           - "## README"
         forbidden:
           - Copy as Markdown
+      - id: pull-request
+        url: https://github.com/bvolpato/copy-as-markdown/pull/67
+        readySelector: .comment-body, .markdown-body
+        placement: floating
+        minChars: 100
+        maxChars: 3000000
+        contentRequired:
+          - extractor
+        required:
+          - FIXTURE_
+        forbidden:
+          - Copy as Markdown
   - id: arxiv
     extractor: arXiv
     cases:
@@ -324,6 +336,21 @@ sites:
         required:
           - "## Abstract"
           - FIXTURE_SPAN_
+        forbidden:
+          - Copy as Markdown
+      - id: paper-html
+        url: https://arxiv.org/html/2402.01680v1
+        readySelector: .ltx_document
+        placement: anchor
+        anchorSelector: .ltx_title
+        anchorPosition: prepend
+        minChars: 500
+        maxChars: 3000000
+        contentRequired:
+          - Multi-Agents
+          - Abstract
+        required:
+          - FIXTURE_
         forbidden:
           - Copy as Markdown
   - id: substack
@@ -414,6 +441,66 @@ sites:
         required:
           - FIXTURE_H1_
           - FIXTURE_P_
+        forbidden:
+          - Copy as Markdown
+      - id: docusaurus
+        url: https://docusaurus.io/docs
+        readySelector: article
+        placement: floating
+        minChars: 200
+        maxChars: 3000000
+        contentRequired:
+          - Docusaurus
+        required:
+          - FIXTURE_
+        forbidden:
+          - Copy as Markdown
+      - id: mkdocs
+        url: https://squidfunk.github.io/mkdocs-material/getting-started/
+        readySelector: .md-content__inner
+        placement: floating
+        minChars: 200
+        maxChars: 3000000
+        contentRequired:
+          - Getting started
+        required:
+          - FIXTURE_
+        forbidden:
+          - Copy as Markdown
+      - id: vitepress
+        url: https://vitepress.dev/guide/what-is-vitepress
+        readySelector: .vp-doc
+        placement: floating
+        minChars: 200
+        maxChars: 3000000
+        contentRequired:
+          - VitePress
+        required:
+          - FIXTURE_
+        forbidden:
+          - Copy as Markdown
+      - id: starlight
+        url: https://starlight.astro.build/getting-started/
+        readySelector: .sl-markdown-content
+        placement: floating
+        minChars: 200
+        maxChars: 3000000
+        contentRequired:
+          - Getting Started
+        required:
+          - FIXTURE_
+        forbidden:
+          - Copy as Markdown
+      - id: mdbook
+        url: https://doc.rust-lang.org/book/ch01-01-installation.html
+        readySelector: main
+        placement: floating
+        minChars: 200
+        maxChars: 3000000
+        contentRequired:
+          - Installation
+        required:
+          - FIXTURE_
         forbidden:
           - Copy as Markdown
   - id: news
@@ -575,5 +662,35 @@ sites:
           - Managing the Agent
         required:
           - FIXTURE_
+        forbidden:
+          - Copy as Markdown
+  - id: polymarket
+    extractor: Polymarket
+    cases:
+      - id: uk-election
+        url: https://polymarket.com/event/uk-election-called-by
+        readySelector: main h1
+        placement: floating
+        minChars: 100
+        maxChars: 3000000
+        contentRequired:
+          - election
+        required:
+          - FIXTURE_
+        forbidden:
+          - Copy as Markdown
+  - id: duckduckgo
+    extractor: DuckDuckGo Search
+    cases:
+      - id: html-markdown
+        url: https://html.duckduckgo.com/html/?q=markdown
+        readySelector: .result
+        placement: floating
+        minChars: 150
+        maxChars: 3000000
+        contentRequired:
+          - "## Search Results"
+        required:
+          - "## Search Results"
         forbidden:
           - Copy as Markdown

@@ -6,6 +6,8 @@ url: "https://pypi.org/project/requests/"
 
 FIXTURE_P_0007
 
+**Install:** `FIXTURE_SPAN_0008`
+
 ## Description
 
 # https://example.invalid/fixture-link-0010FIXTURE_H1_0013

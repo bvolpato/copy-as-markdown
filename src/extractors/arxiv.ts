@@ -1,12 +1,14 @@
 /**
  * arXiv extractor.
  * Extracts paper title, authors, abstract, and links to PDF/HTML.
- * Works on both abs (abstract) and html (full paper) pages.
+ * Works on abs (abstract), html (full paper), and pdf pages.
  */
 
 import { register } from '../core/registry';
 import * as Markdown from '../core/markdown';
 import * as Utils from '../core/utils';
+
+const ARXIV_ID_RE = /(?:abs|html|pdf)\/((?:[a-z-]+(?:\.[A-Z]{2})?\/\d{7}|\d{4}\.\d{4,5})(?:v\d+)?)(?:\.pdf)?/i;
 
 register({
   name: 'arXiv',
@@ -16,6 +18,9 @@ register({
     '*://arxiv.org/pdf/*',
     '*://www.arxiv.org/abs/*',
     '*://www.arxiv.org/html/*',
+    '*://www.arxiv.org/pdf/*',
+    '*://ar5iv.labs.arxiv.org/html/*',
+    '*://export.arxiv.org/abs/*',
   ],
   buttonPlacement: 'anchor',
   anchor: {
@@ -24,6 +29,7 @@ register({
       '.extra-services',                  // right sidebar
       '.abs-button-row',                  // action buttons row
       '.html-header-message',             // HTML view header
+      '.ltx_title',                       // HTML paper title
       'h1.title',                         // paper title
     ].join(', '),
     position: 'prepend',
@@ -32,47 +38,80 @@ register({
   },
 
   async extract() {
-    const url = Utils.getCanonicalUrl();
-    const isAbsPage = /\/abs\//.test(url);
-    const isHtmlPage = /\/html\//.test(url);
+    const pathname = window.location.pathname;
+    const currentUrl = window.location.href;
+    const canonicalUrl = Utils.getCanonicalUrl();
 
-    if (isAbsPage) return extractAbstract(url);
-    if (isHtmlPage) return extractFullPaper(url);
+    if (/^\/abs\//.test(pathname)) {
+      return extractAbstract(canonicalUrl, document);
+    }
+    if (/^\/html\//.test(pathname)) {
+      return extractFullPaper(currentUrl);
+    }
+    if (/^\/pdf\//.test(pathname)) {
+      const paperId = extractPaperId(pathname);
+      const absUrl = paperId
+        ? `${window.location.origin}/abs/${paperId}`
+        : currentUrl.replace('/pdf/', '/abs/').replace(/\.pdf$/i, '');
+      const absDoc = await fetchAbstractDocument(absUrl);
+      return extractAbstract(absUrl, absDoc || document);
+    }
 
-    // PDF page fallback
-    return extractAbstract(url.replace('/pdf/', '/abs/'));
+    return extractAbstract(canonicalUrl, document);
   },
 });
 
-function extractAbstract(url: string): string {
+function extractPaperId(value: string): string {
+  const match = value.match(ARXIV_ID_RE);
+  return match ? match[1] : '';
+}
+
+async function fetchAbstractDocument(absUrl: string): Promise<Document | null> {
+  try {
+    const response = await Utils.fetchWithTimeout(absUrl, {
+      credentials: 'omit',
+      headers: { Accept: 'text/html' },
+    });
+    if (!response.ok) return null;
+    const html = await response.text();
+    if (!html.trim()) return null;
+    return Markdown.parseHtmlDocument(html);
+  } catch {
+    return null;
+  }
+}
+
+function extractAbstract(url: string, doc: Document): string {
   // Paper ID
-  const idMatch = url.match(/(?:abs|html|pdf)\/(\d{4}\.\d{4,5}(?:v\d+)?)/);
-  const paperId = idMatch ? idMatch[1] : '';
+  const paperId = extractPaperId(url) || extractPaperId(window.location.pathname);
 
   // Title
-  const titleEl = document.querySelector('h1.title, .ltx_title');
-  let title = titleEl?.textContent?.trim() || Utils.getPageTitle();
+  const titleEl = doc.querySelector('h1.title, .ltx_title');
+  let title = titleEl?.textContent?.trim()
+    || doc.querySelector('meta[name="citation_title"]')?.getAttribute('content')?.trim()
+    || doc.title
+    || Utils.getPageTitle();
   title = title.replace(/^Title:\s*/i, '');
 
   // Authors
-  const authorEls = document.querySelectorAll('.authors a, .ltx_personname');
+  const authorEls = doc.querySelectorAll('.authors a, .ltx_personname');
   const authors = Array.from(authorEls).map((el) => el.textContent?.trim()).filter(Boolean);
 
   // Abstract
-  const abstractEl = document.querySelector('.abstract, blockquote.abstract, .ltx_abstract');
+  const abstractEl = doc.querySelector('.abstract, blockquote.abstract, .ltx_abstract');
   let abstract = abstractEl?.textContent?.trim() || '';
   abstract = abstract.replace(/^Abstract:\s*/i, '');
 
   // Subjects/categories
-  const subjectEl = document.querySelector('.primary-subject, .tablecell.subjects');
+  const subjectEl = doc.querySelector('.primary-subject, .tablecell.subjects');
   const subjects = subjectEl?.textContent?.trim() || '';
 
   // Submission date
-  const dateEl = document.querySelector('.dateline, .submission-history');
+  const dateEl = doc.querySelector('.dateline, .submission-history');
   const date = dateEl?.textContent?.trim().match(/\[Submitted on (.+?)\]/)?.[1] || '';
 
   // DOI
-  const doiEl = document.querySelector('.arxivdoi a, td.doi a');
+  const doiEl = doc.querySelector('.arxivdoi a, td.doi a');
   const doi = doiEl?.textContent?.trim() || '';
 
   const metadata: Record<string, string> = {
@@ -112,17 +151,25 @@ function extractAbstract(url: string): string {
 
 function extractFullPaper(url: string): string {
   // Paper ID
-  const idMatch = url.match(/html\/(\d{4}\.\d{4,5}(?:v\d+)?)/);
-  const paperId = idMatch ? idMatch[1] : '';
+  const paperId = extractPaperId(url) || extractPaperId(window.location.pathname);
 
   // Title
   const titleEl = document.querySelector('.ltx_title, h1.title, h1');
   let title = titleEl?.textContent?.trim() || Utils.getPageTitle();
   title = title.replace(/^Title:\s*/i, '');
 
-  // Authors
-  const authorEls = document.querySelectorAll('.ltx_personname, .ltx_creator .ltx_role_author');
-  const authors = Array.from(authorEls).map((el) => el.textContent?.trim()).filter(Boolean);
+  // Authors (avoid matching both .ltx_role_author and its nested .ltx_personname)
+  const personNameEls = document.querySelectorAll('.ltx_authors .ltx_personname');
+  const authorEls = personNameEls.length > 0
+    ? personNameEls
+    : document.querySelectorAll('.ltx_personname').length > 0
+      ? document.querySelectorAll('.ltx_personname')
+      : document.querySelectorAll('.ltx_creator .ltx_role_author');
+  const authors = [...new Set(
+    Array.from(authorEls)
+      .map((el) => el.textContent?.replace(/\s+/g, ' ').trim())
+      .filter((name): name is string => Boolean(name)),
+  )];
 
   const metadata: Record<string, string> = {
     source: 'arXiv',
@@ -138,13 +185,12 @@ function extractFullPaper(url: string): string {
   if (paperId) parts.push(`**arXiv:** ${paperId}`);
   parts.push('');
 
-  // Full paper body
+  // Full paper body (preserve appendices and bibliography)
   const articleEl = document.querySelector('.ltx_document, article, .ltx_page_main');
   if (articleEl) {
     const cleaned = Utils.removeNoise(articleEl, [
       ...Utils.NOISE_SELECTORS,
-      '.ltx_bibliography', '.ltx_appendix',
-      '.ltx_authors', '.ltx_title',
+      '.ltx_authors', '.ltx_title_document',
       '.ltx_page_header', '.ltx_page_footer',
     ]);
     parts.push(Markdown.elementToMarkdown(cleaned));

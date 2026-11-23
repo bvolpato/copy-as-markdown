@@ -13,7 +13,7 @@ register({
     '*://www.weather.com/*',
     '*://weather.com/*',
   ],
-  pathnameRegex: /^\/(?:weather\/(?:today|hourbyhour|tenday|alerts)\/[^/]+(?:\/[^/]+)*|(?:[a-z]{2}-[A-Z]{2}\/)?[a-z]{2}\/(?:[^/]+\/)+(?:today|tenday|alerts|hourbyhour(?:\/day-\d+)?))\/?$/,
+  pathnameRegex: /^(?:\/[a-z]{2}-[a-z]{2})?\/(?:weather\/(?:today|hourbyhour|tenday|weekend|monthly|5day|airquality|alerts)\/[^/]+(?:\/[^/]+)*|[a-z]{2}\/(?:[^/]+\/)+(?:today|tenday|weekend|monthly|5day|airquality|alerts|hourbyhour(?:\/day-\d+)?))\/?$/i,
   buttonPlacement: 'anchor',
   anchor: {
     selector: [
@@ -31,42 +31,43 @@ register({
     const url = Utils.getCanonicalUrl();
     const route = routeKind(window.location.pathname);
     const payload = firstWeatherPayload();
+    const scope: ParentNode = document.querySelector('main') || document;
     const location = firstText([
       '[data-testid="LocationTitle"]',
       '[data-testid*="Location"]',
-      '.CurrentConditions--location--',
+      '[class*="CurrentConditions--location--"]',
       'h1',
-    ]) || stringValue(payload?.location) || Utils.getPageTitle();
+    ], false, scope) || stringValue(payload?.location) || Utils.getPageTitle();
     const temperature = firstText([
       '[data-testid="TemperatureValue"]',
       '[data-testid*="TemperatureValue"]',
       '[data-testid*="Temperature"]',
-      '.CurrentConditions--tempValue--',
-    ]) || valueFromPayload(payload, ['temperature', 'temperatureValue', 'temp']);
+      '[class*="CurrentConditions--tempValue--"]',
+    ], false, scope) || valueFromPayload(payload, ['temperature', 'temperatureValue', 'temp']);
     const condition = firstText([
       '[data-testid="wxPhrase"]',
       '[data-testid*="wxPhrase"]',
       '[data-testid*="Condition"]',
-      '.CurrentConditions--phraseValue--',
-    ]) || valueFromPayload(payload, ['condition', 'phrase', 'wxPhrase']);
+      '[class*="CurrentConditions--phraseValue--"]',
+    ], false, scope) || valueFromPayload(payload, ['condition', 'phrase', 'wxPhrase']);
     const feelsLike = firstText([
       '[data-testid="FeelsLike"]',
       '[data-testid*="FeelsLike"]',
       '[data-testid*="feelsLike"]',
-    ]) || valueFromPayload(payload, ['feelsLike', 'feels_like']);
+    ], false, scope) || valueFromPayload(payload, ['feelsLike', 'feels_like']);
     const humidity = firstText([
       '[data-testid="Humidity"]',
       '[data-testid*="Humidity"]',
-    ]) || valueFromPayload(payload, ['humidity']);
+    ], false, scope) || valueFromPayload(payload, ['humidity']);
     const wind = firstText([
       '[data-testid="Wind"]',
       '[data-testid*="Wind"]',
-    ]) || valueFromPayload(payload, ['wind', 'windSpeed']);
+    ], false, scope) || valueFromPayload(payload, ['wind', 'windSpeed']);
     const updated = firstText([
       'time[datetime]',
       '[data-testid*="ObservationTime"]',
       '[data-testid*="Updated"]',
-    ], true);
+    ], true, scope);
 
     const metadata: Record<string, string> = {
       source: 'Weather.com', title: `${location} weather`, url, route,
@@ -87,7 +88,7 @@ register({
         '[data-testid*="alert"]',
         '[class*="Alert"]',
         '[class*="alert"]',
-      ]);
+      ], scope);
       parts.push('## Alerts', '');
       if (alerts.length) parts.push(...alerts.map((alert) => `- ${alert}`));
       else parts.push('*No alert details currently visible.*');
@@ -98,11 +99,11 @@ register({
         '[data-testid*="HourlyForecast"]',
         '[data-testid*="hourly"]',
         '[class*="HourlyForecast"]',
-      ]);
+      ], scope);
       if (rows.length) parts.push('## Hourly Forecast', '', ...rows.map((row) => `- ${row}`), '');
     } else if (route === 'daily') {
       const rows = extractRows(
-        document.querySelector('[data-testid="daily-item"]')
+        scope.querySelector('[data-testid="daily-item"]')
           ? ['[data-testid="daily-item"]']
           : [
             '[data-testid*="DailyForecast"] [data-testid*="Details"]',
@@ -110,15 +111,22 @@ register({
             '[data-testid*="daily"]',
             '[class*="DailyForecast"]',
           ],
+        scope,
       );
       if (rows.length) parts.push('## 10-Day Forecast', '', ...rows.map((row) => `- ${row}`), '');
+    } else if (route === 'airquality') {
+      const rows = extractRows([
+        '[data-testid*="AirQuality"]',
+        '[class*="AirQuality"]',
+      ], scope);
+      if (rows.length) parts.push('## Air Quality', '', ...rows.map((row) => `- ${row}`), '');
     }
 
     const summary = firstText([
       '[data-testid="CurrentConditions"] [data-testid*="Summary"]',
       '[data-testid*="ForecastSummary"]',
       '[data-testid*="Description"]',
-    ]);
+    ], false, scope);
     if (summary && summary !== condition) parts.push('## Forecast Summary', '', summary, '');
     return Markdown.buildPageMarkdown(metadata, parts.join('\n'));
   },
@@ -127,17 +135,22 @@ register({
 type JsonRecord = Record<string, unknown>;
 
 function routeKind(pathname: string): string {
-  const forecast = pathname.match(/^\/weather\/([^/]+)\//)?.[1]
-    || pathname.match(/\/(today|hourbyhour|tenday|alerts)(?:\/day-\d+)?\/?$/)?.[1];
+  const stripped = pathname.replace(/^\/[a-z]{2}-[a-z]{2}(?=\/)/i, '');
+  const forecast = (
+    stripped.match(/^\/weather\/([^/]+)\//i)?.[1]
+    || stripped.match(/\/(today|hourbyhour|tenday|weekend|monthly|5day|airquality|alerts)(?:\/day-\d+)?\/?$/i)?.[1]
+    || ''
+  ).toLowerCase();
   if (forecast === 'hourbyhour') return 'hourly';
-  if (forecast === 'tenday') return 'daily';
+  if (forecast === 'tenday' || forecast === '5day' || forecast === 'weekend' || forecast === 'monthly') return 'daily';
   if (forecast === 'alerts') return 'alerts';
+  if (forecast === 'airquality') return 'airquality';
   return 'current';
 }
 
-function firstText(selectors: string[], attributeMode = false): string {
+function firstText(selectors: string[], attributeMode = false, scope: ParentNode = document): string {
   for (const selector of selectors) {
-    const element = document.querySelector(selector);
+    const element = scope.querySelector(selector) || (scope !== document ? document.querySelector(selector) : null);
     if (!element) continue;
     const value = attributeMode
       ? element.getAttribute('content') || element.getAttribute('datetime') || element.textContent || ''
@@ -148,16 +161,26 @@ function firstText(selectors: string[], attributeMode = false): string {
   return '';
 }
 
-function extractRows(selectors: string[]): string[] {
-  const seen = new Set<string>();
-  const rows: string[] = [];
+function extractRows(selectors: string[], scope: ParentNode = document): string[] {
+  const elements: Element[] = [];
+  const seenElements = new Set<Element>();
   for (const selector of selectors) {
-    for (const element of document.querySelectorAll(selector)) {
-      const text = (element.textContent || '').replace(/\s+/g, ' ').trim();
-      if (!text || seen.has(text)) continue;
-      seen.add(text);
-      rows.push(text);
+    for (const element of scope.querySelectorAll(selector)) {
+      if (seenElements.has(element)) continue;
+      seenElements.add(element);
+      elements.push(element);
     }
+  }
+  const leafElements = elements.filter(
+    (element) => !elements.some((other) => other !== element && element.contains(other)),
+  );
+  const seenText = new Set<string>();
+  const rows: string[] = [];
+  for (const element of leafElements) {
+    const text = (element.textContent || '').replace(/\s+/g, ' ').trim();
+    if (!text || seenText.has(text)) continue;
+    seenText.add(text);
+    rows.push(text);
   }
   return rows;
 }
@@ -169,6 +192,7 @@ function firstWeatherPayload(): JsonRecord | null {
   for (const script of scripts) {
     const raw = script.textContent || '';
     if (!raw || raw.length > 8_000_000) continue;
+    if (!/"(?:temperature|temperatureValue|wxPhrase|currentConditions|forecasts)"/.test(raw)) continue;
     try {
       const parsed: unknown = JSON.parse(raw);
       const found = findWeatherRecord(parsed);
@@ -191,7 +215,13 @@ function findWeatherRecord(value: unknown, depth = 0): JsonRecord | null {
   }
   if (typeof value !== 'object') return null;
   const record = value as JsonRecord;
-  if (record.temperature || record.temperatureValue || record.wxPhrase || record.currentConditions || record.forecasts) {
+  if (
+    record.temperature !== undefined
+    || record.temperatureValue !== undefined
+    || record.wxPhrase !== undefined
+    || record.currentConditions !== undefined
+    || record.forecasts !== undefined
+  ) {
     return record;
   }
   for (const child of Object.values(record)) {

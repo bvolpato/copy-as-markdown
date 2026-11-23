@@ -17,10 +17,10 @@ register({
   buttonPlacement: 'anchor',
   anchor: {
     selector: [
-      '#searchbox',
       '[data-testid="search-header"]',
-      'header',
+      '#searchform',
       'form[action*="/search"]',
+      'header',
     ].join(', '),
     position: 'after',
     style: 'pill',
@@ -36,7 +36,7 @@ register({
     if (query) parts.push(`**Query:** ${escapeMarkdownText(query)}\n`);
 
     const answer = document.querySelector(
-      '[data-testid="answer"], [data-testid="summarizer"], .answer, .summarizer, [class*="answer"]',
+      '#summarizer, #llm-context, #chatllm-content, [data-testid="answer"], [data-testid="summarizer"]',
     );
     const answerText = cleanText(answer?.textContent || '');
     if (answerText) parts.push('## Answer\n', `${answerText}\n`);
@@ -54,35 +54,37 @@ register({
     }
 
     const results = document.querySelectorAll(
-      '[data-testid="search-result"], [data-testid="result"], .snippet, article.result, article',
+      'div.snippet[data-type="web"], [data-testid="search-result"], [data-testid="result"], .snippet:not([data-type]), article.result',
     );
     let resultCount = 0;
     const seen = new Set<string>();
-    if (results.length) {
-      parts.push('## Search Results\n');
-      results.forEach((result) => {
-        const title = cleanText(result.querySelector(
-          'h3 a, h2 a, [data-testid="result-title"], [data-testid="result-title"] a',
-        )?.textContent || '');
-        const link = firstSafeLink(result.querySelectorAll<HTMLAnchorElement>(
-          'h3 a[href], h2 a[href], [data-testid="result-title"] a[href], a[href]',
-        ));
-        const snippet = cleanText(result.querySelector(
-          '[data-testid="result-description"], [data-testid="result-snippet"], .snippet-description, .description, p',
-        )?.textContent || '');
-        if (!title || !link) return;
-        const key = `${title}\n${link}`;
-        if (seen.has(key)) return;
-        seen.add(key);
-        resultCount += 1;
-        parts.push(`### ${resultCount}. ${escapeMarkdownText(title)}\n`);
-        parts.push(`**URL:** ${link}\n`);
-        if (snippet) parts.push(`${snippet}\n`);
-      });
-    }
+    results.forEach((result) => {
+      const dataType = result.getAttribute('data-type');
+      if (dataType && dataType !== 'web') return;
+      if (result.matches('.ad, [data-type="ad"]') || result.closest('.ad, [data-type="ad"]')) return;
+
+      const title = cleanText(result.querySelector(
+        '.search-snippet-title, .title, a.l1, h3 a, h2 a, [data-testid="result-title"], [data-testid="result-title"] a',
+      )?.textContent || '');
+      const link = firstSafeLink(result.querySelectorAll<HTMLAnchorElement>(
+        'a.l1[href], h3 a[href], h2 a[href], [data-testid="result-title"] a[href], a[href]',
+      ));
+      const snippet = cleanText(result.querySelector(
+        '.snippet-description, .snippet-content, [data-testid="result-description"], [data-testid="result-snippet"], .description, p',
+      )?.textContent || '');
+      if (!title || !link) return;
+      const key = `${title}\n${link}`;
+      if (seen.has(key)) return;
+      seen.add(key);
+      if (resultCount === 0) parts.push('## Search Results\n');
+      resultCount += 1;
+      parts.push(`### ${resultCount}. ${escapeMarkdownText(title)}\n`);
+      parts.push(`**URL:** ${link}\n`);
+      if (snippet) parts.push(`${snippet}\n`);
+    });
 
     const related = Array.from(document.querySelectorAll<HTMLAnchorElement>(
-      '[data-testid="related-searches"] a[href], .related-searches a[href], a[href*="/search?q="]',
+      '.related-queries a[href], .related-searches a[href], [data-testid="related-searches"] a[href]',
     ))
       .map((link) => cleanText(link.textContent || ''))
       .filter(Boolean);
@@ -98,7 +100,9 @@ register({
 
 function firstSafeLink(links: NodeListOf<HTMLAnchorElement>): string {
   for (const link of links) {
-    const href = safeHttpUrl(link.href || link.getAttribute('href') || '');
+    const raw = (link.getAttribute('href') || '').trim();
+    if (!raw || raw.startsWith('#')) continue;
+    const href = safeHttpUrl(link.href || raw);
     if (href) return href;
   }
   return '';
@@ -107,7 +111,11 @@ function firstSafeLink(links: NodeListOf<HTMLAnchorElement>): string {
 function safeHttpUrl(value: string): string {
   try {
     const url = new URL(value, document.baseURI);
-    return /^https?:$/.test(url.protocol) ? url.href : '';
+    if (!/^https?:$/.test(url.protocol)) return '';
+    if (/^search\.brave\.com$/i.test(url.hostname)) {
+      if (/^\/(?:search|ask)\/?$/i.test(url.pathname)) return '';
+    }
+    return url.href;
   } catch {
     return '';
   }

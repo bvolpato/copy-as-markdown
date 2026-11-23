@@ -4,13 +4,15 @@
  */
 
 import { addExtractionMetadata, limitCollection, limitMarkdown } from '../core/context';
-import { fetchAtlassianJson, htmlToMarkdown } from '../core/atlassian';
+import { fetchAtlassianJson } from '../core/atlassian';
 import * as Markdown from '../core/markdown';
 import { register } from '../core/registry';
 import { PageMetadata } from '../core/types';
 import * as Utils from '../core/utils';
 
-const CUSTOM_CONFLUENCE_URL = /^https?:\/\/(?:(?:[^/?#]*\.)?confluence[^/?#]*(?::\d+)?\/(?:display\/[^/]+\/|pages\/viewpage\.action)|[^/?#]+(?::\d+)?\/confluence\/(?:display\/[^/]+\/|pages\/viewpage\.action)).*$/i;
+const CUSTOM_CONFLUENCE_URL = /^https?:\/\/(?:(?:[^/?#]*\.)?confluence[^/?#]*(?::\d+)?\/(?:display\/[^/]+\/|pages\/viewpage\.action|spaces\/[^/]+\/(?:pages\/(?:edit-v2\/)?\d+|blog\/)|x\/[^/?#]+)|[^/?#]+(?::\d+)?\/confluence\/(?:display\/[^/]+\/|pages\/viewpage\.action|spaces\/[^/]+\/(?:pages\/(?:edit-v2\/)?\d+|blog\/)|x\/[^/?#]+)).*$/i;
+
+let isVisible: (element: Element | null) => boolean = Utils.createVisibilityChecker();
 
 type ConfluenceComment = { author: string; date: string; body: string };
 type JsonObject = Record<string, unknown>;
@@ -34,7 +36,7 @@ export const confluenceExtractor = register({
   name: 'Confluence',
   matches: ['*://*.atlassian.net/wiki/*'],
   regex: CUSTOM_CONFLUENCE_URL,
-  pathnameRegex: /^(?:\/wiki\/(?:spaces\/[^/]+\/(?:pages\/\d+|overview)|pages\/viewpage\.action|x\/[^/]+)|\/(?:display\/[^/]+\/|pages\/viewpage\.action)|\/confluence\/(?:display\/[^/]+\/|pages\/viewpage\.action))/i,
+  pathnameRegex: /^(?:\/wiki\/(?:spaces\/[^/]+\/(?:pages\/(?:edit-v2\/)?\d+|blog\/\d{4}\/\d{2}\/\d{2}\/\d+|overview)|display\/[^/]+\/|pages\/viewpage\.action|x\/[^/?#]+)|\/(?:display\/[^/]+\/|pages\/viewpage\.action|spaces\/[^/]+\/(?:pages\/(?:edit-v2\/)?\d+|blog\/)|x\/[^/?#]+)|\/confluence\/(?:display\/[^/]+\/|pages\/viewpage\.action|spaces\/[^/]+\/(?:pages\/(?:edit-v2\/)?\d+|blog\/)|x\/[^/?#]+))/i,
   buttonPlacement: 'anchor',
   anchor: {
     selector: [
@@ -51,7 +53,8 @@ export const confluenceExtractor = register({
   },
 
   async extract() {
-    const domPageId = metaContent('ajs-page-id') || getPageId();
+    isVisible = Utils.createVisibilityChecker();
+    const domPageId = getPageId() || metaContent('ajs-page-id');
     const api = domPageId ? await fetchConfluencePage(domPageId) : null;
     const title = api?.title || getPageTitle();
     const bodyElement = findPageBody();
@@ -133,7 +136,8 @@ async function fetchConfluencePage(pageId: string): Promise<ConfluenceApiExtract
 }
 
 function buildConfluenceCloudApiUrl(pageId: string): string {
-  const url = new URL(`/wiki/api/v2/pages/${encodeURIComponent(pageId)}`, window.location.origin);
+  const resource = /\/blog\//i.test(window.location.pathname) ? 'blogposts' : 'pages';
+  const url = new URL(`/wiki/api/v2/${resource}/${encodeURIComponent(pageId)}`, window.location.origin);
   url.searchParams.set('body-format', 'view');
   url.searchParams.set('include-labels', 'true');
   return url.toString();
@@ -151,6 +155,18 @@ function buildConfluenceServerApiUrl(pageId: string): string {
   return url.toString();
 }
 
+function parseConfluenceHtmlBody(html: string): { markdown: string; tables: number; codeBlocks: number } {
+  const parsed = Markdown.parseHtmlDocument(html);
+  const tables = parsed.querySelectorAll('table').length;
+  const codeBlocks = parsed.querySelectorAll('pre, [data-node-type="codeBlock"]').length;
+  parsed.querySelectorAll('script, style, noscript, template').forEach((element) => element.remove());
+  return {
+    markdown: Markdown.elementToMarkdown(parsed.body).trim(),
+    tables,
+    codeBlocks,
+  };
+}
+
 function parseConfluenceCloudPage(
   payload: JsonObject,
   requestedPageId: string,
@@ -163,11 +179,11 @@ function parseConfluenceCloudPage(
 
   const version = asObject(payload.version) || {};
   const labels = extractApiLabels(payload.labels);
-  const counts = countRenderedContent(html);
+  const parsedBody = parseConfluenceHtmlBody(html);
   return {
     pageId: stringValue(payload.id) || requestedPageId,
     title,
-    body: htmlToMarkdown(html),
+    body: parsedBody.markdown,
     labels,
     spaceId: stringValue(payload.spaceId),
     spaceKey: '',
@@ -175,8 +191,8 @@ function parseConfluenceCloudPage(
     version: stringNumber(version.number),
     author: '',
     updated: stringValue(version.createdAt) || stringValue(payload.createdAt),
-    tables: counts.tables,
-    codeBlocks: counts.codeBlocks,
+    tables: parsedBody.tables,
+    codeBlocks: parsedBody.codeBlocks,
     contentSource: 'Confluence Cloud REST API v2',
   };
 }
@@ -195,21 +211,22 @@ function parseConfluenceServerPage(
   const space = asObject(payload.space) || {};
   const metadata = asObject(payload.metadata) || {};
   const history = asObject(payload.history) || {};
+  const lastUpdated = asObject(history.lastUpdated);
   const createdBy = asObject(history.createdBy) || asObject(version.by) || {};
-  const counts = countRenderedContent(html);
+  const parsedBody = parseConfluenceHtmlBody(html);
   return {
     pageId: stringValue(payload.id) || requestedPageId,
     title,
-    body: htmlToMarkdown(html),
+    body: parsedBody.markdown,
     labels: extractApiLabels(metadata.labels),
     spaceId: stringValue(space.id),
     spaceKey: stringValue(space.key),
     spaceName: stringValue(space.name),
     version: stringNumber(version.number),
     author: stringValue(createdBy.displayName) || stringValue(createdBy.username),
-    updated: stringValue(version.when) || stringValue(history.lastUpdated),
-    tables: counts.tables,
-    codeBlocks: counts.codeBlocks,
+    updated: stringValue(version.when) || stringValue(lastUpdated?.when) || stringValue(history.lastUpdated),
+    tables: parsedBody.tables,
+    codeBlocks: parsedBody.codeBlocks,
     contentSource: 'Confluence REST API',
   };
 }
@@ -220,15 +237,6 @@ function extractApiLabels(value: unknown): string[] {
   return objectArray(labels)
     .map((label) => stringValue(label.name) || stringValue(label.label))
     .filter(Boolean);
-}
-
-function countRenderedContent(html: string): { tables: number; codeBlocks: number } {
-  if (!html) return { tables: 0, codeBlocks: 0 };
-  const parsed = new DOMParser().parseFromString(html, 'text/html');
-  return {
-    tables: parsed.querySelectorAll('table').length,
-    codeBlocks: parsed.querySelectorAll('pre, [data-node-type="codeBlock"]').length,
-  };
 }
 
 const CONFLUENCE_BODY_SELECTORS = [
@@ -267,10 +275,18 @@ function getPageTitle(): string {
 }
 
 function findPageBody(): Element | null {
-  const candidates = CONFLUENCE_BODY_SELECTORS.flatMap((selector) =>
-    Array.from(document.querySelectorAll(selector)),
-  ).filter((element) => isVisible(element) && !isInsideComment(element));
-  return candidates.sort((left, right) => contentLength(right) - contentLength(left))[0] || null;
+  const unique = new Set<Element>();
+  CONFLUENCE_BODY_SELECTORS.forEach((selector) => {
+    document.querySelectorAll(selector).forEach((element) => {
+      if (isVisible(element) && !isInsideComment(element)) unique.add(element);
+    });
+  });
+  const scored = Array.from(unique).map((element) => ({
+    element,
+    score: contentLength(element),
+  }));
+  scored.sort((left, right) => right.score - left.score);
+  return scored[0]?.element || null;
 }
 
 function contentLength(element: Element): number {
@@ -278,7 +294,19 @@ function contentLength(element: Element): number {
 }
 
 function markdownFromPageBody(element: Element): string {
-  return Markdown.elementToMarkdown(Utils.removeNoise(element, CONFLUENCE_BODY_NOISE)).trim();
+  const clone = element.cloneNode(true) as Element;
+  clone.querySelectorAll<HTMLElement>(
+    '[data-node-type="expand"] > button, [data-node-type="nestedExpand"] > button, button[data-testid*="expand"], .expand-control button, button.expand-control',
+  ).forEach((button) => {
+    const label = textOf(button);
+    if (!label) return;
+    const p = clone.ownerDocument.createElement('p');
+    const strong = clone.ownerDocument.createElement('strong');
+    strong.textContent = label;
+    p.appendChild(strong);
+    button.replaceWith(p);
+  });
+  return Markdown.elementToMarkdown(Utils.removeNoise(clone, CONFLUENCE_BODY_NOISE)).trim();
 }
 
 function extractComments(pageBody: Element | null): ConfluenceComment[] {
@@ -341,7 +369,8 @@ function getPageId(): string {
   const url = new URL(window.location.href);
   return url.searchParams.get('pageId')
     || url.searchParams.get('homepageId')
-    || window.location.pathname.match(/\/pages\/(\d+)/)?.[1]
+    || window.location.pathname.match(/\/pages\/(?:edit-v2\/)?(\d+)/)?.[1]
+    || window.location.pathname.match(/\/blog\/\d{4}\/\d{2}\/\d{2}\/(\d+)/)?.[1]
     || '';
 }
 
@@ -376,20 +405,6 @@ function isInsideComment(element: Element): boolean {
     '#comments-section, #page-comments, .comment, .comments, .comment-thread, '
     + '[data-testid="comment"], [data-testid="page-comment"], [data-testid="inline-comment"]',
   ));
-}
-
-function isVisible(element: Element): boolean {
-  let current: Element | null = element;
-  while (current) {
-    if (
-      current.hasAttribute('hidden')
-      || current.getAttribute('aria-hidden') === 'true'
-      || (current instanceof HTMLElement
-        && (current.style.display === 'none' || current.style.visibility === 'hidden'))
-    ) return false;
-    current = current.parentElement;
-  }
-  return true;
 }
 
 function metaContent(name: string): string {

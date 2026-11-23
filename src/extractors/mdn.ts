@@ -11,6 +11,8 @@ register({
   name: 'MDN Web Docs',
   matches: [
     '*://developer.mozilla.org/*/docs/*',
+    '*://developer.mozilla.org/*/blog/*',
+    '*://developer.mozilla.org/*/curriculum/*',
   ],
 
   buttonPlacement: 'anchor',
@@ -28,7 +30,7 @@ register({
 
     // Breadcrumb path (e.g., "Web > JavaScript > Reference > Array")
     const breadcrumbEls = document.querySelectorAll('.breadcrumbs-container li, nav.breadcrumbs ol li');
-    const breadcrumb = Array.from(breadcrumbEls).map(el => el.textContent?.trim()).filter(Boolean).join(' > ');
+    const breadcrumb = Array.from(breadcrumbEls).map((el) => el.textContent?.trim()).filter(Boolean).join(' > ');
 
     // Browser compat status
     const statusEl = document.querySelector('.page-header .bc-level');
@@ -50,25 +52,44 @@ register({
     const contentEl = document.querySelector('.main-page-content, article.main-page-content, #content article, #content');
     if (contentEl) {
       const clone = contentEl.cloneNode(true) as HTMLElement;
+      annotateMdnCodeLanguages(clone);
       // Remove noise
       clone.querySelectorAll([
-        '.section-content .hidden', '.bc-data', '.metadata', '.prev-next',
-        '.reference-layout__toc', '.reference-toc', 'mdn-placement-sidebar', 'mdn-survey',
-        '.reference-layout__header > h1', '#cam-copy-btn', '[data-cam-instance]',
-      ].join(', ')).forEach(el => el.remove());
+        ...Utils.NOISE_SELECTORS,
+        'mdn-button',
+        'button',
+        '.code-example .example-header',
+        '#help-improve-mdn',
+        '.metadata-content-container',
+        'article h1',
+        '.section-content .hidden',
+        '.bc-data',
+        '.bc-table',
+        'mdn-compat-table',
+        'mdn-compat-table-lazy',
+        '.metadata',
+        '.prev-next',
+        '.reference-layout__toc',
+        '.reference-toc',
+        'mdn-placement-sidebar',
+        'mdn-survey',
+        '.reference-layout__header > h1',
+        '#cam-copy-btn',
+        '[data-cam-instance]',
+      ].join(', ')).forEach((el) => el.remove());
       parts.push(Markdown.elementToMarkdown(clone));
     }
 
-    // Browser compatibility table
-    const compatTable = document.querySelector('.bc-table');
+    // Browser compatibility table (including <mdn-compat-table> Shadow DOM)
+    const compatTable = findCompatTable();
     if (compatTable) {
       parts.push('\n## Browser Compatibility\n');
       parts.push(Markdown.tableToMarkdown(compatTable));
     }
 
-    // Specifications
+    // Specifications (only append separately if not already included in main content)
     const specTable = document.querySelector('#specifications + .standard-table, #specifications ~ table');
-    if (specTable) {
+    if (specTable && !contentEl?.contains(specTable)) {
       parts.push('\n## Specifications\n');
       parts.push(Markdown.tableToMarkdown(specTable));
     }
@@ -76,3 +97,42 @@ register({
     return Markdown.buildPageMarkdown(metadata, parts.join('\n'));
   },
 });
+
+function findCompatTable(): Element | null {
+  const lightTable = document.querySelector('.bc-table');
+  if (lightTable) return lightTable;
+
+  const hosts = document.querySelectorAll('mdn-compat-table, mdn-compat-table-lazy');
+  for (const host of hosts) {
+    const shadowTable = host.shadowRoot?.querySelector('.bc-table, table');
+    if (shadowTable) return shadowTable;
+  }
+  return null;
+}
+
+function annotateMdnCodeLanguages(root: HTMLElement): void {
+  root.querySelectorAll<HTMLElement>('pre').forEach((pre) => {
+    const code = pre.querySelector<HTMLElement>(':scope > code');
+    const existingClass = code?.className || '';
+    if (/\blanguage-([\w.+#-]+)/.test(existingClass)) return;
+
+    const sources = [
+      pre.className || '',
+      pre.closest<HTMLElement>('.code-example')?.className || '',
+      code?.className || '',
+    ].join(' ');
+    const brushMatch = sources.match(/\bbrush:\s*([\w.+#-]+)/i);
+    const langMatch = sources.match(/\blanguage-([\w.+#-]+)/i);
+    const rawLang = (brushMatch?.[1] || langMatch?.[1] || '').toLowerCase();
+    if (!rawLang || rawLang === 'plain' || rawLang === 'nolang') return;
+
+    if (code) {
+      code.classList.add(`language-${rawLang}`);
+    } else {
+      const wrapped = root.ownerDocument.createElement('code');
+      wrapped.className = `language-${rawLang}`;
+      wrapped.textContent = pre.textContent || '';
+      pre.replaceChildren(wrapped);
+    }
+  });
+}

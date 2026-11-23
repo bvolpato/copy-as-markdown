@@ -1,5 +1,5 @@
 /**
- * Stack Overflow extractor.
+ * Stack Overflow and Stack Exchange extractor.
  * Extracts question, answers (with vote counts), and comments.
  */
 
@@ -10,13 +10,24 @@ import * as Utils from '../core/utils';
 register({
   name: 'Stack Overflow',
   matches: [
-    '*://stackoverflow.com/questions/*',
-    '*://superuser.com/questions/*',
-    '*://serverfault.com/questions/*',
-    '*://askubuntu.com/questions/*',
+    '*://*.stackoverflow.com/questions/*',
+    '*://*.stackoverflow.com/q/*',
+    '*://*.superuser.com/questions/*',
+    '*://*.superuser.com/q/*',
+    '*://*.serverfault.com/questions/*',
+    '*://*.serverfault.com/q/*',
+    '*://*.askubuntu.com/questions/*',
+    '*://*.askubuntu.com/q/*',
     '*://*.stackexchange.com/questions/*',
+    '*://*.stackexchange.com/q/*',
+    '*://mathoverflow.net/questions/*',
+    '*://mathoverflow.net/q/*',
+    '*://stackapps.com/questions/*',
+    '*://stackapps.com/q/*',
+    '*://stackoverflowteams.com/c/*/questions/*',
+    '*://stackoverflowteams.com/c/*/q/*',
   ],
-  pathnameRegex: /^\/questions\/\d+(?:\/|$)/,
+  pathnameRegex: /^(?:\/c\/[^/]+)?\/(?:questions|q)\/\d+(?:\/|$)/,
   buttonPlacement: 'anchor',
   anchor: {
     selector: [
@@ -31,19 +42,25 @@ register({
 
   async extract() {
     const url = Utils.getCanonicalUrl();
+    const siteName = document.querySelector('meta[property="og:site_name"]')?.getAttribute('content')?.trim()
+      || 'Stack Overflow';
 
     const titleEl = document.querySelector('#question-header h1 a, #question-header h1');
     const title = titleEl?.textContent?.trim() || Utils.getPageTitle();
 
     const metadata: Record<string, string> = {
-      source: 'Stack Overflow',
+      source: siteName,
       title,
       url,
     };
 
-    // Tags
-    const tagEls = document.querySelectorAll('.post-taglist .js-post-tag-list-item a, .post-tag');
-    const tags = Array.from(tagEls).map((el) => el.textContent?.trim()).filter(Boolean);
+    // Tags scoped to question container so sidebar tags do not leak
+    const tagEls = document.querySelectorAll(
+      '#question .post-tag, .question .post-tag, .post-taglist .post-tag, .post-taglist .js-post-tag-list-item a',
+    );
+    const tags = [...new Set(
+      Array.from(tagEls).map((el) => el.textContent?.trim()).filter((t): t is string => Boolean(t)),
+    )];
     if (tags.length > 0) metadata.tags = tags.join(', ');
 
     // Vote count
@@ -56,6 +73,7 @@ register({
     parts.push('');
 
     // Question body
+    const questionEl = document.querySelector('#question, .question');
     const questionBody = document.querySelector('.question .s-prose, .question .post-text, #question .js-post-body');
     if (questionBody) {
       parts.push('## Question\n');
@@ -64,13 +82,12 @@ register({
     }
 
     // Question comments
-    const qComments = document.querySelectorAll('.question .comment-body, #question .comment-copy');
+    const qComments = extractComments(questionEl);
     if (qComments.length > 0) {
       parts.push('### Comments\n');
-      qComments.forEach((c) => {
-        const text = c.textContent?.trim();
-        if (text) parts.push(`> ${text}\n`);
-      });
+      for (const comment of qComments) {
+        parts.push(`${quoteMarkdown(comment)}\n`);
+      }
       parts.push('');
     }
 
@@ -82,10 +99,7 @@ register({
       answers.forEach((answer, i) => {
         const answerVotes = answer.querySelector('.js-vote-count, [itemprop="upvoteCount"]')?.textContent?.trim() || '0';
         const isAccepted = answer.classList.contains('accepted-answer') || !!answer.querySelector('.js-accepted-answer-indicator:not(.d-none)');
-        const authorEl = answer.querySelector('.user-details a, .post-signature .user-info a');
-        const author = authorEl?.textContent?.trim() || 'Anonymous';
-        const dateEl = answer.querySelector('.user-action-time .relativetime, .post-signature .relativetime');
-        const date = dateEl?.getAttribute('title') || dateEl?.textContent?.trim() || '';
+        const { author, date } = extractPostSignature(answer);
 
         const prefix = isAccepted ? '✅ ' : '';
         parts.push(`### ${prefix}Answer ${i + 1} (${answerVotes} votes) by ${author}\n`);
@@ -98,13 +112,12 @@ register({
         }
 
         // Answer comments
-        const aComments = answer.querySelectorAll('.comment-body, .comment-copy');
+        const aComments = extractComments(answer);
         if (aComments.length > 0) {
           parts.push('**Comments:**\n');
-          aComments.forEach((c) => {
-            const text = c.textContent?.trim();
-            if (text) parts.push(`> ${text}\n`);
-          });
+          for (const comment of aComments) {
+            parts.push(`${quoteMarkdown(comment)}\n`);
+          }
           parts.push('');
         }
       });
@@ -113,3 +126,32 @@ register({
     return Markdown.buildPageMarkdown(metadata, parts.join('\n'));
   },
 });
+
+function extractComments(container: ParentNode | null): string[] {
+  if (!container) return [];
+  const copyEls = container.querySelectorAll('.comment-copy');
+  const commentEls = copyEls.length > 0 ? copyEls : container.querySelectorAll('.comment-body');
+  const results: string[] = [];
+  commentEls.forEach((el) => {
+    const md = Markdown.elementToMarkdown(el).trim();
+    if (md) results.push(md);
+  });
+  return results;
+}
+
+function quoteMarkdown(markdown: string): string {
+  return markdown.split('\n').map((line) => `> ${line}`).join('\n');
+}
+
+function extractPostSignature(post: Element): { author: string; date: string } {
+  const signatures = Array.from(post.querySelectorAll('.post-signature'));
+  const ownerSig = post.querySelector('.post-signature.owner')
+    || (signatures.length > 0 ? signatures[signatures.length - 1] : null);
+  const scope: ParentNode = ownerSig || post;
+
+  const authorEl = scope.querySelector('.user-details a, .user-details [itemprop="name"], .user-info a');
+  const author = authorEl?.textContent?.trim() || 'Anonymous';
+  const dateEl = scope.querySelector('.user-action-time .relativetime, .relativetime');
+  const date = dateEl?.getAttribute('title') || dateEl?.textContent?.trim() || '';
+  return { author, date };
+}

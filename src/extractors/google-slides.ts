@@ -15,6 +15,7 @@ const MAX_SLIDES = 200;
 const BODY_LIMIT = 110_000;
 
 type Slide = {
+  id?: string;
   number: number;
   title: string;
   body: string;
@@ -39,8 +40,13 @@ type SlideBlock = {
 
 register({
   name: 'Google Slides',
-  matches: ['*://docs.google.com/presentation/d/*', '*://docs.google.com/presentation/u/*/d/*'],
-  pathnameRegex: /^\/presentation\/(?:u\/\d+\/)?d\/(?!e(?:\/|$))[^/]+(?:\/|$)/,
+  matches: [
+    '*://docs.google.com/presentation/d/*',
+    '*://docs.google.com/presentation/u/*/d/*',
+    '*://docs.google.com/a/*/presentation/d/*',
+    '*://docs.google.com/a/*/presentation/u/*/d/*',
+  ],
+  pathnameRegex: /^(?:\/a\/[^/]+)?\/presentation\/(?:u\/\d+\/)?d\/(?!e(?:\/|$))[^/]+(?:\/|$)/,
   options: [
     {
       id: 'current',
@@ -63,6 +69,28 @@ register({
     ].join(', '),
     position: 'before',
     style: 'link',
+    wrapperTag: 'div',
+    wrapperClass: 'goog-inline-block docs-titlebar-button',
+    wrapperCss: {
+      marginInlineEnd: '8px',
+    },
+    css: {
+      display: 'inline-flex',
+      alignItems: 'center',
+      gap: '6px',
+      height: '36px',
+      padding: '0 14px',
+      border: '1px solid #dadce0',
+      borderRadius: '18px',
+      background: '#fff',
+      color: '#1f1f1f',
+      opacity: '1',
+      fontSize: '14px',
+      fontWeight: '500',
+      lineHeight: '20px',
+      textDecoration: 'none',
+      whiteSpace: 'nowrap',
+    },
     label: 'Copy as Markdown',
   },
 
@@ -70,7 +98,7 @@ register({
     const presentationId = getPresentationId();
     const title = getPresentationTitle();
     const activeSlideId = getLocationParameter('slide');
-    const activeSlideNumber = getActiveSlideNumber();
+    const activeSlideNumber = getActiveSlideNumber(activeSlideId);
     const metadata: Record<string, string | number | undefined> = {
       source: 'Google Slides',
       title,
@@ -97,10 +125,10 @@ register({
     const liveNotes = extractLiveSpeakerNotes();
     let extraction: PresentationExtraction | null = null;
     try {
-      const html = await fetchSlidesResource(buildSlidesUrl(presentationId, 'htmlpresent'), 'html');
+      const html = await fetchSlidesWithFallback(buildSlidesUrls(presentationId, 'htmlpresent'), 'html');
       const slides = parseHtmlPresentation(html);
       if (slides.length > 0) {
-        const notes = attachLiveNotes(slides, liveNotes, activeSlideNumber);
+        const notes = attachLiveNotes(slides, liveNotes, activeSlideNumber, activeSlideId);
         extraction = {
           slides,
           contentSource: 'Google Slides authenticated HTML presentation',
@@ -115,10 +143,10 @@ register({
 
     if (!extraction) {
       try {
-        const text = await fetchSlidesResource(buildSlidesUrl(presentationId, 'export/txt'), 'text');
+        const text = await fetchSlidesWithFallback(buildSlidesUrls(presentationId, 'export/txt'), 'text');
         const slides = parseTextPresentation(text);
         if (slides.length > 0) {
-          const notes = attachLiveNotes(slides, liveNotes, activeSlideNumber);
+          const notes = attachLiveNotes(slides, liveNotes, activeSlideNumber, activeSlideId);
           extraction = {
             slides,
             contentSource: 'Google Slides authenticated plain-text export',
@@ -134,7 +162,7 @@ register({
 
     if (!extraction) {
       const slides = extractVisibleSlides(activeSlideNumber);
-      const notes = attachLiveNotes(slides, liveNotes, activeSlideNumber);
+      const notes = attachLiveNotes(slides, liveNotes, activeSlideNumber, activeSlideId);
       extraction = {
         slides,
         contentSource: 'Google Slides visible editor DOM',
@@ -145,15 +173,24 @@ register({
     }
 
     if (optionId === 'current') {
-      const exportedSlide = activeSlideNumber
+      const normalizedSlideId = normalizeSlideId(activeSlideId);
+      const exportedSlide = (activeSlideNumber
         ? extraction.slides.find((slide) => slide.number === activeSlideNumber)
-        : undefined;
+        : undefined)
+        || (normalizedSlideId
+          ? extraction.slides.find((slide) => normalizeSlideId(slide.id || '') === normalizedSlideId)
+          : undefined);
       const visibleSlide = extractVisibleSlides(activeSlideNumber)[0];
+      if (visibleSlide && !visibleSlide.notes && liveNotes) {
+        visibleSlide.notes = liveNotes;
+      }
       const currentSlide = exportedSlide || visibleSlide || extraction.slides[0];
+      const matchedActive = Boolean(exportedSlide || visibleSlide);
       extraction = {
         ...extraction,
         slides: currentSlide ? [currentSlide] : [],
-        complete: Boolean(currentSlide),
+        complete: matchedActive && Boolean(currentSlide),
+        unassignedNotes: '',
       };
     }
 
@@ -162,7 +199,7 @@ register({
 });
 
 function getPresentationId(): string {
-  return window.location.pathname.match(/\/presentation\/(?:u\/\d+\/)?d\/(?!e(?:\/|$))([^/]+)/)?.[1] || '';
+  return window.location.pathname.match(/^(?:\/a\/[^/]+)?\/presentation\/(?:u\/\d+\/)?d\/(?!e(?:\/|$))([^/]+)/)?.[1] || '';
 }
 
 function getPresentationTitle(): string {
@@ -184,7 +221,11 @@ function getLocationParameter(name: string): string {
   return new URLSearchParams(hash).get(name) || '';
 }
 
-function getActiveSlideNumber(): number | undefined {
+function normalizeSlideId(value: string): string {
+  return value.trim().replace(/^id\./i, '');
+}
+
+function getActiveSlideNumber(activeSlideId = ''): number | undefined {
   const selected = document.querySelector<HTMLElement>([
     '.punch-filmstrip-thumbnail-container.punch-filmstrip-thumbnail-selected',
     '.punch-filmstrip-thumbnail.punch-filmstrip-thumbnail-selected',
@@ -195,39 +236,119 @@ function getActiveSlideNumber(): number | undefined {
     '[role="listitem"][aria-selected="true"]',
     '[aria-label^="Slide"][aria-selected="true"]',
   ].join(', '));
-  if (!selected) return undefined;
-  const container = selected.closest<HTMLElement>(
-    '.punch-filmstrip-thumbnail-container, .punch-filmstrip-thumbnail, [role="listitem"]',
-  ) || selected;
-  const pageNumber = selected.querySelector<HTMLElement>(
-    '.punch-filmstrip-thumbnail-pagenumber, .punch-filmstrip-thumbnail-pagenumber-container',
-  );
-  const explicitPosition = Number(container.getAttribute('aria-posinset'));
-  if (Number.isFinite(explicitPosition) && explicitPosition > 0) return explicitPosition;
-  const label = pageNumber?.textContent
-    || container.getAttribute('aria-label')
-    || selected.getAttribute('aria-label')
-    || selected.textContent
-    || '';
-  const number = Number(label.match(/(?:slide\s*)?(\d+)/i)?.[1]);
-  return Number.isFinite(number) && number > 0 ? number : undefined;
+  if (selected) {
+    const container = selected.closest<HTMLElement>(
+      '.punch-filmstrip-thumbnail-container, .punch-filmstrip-thumbnail, [role="listitem"]',
+    ) || selected;
+    const pageNumber = selected.querySelector<HTMLElement>(
+      '.punch-filmstrip-thumbnail-pagenumber, .punch-filmstrip-thumbnail-pagenumber-container',
+    );
+    const explicitPosition = Number(container.getAttribute('aria-posinset'));
+    if (Number.isFinite(explicitPosition) && explicitPosition > 0) return explicitPosition;
+    const label = pageNumber?.textContent
+      || container.getAttribute('aria-label')
+      || selected.getAttribute('aria-label')
+      || selected.textContent
+      || '';
+    const number = Number(label.match(/(?:slide\s*)?(\d+)/i)?.[1]);
+    if (Number.isFinite(number) && number > 0) return number;
+  }
+
+  const normalizedId = normalizeSlideId(activeSlideId);
+  if (!normalizedId) return undefined;
+  if (/^p$/i.test(normalizedId)) return 1;
+  const pageIdMatch = normalizedId.match(/^p(\d+)$/i);
+  if (pageIdMatch) {
+    const number = Number(pageIdMatch[1]);
+    if (Number.isFinite(number) && number > 0) return number;
+  }
+
+  const filmstripThumbnails = Array.from(document.querySelectorAll<HTMLElement>(
+    '.punch-filmstrip-thumbnail-container, .punch-filmstrip-thumbnail, .punch-filmstrip-scroll [role="listitem"], .punch-filmstrip-scroll g[id]',
+  ));
+  if (filmstripThumbnails.length > 0) {
+    const matchedIndex = filmstripThumbnails.findIndex((item) => {
+      const idAttr = item.id || item.getAttribute('data-slide-id') || '';
+      return idAttr === normalizedId
+        || idAttr === `id.${normalizedId}`
+        || idAttr.endsWith(`-${normalizedId}`)
+        || item.querySelector(`[id*="${CSS.escape(normalizedId)}"], [data-slide-id="${CSS.escape(normalizedId)}"]`) !== null;
+    });
+    if (matchedIndex >= 0) return matchedIndex + 1;
+  }
+  return undefined;
 }
 
-function buildSlidesUrl(presentationId: string, endpoint: 'htmlpresent' | 'export/txt'): string {
-  return new URL(`/presentation/d/${presentationId}/${endpoint}`, window.location.origin).href;
+function buildSlidesUrls(presentationId: string, endpoint: 'htmlpresent' | 'export/txt'): string[] {
+  const pathname = window.location.pathname;
+  const domainPrefix = pathname.match(/^(\/a\/[^/]+)/)?.[1] || '';
+  const accountPrefix = pathname.match(/\/presentation\/(u\/\d+)\/d\//)?.[1] || '';
+  const basePaths = new Set<string>([
+    `${domainPrefix}/presentation/${accountPrefix ? `${accountPrefix}/` : ''}d/${presentationId}/${endpoint}`,
+  ]);
+  if (domainPrefix && accountPrefix) {
+    basePaths.add(`${domainPrefix}/presentation/d/${presentationId}/${endpoint}`);
+  }
+  basePaths.add(`/presentation/d/${presentationId}/${endpoint}`);
+  return Array.from(basePaths).map((path) => new URL(path, window.location.origin).href);
+}
+
+class SlidesHttpError extends Error {
+  status: number;
+  constructor(message: string, status: number) {
+    super(message);
+    this.status = status;
+  }
+}
+
+async function fetchSlidesWithFallback(urls: string[], kind: 'html' | 'text'): Promise<string> {
+  let lastError: unknown;
+  for (let index = 0; index < urls.length; index += 1) {
+    try {
+      return await fetchSlidesResource(urls[index], kind);
+    } catch (error) {
+      lastError = error;
+      const isLast = index === urls.length - 1;
+      const retryable = (error instanceof SlidesHttpError && error.status === 404)
+        || error instanceof TypeError
+        || (error instanceof DOMException && error.name === 'AbortError');
+      if (isLast || !retryable) throw error;
+    }
+  }
+  throw lastError;
+}
+
+function isGoogleSignInResponse(response: Response, text: string): boolean {
+  try {
+    const parsedUrl = response.url ? new URL(response.url) : null;
+    if (parsedUrl && /(?:^|\.)accounts\.google\.com$/i.test(parsedUrl.hostname)) {
+      return true;
+    }
+  } catch {
+    // ignore invalid response URL
+  }
+  if (response.url.includes('ServiceLogin')) return true;
+  if (/<title[^>]*>\s*(?:sign in|google accounts)\b/i.test(text)) return true;
+  const hasSignInForm = /<form[^>]+(?:ServiceLogin|accounts\.google\.com)/i.test(text)
+    || /name=["'](?:identifier|Passwd)["']/i.test(text);
+  if (hasSignInForm) {
+    const visibleText = text.replace(/<script[\s\S]*?<\/script>|<style[\s\S]*?<\/style>|<[^>]+>/gi, ' ')
+      .replace(/\s+/g, ' ')
+      .trim();
+    if (visibleText.length < 2000) return true;
+  }
+  return false;
 }
 
 async function fetchSlidesResource(url: string, kind: 'html' | 'text'): Promise<string> {
-  const response = await fetch(url, { credentials: 'include' });
-  if (!response.ok) throw new Error(`Google Slides request returned ${response.status}`);
+  const response = await Utils.fetchWithTimeout(url, { credentials: 'include' });
+  if (!response.ok) {
+    throw new SlidesHttpError(`Google Slides request returned ${response.status}`, response.status);
+  }
 
   const text = await response.text();
   if (!text.trim()) throw new Error('Google Slides request returned an empty response');
-  if (
-    response.url.includes('ServiceLogin')
-    || /accounts\.google\.com/i.test(text)
-    || /<title>\s*sign in/i.test(text)
-  ) {
+  if (isGoogleSignInResponse(response, text)) {
     throw new Error('Google Slides request redirected to sign-in');
   }
   if (kind === 'text' && /^\s*<!doctype html|^\s*<html/i.test(text)) {
@@ -248,8 +369,46 @@ function parseHtmlPresentation(html: string): Slide[] {
   return slideElements.map((slide, index) => extractHtmlSlide(slide, index + 1));
 }
 
+function extractSvgText(svg: Element): string {
+  const lines: string[] = [];
+  svg.querySelectorAll('text').forEach((textNode) => {
+    const tspans = Array.from(textNode.querySelectorAll('tspan'));
+    const value = tspans.length > 0
+      ? tspans.map((span) => normalizeText(span.textContent || '')).filter(Boolean).join(' ')
+      : normalizeText(textNode.textContent || '');
+    if (value) lines.push(value);
+  });
+  return lines.join('\n');
+}
+
+function elementToSlideMarkdown(element: HTMLElement): string {
+  if (element.matches('svg')) {
+    return cleanBlockMarkdown(extractSvgText(element));
+  }
+  if (!element.querySelector('svg text, svg tspan')) {
+    return cleanBlockMarkdown(Markdown.elementToMarkdown(element));
+  }
+  const clone = element.cloneNode(true) as HTMLElement;
+  clone.querySelectorAll('svg').forEach((svg) => {
+    const svgText = extractSvgText(svg);
+    if (!svgText) {
+      svg.remove();
+      return;
+    }
+    const replacement = clone.ownerDocument.createElement('div');
+    svgText.split('\n').forEach((line) => {
+      const p = clone.ownerDocument.createElement('p');
+      p.textContent = line;
+      replacement.appendChild(p);
+    });
+    svg.replaceWith(replacement);
+  });
+  return cleanBlockMarkdown(Markdown.elementToMarkdown(clone));
+}
+
 function extractHtmlSlide(slide: HTMLElement, fallbackNumber: number): Slide {
   const content = slide.querySelector<HTMLElement>('.slide-content') || slide;
+  const slideId = slide.id || slide.getAttribute('data-slide-id') || content.id || '';
   const label = slide.getAttribute('title') || content.getAttribute('aria-label') || '';
   const parsedNumber = Number(label.match(/(?:slide\s*)?(\d+)/i)?.[1]);
   const number = Number.isFinite(parsedNumber) && parsedNumber > 0 ? parsedNumber : fallbackNumber;
@@ -266,13 +425,14 @@ function extractHtmlSlide(slide: HTMLElement, fallbackNumber: number): Slide {
 
   if (blocks.length === 0) {
     return {
+      id: slideId || undefined,
       number,
       title: '',
-      body: cleanBlockMarkdown(Markdown.elementToMarkdown(content)),
+      body: elementToSlideMarkdown(content),
       notes,
     };
   }
-  return { number, title, body, notes };
+  return { id: slideId || undefined, number, title, body, notes };
 }
 
 function extractPositionedBlocks(content: HTMLElement): SlideBlock[] {
@@ -290,10 +450,7 @@ function extractPositionedBlocks(content: HTMLElement): SlideBlock[] {
     return !all.some((candidate, candidateIndex) => candidateIndex < index && candidate.contains(element));
   });
   const blocks = candidates.map((element) => {
-    const svgText = element.matches('svg')
-      ? Array.from(element.querySelectorAll('text')).map((node) => normalizeText(node.textContent || '')).filter(Boolean).join('\n')
-      : '';
-    const markdown = cleanBlockMarkdown(svgText || Markdown.elementToMarkdown(element));
+    const markdown = elementToSlideMarkdown(element);
     return {
       markdown,
       text: normalizeText(element.textContent || ''),
@@ -419,11 +576,17 @@ function attachLiveNotes(
   slides: Slide[],
   notes: string,
   activeSlideNumber?: number,
+  activeSlideId = '',
 ): { scope: string; unassigned: string } {
   if (!notes) return { scope: 'not available from export or visible DOM', unassigned: '' };
-  const target = activeSlideNumber
+  const normalizedId = normalizeSlideId(activeSlideId);
+  const target = (activeSlideNumber
     ? slides.find((slide) => slide.number === activeSlideNumber)
-    : slides.length === 1 ? slides[0] : undefined;
+    : undefined)
+    || (normalizedId
+      ? slides.find((slide) => normalizeSlideId(slide.id || '') === normalizedId)
+      : undefined)
+    || (slides.length === 1 ? slides[0] : undefined);
   if (target) {
     target.notes = target.notes || notes;
     return { scope: `active slide ${target.number}`, unassigned: '' };

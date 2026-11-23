@@ -1,5 +1,5 @@
 /**
- * Facebook extractor for post, reel, video, permalink, and active-feed routes.
+ * Facebook extractor for post, reel, video, permalink, group, story, profile, and active-feed routes.
  */
 
 import { register } from '../core/registry';
@@ -38,7 +38,7 @@ register({
     '*://mbasic.facebook.com/*',
     '*://m.facebook.com/*',
   ],
-  pathnameRegex: /^\/(?:$|reel\/[^/]+\/?|(?:[^/]+\/)?posts\/[^/]+\/?|groups\/[^/]+\/posts\/[^/]+\/?|(?:[^/]+\/)?videos?\/[^/]+\/?|watch\/?|(?:permalink|story|photo)\.php|share\/[pr]\/[^/]+\/?|events\/[^/]+\/?|(?!(?:settings|messages|notifications|marketplace|gaming|friends|groups|events|pages|reels|share|login|logout|help|privacy)(?:\/|$))[^/]+\/?)$/,
+  pathnameRegex: /^\/(?:$|reel\/[^/]+\/?|(?:[^/]+\/)?posts\/[^/]+\/?|groups\/[^/]+(?:\/(?:posts|permalink)\/[^/]+)?\/?|(?:[^/]+\/)?videos?\/[^/]+\/?|watch\/?|(?:permalink|story|photo|profile)\.php|share\/[prv]\/[^/]+\/?|stories\/[^/]+\/[^/]+\/?|events\/[^/]+\/?|(?!(?:settings|messages|notifications|marketplace|gaming|friends|groups|events|pages|reels|share|stories|login|logout|help|privacy)(?:\/|$))[^/]+\/?)$/,
   buttonPlacement: 'anchor',
   anchor: {
     selector: [
@@ -61,6 +61,7 @@ register({
     const comments = extractComments(article || document, post);
     const limitedComments = limitCollection(comments, COMMENT_LIMIT);
     const kind = /\/reel\//.test(window.location.pathname) ? 'reel'
+      : /\/stories\//.test(window.location.pathname) ? 'story'
       : /\/videos?\//.test(window.location.pathname) || /^\/watch\/?$/.test(window.location.pathname) ? 'video'
       : isFeed ? 'active feed item' : 'post';
     const title = post.author ? `Facebook ${kind} by ${post.author}`
@@ -129,7 +130,8 @@ function emptyPost(id = ''): FacebookPost {
 
 function getPostId(): string {
   const path = window.location.pathname;
-  return path.match(/\/(?:posts|reel|videos?|share\/[pr])\/([^/?]+)/)?.[1]
+  return path.match(/\/(?:posts|permalink|reel|videos?|share\/[prv])\/([^/?]+)/)?.[1]
+    || path.match(/\/stories\/[^/]+\/([^/?]+)/)?.[1]
     || new URL(window.location.href).searchParams.get('story_fbid')
     || new URL(window.location.href).searchParams.get('fbid')
     || new URL(window.location.href).searchParams.get('id')
@@ -175,10 +177,15 @@ function extractDomPost(article: Element | null, id: string, allowMetadata: bool
     'header h2 strong', 'header h3 strong', 'h2 a strong', 'h3 a strong',
     '[data-ad-rendering-role="profile_name"]', 'strong a[href]',
   ]);
-  post.body = text(article, [
+  const bodyEl = firstElement(article, [
     '[data-ad-preview="message"]', '[data-ad-comet-preview="message"]',
     '[data-testid="post_message"]', '[data-ad-rendering-role="story_message"]',
-  ]) || longestOwnText(article, 'div[dir="auto"]');
+  ]);
+  if (bodyEl) {
+    const cleaned = Utils.removeNoise(bodyEl, ['script', 'style', 'button', 'svg', '[aria-hidden="true"]']);
+    post.body = Markdown.elementToMarkdown(cleaned).trim();
+  }
+  if (!post.body) post.body = longestOwnMarkdown(article, 'div[dir="auto"]');
   if (!post.body && allowMetadata) post.body = clean(Utils.getMeta('description'));
   post.timestamp = attr(article, ['time[datetime]'], 'datetime')
     || timestampFromAbbr(article) || text(article, ['time', 'abbr']);
@@ -196,7 +203,7 @@ function findEmbeddedPost(postId: string): FacebookPost | null {
     'script[type="application/json"], script[type="application/ld+json"]',
   )) {
     const raw = script.textContent || '';
-    if (!raw || raw.length > 10_000_000) continue;
+    if (!raw || raw.length > 10_000_000 || !raw.includes(postId)) continue;
     try { payloads.push(JSON.parse(raw)); } catch { /* ignore non-JSON state */ }
   }
 
@@ -329,6 +336,24 @@ function engagement(scope: ParentNode, label: RegExp): string {
   return '';
 }
 
+function longestOwnMarkdown(scope: Element, selector: string): string {
+  let bestNode: Element | null = null;
+  let bestLength = 0;
+  scope.querySelectorAll(selector).forEach((node) => {
+    const closestArticle = node.closest('[role="article"]');
+    if (closestArticle && closestArticle !== scope) return;
+    if (node.closest('button, [role="button"], header')) return;
+    const value = clean(node.textContent || '');
+    if (value.length > bestLength) {
+      bestLength = value.length;
+      bestNode = node;
+    }
+  });
+  if (!bestNode) return '';
+  const cleaned = Utils.removeNoise(bestNode, ['script', 'style', 'button', 'svg', '[aria-hidden="true"]']);
+  return Markdown.elementToMarkdown(cleaned).trim();
+}
+
 function longestOwnText(scope: Element, selector: string): string {
   let longest = '';
   scope.querySelectorAll(selector).forEach((node) => {
@@ -386,6 +411,14 @@ function collectAccessibilityText(root: unknown): string[] {
     });
   }
   return unique(result);
+}
+
+function firstElement(scope: ParentNode, selectors: string[]): Element | null {
+  for (const selector of selectors) {
+    const element = scope.querySelector(selector);
+    if (element && clean(element.textContent || '')) return element;
+  }
+  return null;
 }
 
 function nestedString(record: Record<string, unknown>, path: string[]): string {

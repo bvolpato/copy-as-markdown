@@ -18,10 +18,13 @@ register({
     '*://artificialanalysis.ai/*',
     '*://www.artificialanalysis.ai/*',
   ],
-  pathnameRegex: /^(?:\/|\/models\/[^/?#]+\/?)$/i,
+  pathnameRegex: /^(?:\/|\/models(?:\/[^/?#]+(?:\/providers)?)?|\/(?:leaderboards|evaluations|providers|insights)(?:\/.*)?)\/?$/i,
 
   async extract() {
-    return window.location.pathname === '/' ? extractHomepage() : extractModelPage();
+    const path = window.location.pathname.replace(/\/+$/, '') || '/';
+    if (path === '/') return extractHomepage();
+    if (/^\/models\/[^/]+(?:\/providers)?$/i.test(path)) return extractModelPage();
+    return extractCollectionPage();
   },
 });
 
@@ -74,6 +77,10 @@ function extractModelPage(): string {
   appendDatasetProvenance(parts, datasets[0]);
   appendFaq(parts, findJsonLdObjects('FAQPage')[0]);
 
+  if (parts.length <= 1) {
+    appendDomFallback(parts, title);
+  }
+
   const metadata: Record<string, string> = {
     source: 'Artificial Analysis',
     title,
@@ -84,6 +91,49 @@ function extractModelPage(): string {
 
   const limited = limitMarkdown(Markdown.cleanMarkdown(parts.join('\n\n')));
   return Markdown.buildPageMarkdown(metadata, limited.markdown);
+}
+
+function extractCollectionPage(): string {
+  const url = Utils.getCanonicalUrl();
+  const titleElement = document.querySelector('h1');
+  const title = textOf(titleElement)
+    || Utils.getPageTitle().replace(/\s*[-|]\s*Artificial Analysis.*$/i, '')
+    || 'Artificial Analysis';
+  const datasets = findJsonLdObjects('Dataset');
+  const parts: string[] = [`# ${title}`];
+  const intro = homepageIntro(titleElement);
+  if (intro) parts.push(intro);
+
+  appendHomepageDatasets(parts, datasets);
+  appendDatasetProvenance(parts, datasets[0]);
+  appendFaq(parts, findJsonLdObjects('FAQPage')[0]);
+
+  if (parts.length <= 2) {
+    appendDomFallback(parts, title);
+  }
+
+  const limited = limitMarkdown(Markdown.cleanMarkdown(parts.join('\n\n')));
+  return Markdown.buildPageMarkdown({
+    source: 'Artificial Analysis',
+    title,
+    url,
+  }, limited.markdown);
+}
+
+function appendDomFallback(parts: string[], title: string): void {
+  const container = document.querySelector('main, article, [role="main"]');
+  if (!container) return;
+  const cleaned = Utils.removeNoise(container, [
+    ...Utils.NOISE_SELECTORS,
+    'button', 'svg', 'form', 'input', 'select', 'textarea',
+    '#cam-copy-btn', '[data-cam-instance]',
+  ]);
+  const firstHeading = cleaned.querySelector('h1');
+  if (firstHeading && textOf(firstHeading).toLowerCase() === title.toLowerCase()) {
+    firstHeading.remove();
+  }
+  const markdown = Markdown.elementToMarkdown(cleaned).trim();
+  if (markdown) parts.push(markdown);
 }
 
 type Overview = {
@@ -114,13 +164,13 @@ function appendHomepageFeatured(parts: string[], titleElement: Element | null): 
     const name = paragraphs[0] || '';
     if (!name) return;
 
-    const href = absoluteUrl(link.getAttribute('href') || '');
+    const href = safeHttpUrl(link.getAttribute('href') || '');
     const key = `${name}\u0000${href}`;
     if (seen.has(key)) return;
     seen.add(key);
     rows.push([
       label,
-      href ? `[${name}](${href})` : name,
+      markdownLink(name, href),
       paragraphs.slice(1).join(' '),
     ]);
   });
@@ -144,8 +194,8 @@ function appendHomepageSections(parts: string[]): void {
     const descriptionElement = Array.from(header?.children || [])
       .find((element) => element.tagName === 'P');
     const description = textWithoutNoise(descriptionElement);
-    const href = link ? absoluteUrl(link.getAttribute('href') || '') : '';
-    rows.push([href ? `[${name}](${href})` : name, description]);
+    const href = link ? safeHttpUrl(link.getAttribute('href') || '') : '';
+    rows.push([href ? markdownLink(name, href) : name, description]);
   });
 
   if (rows.length > 0) {
@@ -179,7 +229,7 @@ function appendHomepageDatasets(parts: string[], datasets: JsonRecord[]): void {
       if (!values) return [];
 
       const linkedLabel = detailsUrl
-        ? `[${label}](${absoluteUrl(detailsUrl)})`
+        ? markdownLink(label, detailsUrl)
         : label;
       return [[linkedLabel, values]];
     });
@@ -206,7 +256,7 @@ function getOverview(hero: Element | null | undefined): Overview {
   const modelClass = text.match(/\b(Proprietary|Open weights?)\b/i)?.[1] || '';
   return {
     provider: textOf(providerLink),
-    providerUrl: providerLink?.href || '',
+    providerUrl: safeHttpUrl(providerLink?.getAttribute('href') || ''),
     effort: textWithoutNoise(effortButton).replace(/^Effort\s*/i, '').trim(),
     modelClass,
     released,
@@ -217,7 +267,7 @@ function appendOverview(parts: string[], overview: Overview): void {
   const rows: string[][] = [];
   if (overview.provider) {
     const provider = overview.providerUrl
-      ? `[${overview.provider}](${overview.providerUrl})`
+      ? markdownLink(overview.provider, overview.providerUrl)
       : overview.provider;
     rows.push(['Provider', provider]);
   }
@@ -286,7 +336,7 @@ function appendTechnicalSpecifications(parts: string[]): void {
 }
 
 function appendBenchmarkData(parts: string[], datasets: JsonRecord[]): void {
-  const currentPath = normalizePath(window.location.pathname);
+  const currentPath = normalizePath(window.location.pathname).replace(/\/providers$/, '');
   const resultRows: string[][] = [];
   const seen = new Set<string>();
 
@@ -329,12 +379,12 @@ function appendDatasetProvenance(parts: string[], dataset: JsonRecord | undefine
   const creatorName = stringValue(creator?.name);
   const creatorUrl = stringValue(creator?.url);
   if (creatorName) {
-    rows.push(['Creator', creatorUrl ? `[${creatorName}](${creatorUrl})` : creatorName]);
+    rows.push(['Creator', creatorUrl ? markdownLink(creatorName, creatorUrl) : creatorName]);
   }
   pushRow(rows, 'Measurement technique', dataset.measurementTechnique);
   pushRow(rows, 'Citation', dataset.citation);
-  const license = stringValue(dataset.license);
-  if (license) rows.push(['License', `[Terms of use](${absoluteUrl(license)})`]);
+  const license = safeHttpUrl(stringValue(dataset.license));
+  if (license) rows.push(['License', `[Terms of use](${license})`]);
   if (rows.length > 0) parts.push(`## Dataset Provenance\n\n${table(['Field', 'Value'], rows)}`);
 }
 
@@ -445,12 +495,22 @@ function normalizePath(value: string): string {
   }
 }
 
-function absoluteUrl(value: string): string {
+function safeHttpUrl(value: string): string {
+  if (!value) return '';
   try {
-    return new URL(value, window.location.origin).href;
+    const url = new URL(value, window.location.origin);
+    return /^https?:$/.test(url.protocol)
+      ? url.href.replace(/\(/g, '%28').replace(/\)/g, '%29')
+      : '';
   } catch {
-    return value;
+    return '';
   }
+}
+
+function markdownLink(label: string, href: string): string {
+  const safeHref = safeHttpUrl(href);
+  if (!safeHref) return label;
+  return `[${Markdown.escapeMarkdownLinkText(label)}](${safeHref})`;
 }
 
 function textOf(element: Element | null | undefined): string {

@@ -1,4 +1,4 @@
-/** GitLab repositories, files, issues, merge requests, discussions, and diffs. */
+/** GitLab repositories, files, issues, work items, epics, merge requests, commits, snippets, wikis, releases, and diffs. */
 
 import { register } from '../core/registry';
 import * as Markdown from '../core/markdown';
@@ -10,9 +10,26 @@ const MAX_ITEMS = 500;
 const MAX_COMMENTS = 250;
 const MAX_CHARS = 500_000;
 
+const GITLAB_NON_REPO_RE = /^\/(?:explore|users|help|admin|dashboard|search|profile|oauth|api|assets|uploads)(?:\/|$)/i;
+const GITLAB_PATH_RE = /^\/(?!(?:explore|users|help|admin|dashboard|search|profile|oauth|api|assets|uploads)(?:\/|$))[^/]+\/[^/]+/i;
+
 type Route = {
   project: string;
-  kind: 'repository' | 'tree' | 'blob' | 'issue' | 'merge_request' | 'diff' | 'other';
+  kind:
+    | 'repository'
+    | 'tree'
+    | 'blob'
+    | 'issue'
+    | 'work_item'
+    | 'epic'
+    | 'merge_request'
+    | 'diff'
+    | 'commit'
+    | 'snippet'
+    | 'wiki'
+    | 'release'
+    | 'compare'
+    | 'other';
   id?: string;
   refAndPath?: string;
 };
@@ -20,6 +37,8 @@ type Route = {
 register({
   name: 'GitLab',
   matches: ['*://gitlab.com/*'],
+  pathnameRegex: GITLAB_PATH_RE,
+  detect: (contextDocument) => isSelfHostedGitLab(contextDocument),
 
   async extract() {
     const route = parseRoute(window.location.pathname);
@@ -35,9 +54,20 @@ register({
     if (route.kind === 'tree' || route.kind === 'repository') {
       return extractRepository(metadata, route, title);
     }
-    if (route.kind === 'issue' || route.kind === 'merge_request' || route.kind === 'diff') {
+    if (
+      route.kind === 'issue'
+      || route.kind === 'work_item'
+      || route.kind === 'epic'
+      || route.kind === 'merge_request'
+      || route.kind === 'diff'
+    ) {
       return extractWorkItem(metadata, route, title);
     }
+    if (route.kind === 'commit') return extractCommit(metadata, route, title);
+    if (route.kind === 'snippet') return extractSnippet(metadata, route, title);
+    if (route.kind === 'wiki') return extractWiki(metadata, route, title);
+    if (route.kind === 'release') return extractReleases(metadata, route, title);
+    if (route.kind === 'compare') return extractCompare(metadata, route, title);
 
     metadata.type = 'GitLab page';
     metadata.completeness = 'visible_only';
@@ -47,6 +77,18 @@ register({
     return finish(metadata, body, 1, main ? 1 : 0, true);
   },
 });
+
+function isSelfHostedGitLab(contextDocument?: Document): boolean {
+  const doc = contextDocument ?? (typeof document !== 'undefined' ? document : null);
+  if (!doc || typeof doc.querySelector !== 'function') return false;
+  const pathname = doc.location?.pathname || '';
+  if (pathname && (pathname === '/' || GITLAB_NON_REPO_RE.test(pathname) || !/^\/[^/]+\/[^/]+/.test(pathname))) {
+    return false;
+  }
+  return Boolean(doc.querySelector(
+    'meta[property="og:site_name"][content="GitLab"], meta[name="project_path"], body[data-page^="projects:"], body[data-page^="groups:"]',
+  ));
+}
 
 function parseRoute(pathname: string): Route {
   const path = decodePath(pathname).replace(/\/+$/, '');
@@ -59,10 +101,24 @@ function parseRoute(pathname: string): Route {
   const rest = path.slice(marker + 3);
   let match = rest.match(/^issues\/(\d+)/);
   if (match) return { project, kind: 'issue', id: match[1] };
+  match = rest.match(/^work_items\/(\d+)/);
+  if (match) return { project, kind: 'work_item', id: match[1] };
+  match = rest.match(/^epics\/(\d+)/);
+  if (match) return { project, kind: 'epic', id: match[1] };
   match = rest.match(/^merge_requests\/(\d+)(?:\/(diffs|commits))?/);
   if (match) {
     return { project, kind: match[2] === 'diffs' ? 'diff' : 'merge_request', id: match[1] };
   }
+  match = rest.match(/^commit\/([0-9a-f]{7,64})/i);
+  if (match) return { project, kind: 'commit', id: match[1] };
+  match = rest.match(/^snippets\/(\d+)/);
+  if (match) return { project, kind: 'snippet', id: match[1] };
+  match = rest.match(/^wikis(?:\/(.+))?/);
+  if (match) return { project, kind: 'wiki', refAndPath: match[1] || '' };
+  match = rest.match(/^releases(?:\/(.+))?/);
+  if (match) return { project, kind: 'release', refAndPath: match[1] || '' };
+  match = rest.match(/^compare(?:\/(.+))?/);
+  if (match) return { project, kind: 'compare', refAndPath: match[1] || '' };
   match = rest.match(/^blob\/(.+)/);
   if (match) return { project, kind: 'blob', refAndPath: match[1] };
   match = rest.match(/^tree(?:\/(.+))?/);
@@ -89,7 +145,7 @@ function extractRepository(
   const limited = limitCollection(rows, MAX_ITEMS);
   const entries = limited.items.map((row) => {
     const link = row.querySelector<HTMLAnchorElement>(
-      'a[data-testid="tree-item-link"], a.tree-item-file-name, a[href*="/-/blob/"], a[href*="/-/tree/"]',
+      'a[data-testid="file-name-link"], a.tree-item-link, a[data-testid="tree-item-link"], a.tree-item-file-name, a[href*="/-/blob/"], a[href*="/-/tree/"]',
     );
     const name = link?.textContent?.trim() || row.textContent?.trim().split('\n')[0]?.trim() || '';
     if (!name) return '';
@@ -121,7 +177,7 @@ function extractBlob(metadata: PageMetadata, route: Route, title: string): strin
   const code = document.querySelector(
     '[data-testid="blob-content"] pre, .blob-content pre, .file-content pre, .blob-viewer pre, table.code',
   );
-  const content = code?.textContent?.replace(/^\n/, '').replace(/\n$/, '') || '';
+  const content = extractCodeText(code);
   const pageTruncated = Boolean(document.querySelector(
     '[data-testid*="truncated"], .file-content .too-long, .blob-viewer[data-truncated="true"], .js-load-blob',
   ));
@@ -139,23 +195,34 @@ function extractBlob(metadata: PageMetadata, route: Route, title: string): strin
 }
 
 function extractWorkItem(metadata: PageMetadata, route: Route, title: string): string {
-  const isMergeRequest = route.kind !== 'issue';
-  metadata.type = route.kind === 'diff' ? 'Merge Request Diff' : (isMergeRequest ? 'Merge Request' : 'Issue');
+  const isMergeRequest = route.kind === 'merge_request' || route.kind === 'diff';
+  const kindLabel = route.kind === 'epic'
+    ? 'Epic'
+    : route.kind === 'work_item'
+      ? 'Work Item'
+      : isMergeRequest
+        ? 'Merge Request'
+        : 'Issue';
+  metadata.type = route.kind === 'diff' ? 'Merge Request Diff' : kindLabel;
   if (route.id) metadata.number = route.id;
-  const state = firstText('[data-testid="issuable-state"], .issuable-status-box, .status-box, .badge-state');
-  const author = firstText('[data-testid="author-link"], .author-link, .issuable-meta .author');
-  const created = firstAttr('time[datetime], [data-testid="created-at"] time', 'datetime');
+
+  const headerScope = document.querySelector(
+    '.detail-page-header, .issuable-meta, [data-testid="issuable-header"], [data-testid="work-item-header"], [data-testid="work-item-created-updated"]',
+  );
+  const state = firstText('[data-testid="issuable-state"], [data-testid="work-item-state"], .issuable-status-box, .status-box, .badge-state');
+  const author = firstTextInScope(headerScope, '[data-testid="author-link"], .author-link, .issuable-meta .author, .author');
+  const created = firstAttrInScope(headerScope, 'time[datetime], [data-testid="created-at"] time', 'datetime');
   if (state) metadata.state = state;
   if (author) metadata.author = author;
   if (created) metadata.created = created;
 
-  const parts = [`# ${isMergeRequest ? 'Merge Request' : 'Issue'} #${route.id || ''}: ${title}`];
+  const parts = [`# ${kindLabel} #${route.id || ''}: ${title}`];
   if (state) parts.push('', `**Status:** ${state}`);
   if (author) parts.push(`**Author:** ${author}`);
   if (created) parts.push(`**Created:** ${created}`);
 
   const description = document.querySelector(
-    '[data-testid="description-content"], .description .md, .issuable-description .md, .detail-page-description .md',
+    '[data-testid="description-content"], [data-testid="work-item-description"], .description .md, .issuable-description .md, .detail-page-description .md',
   );
   if (description) parts.push('', '## Description', '', Markdown.elementToMarkdown(clean(description)));
 
@@ -169,6 +236,7 @@ function extractWorkItem(metadata: PageMetadata, route: Route, title: string): s
 
   const notes = uniqueElements([
     '[data-testid="note-wrapper"]',
+    '[data-testid="work-item-note-wrapper"]',
     'ul.notes > li.note',
     '.timeline-entry.note',
   ]);
@@ -199,6 +267,93 @@ function extractWorkItem(metadata: PageMetadata, route: Route, title: string): s
   return finish(metadata, parts.join('\n'), expected ?? limitedNotes.total, captured, truncated);
 }
 
+function extractCommit(metadata: PageMetadata, route: Route, title: string): string {
+  metadata.type = 'Commit';
+  if (route.id) metadata.commit = route.id;
+  const commitTitle = firstText('.commit-box .commit-title, [data-testid="commit-title"], h1') || title;
+  const commitDesc = document.querySelector('.commit-box .commit-description, [data-testid="commit-description"]')?.textContent?.trim() || '';
+  const headerScope = document.querySelector('.commit-box, .header-main-content, .commit-header');
+  const author = firstTextInScope(headerScope, '.commit-author-link, [data-testid="author-link"], .author');
+  const created = firstAttrInScope(headerScope, 'time[datetime]', 'datetime');
+  if (author) metadata.author = author;
+  if (created) metadata.created = created;
+
+  const parts = [`# Commit ${route.id?.slice(0, 12) || ''}: ${commitTitle}`];
+  if (author) parts.push('', `**Author:** ${author}`);
+  if (created) parts.push(`**Date:** ${created}`);
+  if (commitDesc) parts.push('', commitDesc);
+
+  const diffs = limitCollection(uniqueElements(['[data-testid="diff-file"]', '.diff-file', '.file-holder']), MAX_ITEMS);
+  appendDiffs(parts, metadata, diffs.items);
+  return finish(metadata, parts.join('\n'), diffs.total, diffs.items.length, diffs.truncated);
+}
+
+function extractSnippet(metadata: PageMetadata, route: Route, title: string): string {
+  metadata.type = 'Snippet';
+  if (route.id) metadata.number = route.id;
+  const snippetTitle = firstText('[data-testid="snippet-title"], .snippet-header h1, h1') || title;
+  metadata.title = snippetTitle;
+  const parts = [`# ${snippetTitle}`];
+
+  const desc = document.querySelector('[data-testid="snippet-description"], .snippet-header .description');
+  if (desc) parts.push('', Markdown.elementToMarkdown(clean(desc)));
+
+  const files = uniqueElements(['[data-testid="snippet-file"]', '.snippet-file-content', '.file-holder']);
+  for (const file of files) {
+    const name = file.querySelector('.file-title-name, [data-testid="file-name"], strong')?.textContent?.trim() || 'snippet';
+    const code = file.querySelector('pre, table.code, .blob-content');
+    const content = extractCodeText(code);
+    if (!content) continue;
+    parts.push('', `## ${name}`, '', fence(content, language(name)));
+  }
+
+  return finish(metadata, parts.join('\n'), files.length || 1, files.length, false);
+}
+
+function extractWiki(metadata: PageMetadata, _route: Route, title: string): string {
+  metadata.type = 'Wiki';
+  const wikiTitle = firstText('[data-testid="wiki-page-title"], .wiki-page-header h1, h1') || title;
+  metadata.title = wikiTitle;
+  const content = document.querySelector('[data-testid="wiki-page-content"], .js-wiki-page-content, .wiki.md, .md');
+  const body = content
+    ? `# ${wikiTitle}\n\n${Markdown.elementToMarkdown(clean(content))}`
+    : `# ${wikiTitle}\n\n*No wiki content found in rendered page.*`;
+  return finish(metadata, body, 1, content ? 1 : 0, !content);
+}
+
+function extractReleases(metadata: PageMetadata, _route: Route, title: string): string {
+  metadata.type = 'Releases';
+  const blocks = uniqueElements(['[data-testid="release-block"]', '.release-block', 'section.card']);
+  const parts = [`# ${title}`];
+  let captured = 0;
+  for (const block of blocks) {
+    const heading = block.querySelector('h2, h1, [data-testid="release-name"], .card-header a')?.textContent?.trim() || '';
+    const desc = block.querySelector('[data-testid="release-description"], .md, .card-body');
+    if (!heading && !desc) continue;
+    if (heading) parts.push('', `## ${heading}`);
+    if (desc) parts.push('', Markdown.elementToMarkdown(clean(desc)));
+    captured += 1;
+  }
+  if (captured === 0) {
+    const main = document.querySelector('main, [role="main"], .content-wrapper');
+    if (main) parts.push('', Markdown.elementToMarkdown(clean(main)));
+  }
+  return finish(metadata, parts.join('\n'), captured || 1, captured, hasLoadMore());
+}
+
+function extractCompare(metadata: PageMetadata, route: Route, title: string): string {
+  metadata.type = 'Compare';
+  if (route.refAndPath) metadata.ref_and_path = route.refAndPath;
+  const parts = [`# ${title}`];
+  const diffs = limitCollection(uniqueElements(['[data-testid="diff-file"]', '.diff-file', '.file-holder']), MAX_ITEMS);
+  appendDiffs(parts, metadata, diffs.items);
+  if (diffs.items.length === 0) {
+    const main = document.querySelector('main, [role="main"], .content-wrapper');
+    if (main) parts.push('', Markdown.elementToMarkdown(clean(main)));
+  }
+  return finish(metadata, parts.join('\n'), diffs.total || 1, diffs.items.length, diffs.truncated);
+}
+
 function appendMergeRequestMetadata(parts: string[], metadata: PageMetadata): void {
   const source = firstText('[data-testid="source-branch"], .source-branch');
   const target = firstText('[data-testid="target-branch"], .target-branch');
@@ -218,13 +373,38 @@ function appendDiffs(parts: string[], metadata: PageMetadata, diffs: Element[]):
   let rendered = 0;
   for (const diff of diffs) {
     const path = diff.querySelector('[data-testid="file-path"], .file-title-name, .file-path')?.textContent?.trim() || 'File';
-    const code = diff.querySelector('.diff-content, table.diff-table, [data-testid="diff-content"]');
-    const text = code?.textContent?.trim() || '';
+    const code = diff.querySelector('table.diff-table, .diff-content, [data-testid="diff-content"]');
+    const text = extractCodeText(code);
     if (!text) continue;
     parts.push('', `### ${path}`, '', fence(text, 'diff'));
     rendered += 1;
   }
   metadata.diff_file_count = String(rendered);
+}
+
+function extractCodeText(element: Element | null): string {
+  if (!element) return '';
+  if (element.matches('table.code, table.diff-table') || element.querySelector('table.code, table.diff-table')) {
+    const table = element.matches('table') ? element : element.querySelector('table');
+    if (table) {
+      const rows = Array.from(table.querySelectorAll('tr'));
+      const lines: string[] = [];
+      for (const row of rows) {
+        const lineCells = row.querySelectorAll('.line_content, .blob-content, td.code');
+        if (lineCells.length > 0) {
+          lines.push(Array.from(lineCells).map((cell) => (cell.textContent || '').replace(/\r?\n$/, '')).join(' '));
+        } else {
+          const cells = Array.from(row.querySelectorAll('td'));
+          if (cells.length > 0) {
+            const last = cells[cells.length - 1];
+            lines.push((last.textContent || '').replace(/\r?\n$/, ''));
+          }
+        }
+      }
+      if (lines.length > 0) return lines.join('\n').replace(/^\n/, '').replace(/\n$/, '');
+    }
+  }
+  return element.textContent?.replace(/^\n/, '').replace(/\n$/, '') || '';
 }
 
 function clean(element: Element): Element {
@@ -239,10 +419,14 @@ function uniqueElements(selectors: string[]): Element[] {
   const result: Element[] = [];
   for (const selector of selectors) {
     document.querySelectorAll(selector).forEach((element) => {
-      if (!seen.has(element) && !result.some((parent) => parent.contains(element))) {
-        seen.add(element);
-        result.push(element);
+      if (seen.has(element)) return;
+      let ancestor = element.parentElement;
+      while (ancestor) {
+        if (seen.has(ancestor)) return;
+        ancestor = ancestor.parentElement;
       }
+      seen.add(element);
+      result.push(element);
     });
     if (result.length) break;
   }
@@ -257,7 +441,7 @@ function projectFromDom(): string {
 
 function hasLoadMore(): boolean {
   return Boolean(document.querySelector(
-    '[data-testid="load-more"], .js-load-more, .load-more, button[aria-label*="more" i], [data-testid*="pagination"]',
+    '[data-testid="load-more"], [data-testid*="load-more"], .js-load-more, .load-more, button[aria-label*="load more" i], [data-testid*="pagination"]',
   ));
 }
 
@@ -265,8 +449,32 @@ function firstText(selector: string): string {
   return document.querySelector(selector)?.textContent?.replace(/\s+/g, ' ').trim() || '';
 }
 
-function firstAttr(selector: string, attribute: string): string {
-  return document.querySelector(selector)?.getAttribute(attribute)?.trim() || '';
+function firstTextInScope(scope: ParentNode | null, selector: string): string {
+  if (scope) {
+    const scoped = scope.querySelector(selector)?.textContent?.replace(/\s+/g, ' ').trim();
+    if (scoped) return scoped;
+  }
+  for (const el of document.querySelectorAll(selector)) {
+    if (!el.closest('.note, [data-testid="note-wrapper"], [data-testid="work-item-note-wrapper"], .timeline-entry')) {
+      const value = el.textContent?.replace(/\s+/g, ' ').trim();
+      if (value) return value;
+    }
+  }
+  return '';
+}
+
+function firstAttrInScope(scope: ParentNode | null, selector: string, attribute: string): string {
+  if (scope) {
+    const scoped = scope.querySelector(selector)?.getAttribute(attribute)?.trim();
+    if (scoped) return scoped;
+  }
+  for (const el of document.querySelectorAll(selector)) {
+    if (!el.closest('.note, [data-testid="note-wrapper"], [data-testid="work-item-note-wrapper"], .timeline-entry')) {
+      const value = el.getAttribute(attribute)?.trim();
+      if (value) return value;
+    }
+  }
+  return '';
 }
 
 function numberFromText(value: string): number | null {
@@ -295,7 +503,8 @@ function finish(
 }
 
 function fence(content: string, languageName: string): string {
-  const longest = Math.max(0, ...Array.from(content.matchAll(/`+/g), (match) => match[0].length));
+  const runs = Array.from(content.matchAll(/`+/g), (match) => match[0].length);
+  const longest = Math.max(0, Utils.safeMax(runs));
   const ticks = '`'.repeat(Math.max(3, longest + 1));
   return `${ticks}${languageName}\n${content}\n${ticks}`;
 }

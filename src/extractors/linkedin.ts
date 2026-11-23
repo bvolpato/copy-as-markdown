@@ -1,6 +1,6 @@
 /**
  * LinkedIn extractor.
- * Covers posts and profile pages.
+ * Covers posts, profiles, Pulse articles, company pages, jobs, and newsletters.
  */
 
 import { register } from '../core/registry';
@@ -29,13 +29,13 @@ const PROFILE_SECTIONS = [
 register({
   name: 'LinkedIn',
   matches: [
-    '*://www.linkedin.com/posts/*',
-    '*://www.linkedin.com/feed/update/*',
-    '*://www.linkedin.com/pulse/*',
-    '*://www.linkedin.com/in/*',
-    '*://linkedin.com/posts/*',
-    '*://linkedin.com/feed/update/*',
-    '*://linkedin.com/in/*',
+    '*://*.linkedin.com/posts/*',
+    '*://*.linkedin.com/feed/update/*',
+    '*://*.linkedin.com/pulse/*',
+    '*://*.linkedin.com/in/*',
+    '*://*.linkedin.com/company/*',
+    '*://*.linkedin.com/jobs/view/*',
+    '*://*.linkedin.com/newsletters/*',
   ],
   buttonPlacement: 'anchor',
   anchor: {
@@ -45,6 +45,12 @@ register({
       '.social-details-social-activity',           // post social activity bar
       '.pv-top-card__actions',                     // profile actions
       '.pvs-header__actions',                      // profile section header
+      '.top-card-layout__cta-container',           // public profile actions
+      '.top-card-layout__entity-info',             // public profile header
+      '.reader-article-header',                    // pulse article header
+      '.article-header',                           // pulse article header fallback
+      '.jobs-unified-top-card__content--two-pane', // job listing header
+      '.org-top-card__primary-content',            // company page header
     ].join(', '),
     position: 'overlay',
     style: 'icon',
@@ -53,11 +59,12 @@ register({
 
   async extract() {
     const url = Utils.getCanonicalUrl();
-    const isProfile = /\/in\//.test(url);
-    const isArticle = /\/pulse\//.test(url);
+    const pathname = window.location.pathname;
 
-    if (isProfile) return extractProfile(url);
-    if (isArticle) return extractArticle(url);
+    if (/^\/in\//.test(pathname)) return extractProfile(url);
+    if (/^\/(?:pulse|newsletters)\//.test(pathname)) return extractArticle(url);
+    if (/^\/jobs\/view\//.test(pathname)) return extractJob(url);
+    if (/^\/company\//.test(pathname)) return extractCompany(url);
     return extractPost(url);
   },
 });
@@ -130,6 +137,71 @@ function extractProfile(url: string): string {
   }
 
   const limited = limitMarkdown(parts.join('\n\n'));
+  return Markdown.buildPageMarkdown(metadata, limited.markdown);
+}
+
+function extractJob(url: string): string {
+  const title = textOf(document.querySelector(
+    '.job-details-jobs-unified-top-card__job-title, .top-card-layout__title, main h1, h1',
+  )) || Utils.getPageTitle();
+  const company = textOf(document.querySelector(
+    '.job-details-jobs-unified-top-card__company-name, .topcard__org-name-link, a[href*="/company/"]',
+  ));
+  const location = textOf(document.querySelector(
+    '.job-details-jobs-unified-top-card__primary-description-container, .topcard__flavor--bullet',
+  ));
+  const metadata: Record<string, string> = {
+    source: 'LinkedIn',
+    type: 'Job',
+    title,
+    url,
+  };
+  if (company) metadata.company = company;
+  if (location) metadata.location = location;
+
+  const parts: string[] = [`# ${title}\n`];
+  if (company) parts.push(`**Company:** ${company}`);
+  if (location) parts.push(`**Location:** ${location}`);
+  parts.push('');
+
+  const descEl = document.querySelector(
+    '.jobs-description__content, .jobs-box__html-content, .description__text, article, main',
+  );
+  if (descEl) {
+    const cleaned = cleanProfileElement(descEl);
+    const body = Markdown.elementToMarkdown(cleaned);
+    if (body) parts.push('## Job Description\n', body);
+  }
+  const limited = limitMarkdown(parts.join('\n'));
+  return Markdown.buildPageMarkdown(metadata, limited.markdown);
+}
+
+function extractCompany(url: string): string {
+  const name = cleanProfileName(textOf(document.querySelector(
+    '.org-top-card-summary__title, .top-card-layout__title, main h1, h1',
+  )) || Utils.getPageTitle());
+  const tagline = textOf(document.querySelector(
+    '.org-top-card-summary__tagline, .top-card-layout__headline',
+  ));
+  const metadata: Record<string, string> = {
+    source: 'LinkedIn',
+    type: 'Company',
+    title: name,
+    url,
+  };
+  const parts: string[] = [`# ${name}\n`];
+  if (tagline) parts.push(`**${tagline}**\n`);
+
+  const root = document.querySelector('.org-grid__content-height-enforcer, .scaffold-layout__main, main');
+  if (root) {
+    const cleaned = cleanProfileElement(root);
+    cleaned.querySelectorAll('h1').forEach((heading) => {
+      if (cleanProfileName(textOf(heading)) === name) heading.remove();
+    });
+    const body = cleanProfileMarkdown(Markdown.elementToMarkdown(cleaned));
+    if (body) parts.push(body);
+  }
+  const limited = limitMarkdown(parts.join('\n'));
   return Markdown.buildPageMarkdown(metadata, limited.markdown);
 }
 
@@ -306,8 +378,12 @@ function extractPost(url: string): string {
   // Post text
   const textEl = document.querySelector('.feed-shared-update-v2__description .break-words, .feed-shared-text__text-view, .update-components-text');
   if (textEl) {
-    parts.push(textEl.textContent?.trim() || '');
-    parts.push('');
+    const cleaned = Utils.removeNoise(textEl, ['script', 'style', 'button', 'svg', '[data-cam-instance]']);
+    const body = Markdown.elementToMarkdown(cleaned).trim();
+    if (body) {
+      parts.push(body);
+      parts.push('');
+    }
   }
 
   // Reactions
@@ -320,11 +396,18 @@ function extractPost(url: string): string {
   if (commentEls.length > 0) {
     parts.push(`\n## Comments (${commentEls.length})\n`);
     commentEls.forEach((comment) => {
-      const commentAuthor = comment.querySelector('.comments-post-meta__name-text, .comments-comment-item__inline-show-more-text')?.textContent?.trim() || '';
-      const commentText = comment.querySelector('.comments-comment-item__main-content, .comments-comment-texteditor .feed-shared-text')?.textContent?.trim() || '';
+      const commentAuthor = comment.querySelector(
+        '.comments-post-meta__name-text, .comments-comment-meta__description-title, .comments-post-meta__profile-link',
+      )?.textContent?.trim() || 'Anonymous';
+      const commentBodyEl = comment.querySelector(
+        '.comments-comment-item__main-content, .comments-comment-texteditor .feed-shared-text',
+      );
+      const commentText = commentBodyEl
+        ? Markdown.elementToMarkdown(Utils.removeNoise(commentBodyEl, ['script', 'style', 'button', 'svg'])).trim()
+        : '';
       if (commentText) {
         parts.push(`**${commentAuthor}:**`);
-        parts.push(`> ${commentText}\n`);
+        parts.push(...commentText.split(/\r?\n/).map((line) => `> ${line}`), '');
       }
     });
   }
@@ -348,7 +431,7 @@ function extractArticle(url: string): string {
 
   const articleBody = document.querySelector('.article-content, .reader-article-content, article');
   const body = articleBody
-    ? Markdown.elementToMarkdown(Utils.removeNoise(articleBody, Utils.NOISE_SELECTORS))
+    ? Markdown.elementToMarkdown(Utils.removeNoise(articleBody, [...Utils.NOISE_SELECTORS, 'h1']))
     : '*No article content found.*';
 
   return Markdown.buildPageMarkdown(metadata, `# ${title}\n\n${body}`);

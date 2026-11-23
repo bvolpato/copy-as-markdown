@@ -11,13 +11,22 @@ register({
   name: 'Temu',
   matches: [
     '*://www.temu.com/goods.html*',
+    '*://www.temu.com/*/goods.html*',
     '*://www.temu.com/product/*',
+    '*://www.temu.com/*/product/*',
     '*://www.temu.com/*-g-*',
     '*://temu.com/goods.html*',
+    '*://temu.com/*/goods.html*',
     '*://temu.com/product/*',
+    '*://temu.com/*/product/*',
     '*://temu.com/*-g-*',
+    '*://m.temu.com/goods.html*',
+    '*://m.temu.com/*/goods.html*',
+    '*://m.temu.com/product/*',
+    '*://m.temu.com/*/product/*',
+    '*://m.temu.com/*-g-*',
   ],
-  pathnameRegex: /^(?:\/goods\.html|\/product\/|\/[^/]*-g-\d+)/,
+  pathnameRegex: /^(?:\/[a-z]{2}(?:-[a-z]{2})?)?(?:\/goods\.html|\/product\/|\/[^/]*-g-\d+)/i,
   buttonPlacement: 'anchor',
   anchor: {
     selector: '[data-testid="goods-title"], [data-testid="product-title"], h1',
@@ -35,14 +44,14 @@ register({
       '[class*="GoodsTitle"]',
       '[class*="goods-title"]',
       'h1',
-    ]) || stringValue(payload?.name) || Utils.getMeta('title') || Utils.getPageTitle();
+    ]) || stringValue(payload?.goodsName || payload?.name || payload?.title) || Utils.getMeta('title') || Utils.getPageTitle();
     const price = firstText([
       '[data-testid="price"]',
       '[data-testid="goods-price"]',
       '[class*="Price"]',
       '[class*="price"]',
     ]) || stringValue(payload?.offers && asRecord(payload.offers)?.price)
-      || stringValue(payload?.price);
+      || stringValue(payload?.price || payload?.minNormalPriceStr);
     const currency = stringValue(payload?.offers && asRecord(payload.offers)?.priceCurrency)
       || Utils.getMeta('price:currency');
     const rating = firstText([
@@ -84,7 +93,9 @@ register({
     };
     const parts: string[] = [`# ${title}`, ''];
     if (price) parts.push(`**Price:** ${metadata.price}`);
-    if (rating || reviewCount) parts.push(`**Rating:** ${rating}${reviewCount ? ` (${reviewCount} reviews)` : ''}`);
+    if (rating && reviewCount) parts.push(`**Rating:** ${rating} (${reviewCount} reviews)`);
+    else if (rating) parts.push(`**Rating:** ${rating}`);
+    else if (reviewCount) parts.push(`**Reviews:** ${reviewCount}`);
     if (availability) parts.push(`**Availability:** ${availability}`);
     if (seller) parts.push(`**Seller:** ${seller}`);
     parts.push('');
@@ -112,12 +123,23 @@ function firstText(selectors: string[]): string {
 }
 
 function firstProductPayload(): JsonRecord | null {
+  try {
+    const win = window as unknown as { rawData?: unknown };
+    if (win.rawData && typeof win.rawData === 'object') {
+      const found = findProductRecord(win.rawData);
+      if (found) return found;
+    }
+  } catch {
+    // Ignore restricted window globals.
+  }
+
   const scripts = document.querySelectorAll<HTMLScriptElement>(
     'script[type="application/ld+json"], script#__NEXT_DATA__, script[id*="state"], script[id*="STATE"]',
   );
   for (const script of scripts) {
     const raw = script.textContent || '';
     if (!raw || raw.length > 8_000_000) continue;
+    if (!/(?:"@type"|"goodsId"|"goods_id"|"productId"|"product_id"|"goodsName")/.test(raw)) continue;
     try {
       const parsed: unknown = JSON.parse(raw);
       const found = findProductRecord(parsed);
@@ -142,7 +164,12 @@ function findProductRecord(value: unknown, depth = 0): JsonRecord | null {
   const record = value as JsonRecord;
   const type = stringValue(record['@type']);
   if (/Product|Offer/i.test(type) && (record.name || record.title || record.description)) return record;
-  if (record.goodsId || record.goods_id || record.productId || record.product_id) return record;
+  if (
+    (record.goodsId || record.goods_id || record.productId || record.product_id)
+    && (record.goodsName || record.name || record.title || record.price || record.description)
+  ) {
+    return record;
+  }
   for (const child of Object.values(record)) {
     const found = findProductRecord(child, depth + 1);
     if (found) return found;

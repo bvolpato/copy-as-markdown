@@ -7,6 +7,11 @@ import { addExtractionMetadata, limitMarkdown } from '../core/context';
 
 type JsonLd = Record<string, unknown>;
 
+const NON_SHOW_ROOT_SLUGS = new Set([
+  'shows', 'movies', 'live', 'schedule', 'sports', 'news',
+  'account', 'search', 'help', 'settings', 'about', 'privacy', 'terms',
+]);
+
 register({
   name: 'FOX',
   matches: [
@@ -24,44 +29,70 @@ register({
   async extract() {
     const url = Utils.getCanonicalUrl();
     const schema = findSchema();
-    const title = text('h1, [data-testid="video-title"], .details__title, .show-detail__title')
+    const title = firstText([
+      '[data-testid="video-title"]',
+      '.details__title',
+      '.show-detail__title',
+      'main h1',
+      'h1',
+    ])
       || stringValue(schema?.name)
       || Utils.getPageTitle();
-    const description = text('[data-testid="description"], .details__description, .show-detail__description')
+    const description = firstText([
+      '[data-testid="description"]',
+      '.details__description',
+      '.show-detail__description',
+    ])
       || stringValue(schema?.description)
       || Utils.getMeta('description');
     const type = schemaType(schema) || routeType(window.location.pathname);
     const metadata: Record<string, string> = { source: 'FOX', title, url, type };
     const parts = [`# ${title}`];
 
+    const rawDuration = stringValue(schema?.duration)
+      || firstText(['[data-testid="duration"]', '.details__duration']);
     const details = unique([
       pair('Type', type),
       pair('Series', stringValue(schema?.partOfSeries && (schema.partOfSeries as JsonLd).name)),
       pair('Season', numberValue(schema?.seasonNumber)),
       pair('Episode', numberValue(schema?.episodeNumber)),
-      pair('Published', stringValue(schema?.datePublished) || text('time')),
-      pair('Duration', stringValue(schema?.duration) || text('[data-testid="duration"], .details__duration')),
-      pair('Rating', stringValue(schema?.contentRating) || text('.rating, [data-testid="rating"]')),
+      pair('Published', stringValue(schema?.datePublished) || firstText(['time[datetime]', 'time'])),
+      pair('Duration', formatDuration(rawDuration)),
+      pair('Rating', stringValue(schema?.contentRating) || firstText(['[data-testid="rating"]', '.rating'])),
     ]);
     if (details.length) parts.push('', ...details);
     if (description) parts.push('', description);
 
-    const content = document.querySelector([
+    const content = [
       '[data-testid="video-details"]',
       '.details',
       '.show-detail',
       'article',
       'main',
-    ].join(', '));
+    ].map((selector) => document.querySelector(selector)).find(Boolean);
+
     if (content) {
-      const cleaned = Utils.removeNoise(content, [
+      const noise = [
         ...Utils.NOISE_SELECTORS,
         '[class*="recommend"]',
         '[data-testid*="recommend"]',
-        '[class*="carousel"]',
-      ]);
+        'h1',
+        '[data-testid="video-title"]',
+        '.details__title',
+        '.show-detail__title',
+      ];
+      if (description) {
+        noise.push(
+          '[data-testid="description"]',
+          '.details__description',
+          '.show-detail__description',
+        );
+      }
+      const cleaned = Utils.removeNoise(content, noise);
       const body = Markdown.elementToMarkdown(cleaned);
-      if (body && normalize(body) !== normalize(description)) parts.push('', '## Details', '', body);
+      if (body && normalize(body) !== normalize(description) && normalize(body) !== normalize(title)) {
+        parts.push('', '## Details', '', body);
+      }
     }
 
     const output = limitMarkdown(parts.join('\n'));
@@ -74,8 +105,26 @@ register({
   },
 });
 
-function text(selector: string): string {
-  return document.querySelector(selector)?.textContent?.replace(/\s+/g, ' ').trim() || '';
+function firstText(selectors: string[]): string {
+  for (const selector of selectors) {
+    const value = document.querySelector(selector)?.textContent?.replace(/\s+/g, ' ').trim() || '';
+    if (value) return value;
+  }
+  return '';
+}
+
+function formatDuration(raw: string): string {
+  const trimmed = raw.trim();
+  const match = trimmed.match(/^PT(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?$/i);
+  if (!match) return trimmed;
+  const hours = Number(match[1] || 0);
+  const minutes = Number(match[2] || 0);
+  const seconds = Number(match[3] || 0);
+  const units: string[] = [];
+  if (hours) units.push(`${hours}h`);
+  if (minutes) units.push(`${minutes}m`);
+  if (seconds) units.push(`${seconds}s`);
+  return units.length ? units.join(' ') : trimmed;
 }
 
 function stringValue(value: unknown): string {
@@ -103,6 +152,8 @@ function routeType(pathname: string): string {
   if (/\/episodes?\//i.test(pathname)) return 'episode';
   if (/\/movies?\//i.test(pathname)) return 'movie';
   if (/\/(?:watch|video|live)\//i.test(pathname)) return 'video';
+  const rootSlug = pathname.match(/^\/([a-z0-9-]+)\/?$/i)?.[1]?.toLowerCase();
+  if (rootSlug && !NON_SHOW_ROOT_SLUGS.has(rootSlug)) return 'show';
   return 'page';
 }
 

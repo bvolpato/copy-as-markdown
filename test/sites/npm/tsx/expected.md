@@ -4,8 +4,6 @@ url: "https://www.npmjs.com/package/tsx"
 
 # FIXTURE_SPAN_0014
 
-FIXTURE_EM_0027FIXTURE_CODE_0028FIXTURE_EM_0029FIXTURE_P_0030
-
 **Downloads:** FIXTURE_P_0505 · **Last Published:** FIXTURE_TIME_0019 · **Repository:** https://example.invalid/fixture-link-0063
 
 ## Package Details
@@ -55,6 +53,7 @@ FIXTURE_TIME_0515
 [**FIXTURE_STRONG_0517**FIXTURE_A_0518](https://example.invalid/fixture-link-0066)
 
 [**FIXTURE_STRONG_0519**FIXTURE_A_0520](https://example.invalid/fixture-link-0067)
+
 ## README
 
 # FIXTURE_H1_0026https://example.invalid/fixture-link-0016 https://example.invalid/fixture-link-0017 https://example.invalid/fixture-link-0018

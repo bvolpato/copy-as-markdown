@@ -12,31 +12,62 @@ register({
   matches: [
     '*://www.foxnews.com/*',
     '*://foxnews.com/*',
+    '*://m.foxnews.com/*',
     '*://www.cnn.com/*',
+    '*://cnn.com/*',
+    '*://edition.cnn.com/*',
+    '*://lite.cnn.com/*',
+    '*://m.cnn.com/*',
     '*://www.bbc.com/*',
     '*://bbc.com/*',
+    '*://m.bbc.com/*',
     '*://www.bbc.co.uk/*',
     '*://bbc.co.uk/*',
+    '*://m.bbc.co.uk/*',
     '*://www.nytimes.com/*',
+    '*://nytimes.com/*',
+    '*://m.nytimes.com/*',
     '*://www.washingtonpost.com/*',
+    '*://washingtonpost.com/*',
     '*://www.theguardian.com/*',
+    '*://theguardian.com/*',
+    '*://m.theguardian.com/*',
     '*://www.reuters.com/*',
+    '*://reuters.com/*',
+    '*://mobile.reuters.com/*',
     '*://apnews.com/*',
+    '*://www.apnews.com/*',
     '*://www.bloomberg.com/*',
+    '*://bloomberg.com/*',
     '*://www.wsj.com/*',
+    '*://wsj.com/*',
     '*://www.cnbc.com/*',
+    '*://cnbc.com/*',
     '*://www.nbcnews.com/*',
+    '*://nbcnews.com/*',
     '*://abcnews.go.com/*',
     '*://www.usatoday.com/*',
+    '*://usatoday.com/*',
     '*://www.politico.com/*',
+    '*://politico.com/*',
+    '*://www.politico.eu/*',
+    '*://politico.eu/*',
     '*://www.axios.com/*',
+    '*://axios.com/*',
     '*://www.theatlantic.com/*',
+    '*://theatlantic.com/*',
     '*://www.vox.com/*',
+    '*://vox.com/*',
     '*://www.vice.com/*',
+    '*://vice.com/*',
     '*://techcrunch.com/*',
+    '*://www.techcrunch.com/*',
     '*://www.theverge.com/*',
+    '*://theverge.com/*',
     '*://arstechnica.com/*',
+    '*://www.arstechnica.com/*',
     '*://www.wired.com/*',
+    '*://wired.com/*',
   ],
   buttonPlacement: 'anchor',
   anchor: {
@@ -45,8 +76,8 @@ register({
       '.article-header',             // common class
       '.headline',                   // headline wrapper
       '.article-meta',               // meta (author, date) area
-      '.byline',                      // byline row
-      'h1',                           // article title
+      '.byline',                     // byline row
+      'h1',                          // article title
     ].join(', '),
     position: 'after',
     style: 'pill',
@@ -55,7 +86,7 @@ register({
 
   async extract() {
     const url = Utils.getCanonicalUrl();
-    const isLiveBlog = /live-news|liveblog|live-updates/i.test(url);
+    const isLiveBlog = /live-news|liveblog|live-updates|\/live\//i.test(url);
 
     const title =
       document.querySelector('h1')?.textContent?.trim() ||
@@ -81,7 +112,7 @@ register({
     if (description) parts.push(`\n*${description}*`);
     parts.push('');
 
-    if (Utils.hasPaywall()) {
+    if (hasVisiblePaywall()) {
       parts.push('> ⚠️ **Paywall detected.** Content below may be incomplete.\n');
     }
 
@@ -92,7 +123,7 @@ register({
         const ut = update.querySelector('h2, h3')?.textContent?.trim() || '';
         const uTime = update.querySelector('time')?.textContent?.trim() || '';
         const body = update.querySelector('.post-body, .body') || update;
-        const clone = Utils.removeNoise(body, [...Utils.NOISE_SELECTORS, 'h2', 'h3', 'time', '[data-cam-instance]']);
+        const clone = Utils.removeNoise(body, [...Utils.NOISE_SELECTORS, 'h2', 'h3', 'time', 'button', '[data-cam-instance]']);
         const uBody = Markdown.elementToMarkdown(clone);
         if (ut || uBody) {
           parts.push(`### ${ut || 'Update'}${uTime ? ` (${uTime})` : ''}\n`);
@@ -111,16 +142,20 @@ register({
         document.querySelector('[role="main"]') ||
         document.querySelector('main');
 
+      const articleNoise = [
+        ...Utils.NOISE_SELECTORS,
+        'h1', 'button', 'details',
+        '.ad', '.advertisement', '.embed', '.social-share',
+        '.article-footer', '.tags', '.related-articles', '.related-content',
+        '[data-testid*="related"]', '[data-component="links-block"]', '[data-component="topic-list"]',
+        '.comments-section', '.newsletter-signup',
+      ];
+
       if (articleEl) {
-        const cleaned = Utils.removeNoise(articleEl, [
-          ...Utils.NOISE_SELECTORS,
-          '.ad', '.advertisement', '.embed', '.social-share',
-          '.article-footer', '.tags', '.related-articles',
-          '.comments-section', '.newsletter-signup',
-        ]);
+        const cleaned = Utils.removeNoise(articleEl, articleNoise);
         parts.push('## Article\n', Markdown.elementToMarkdown(cleaned));
       } else {
-        const cleaned = Utils.removeNoise(document.body, Utils.NOISE_SELECTORS);
+        const cleaned = Utils.removeNoise(document.body, articleNoise);
         parts.push('## Content\n', Markdown.elementToMarkdown(cleaned));
       }
     }
@@ -128,3 +163,20 @@ register({
     return Markdown.buildPageMarkdown(metadata, parts.join('\n'));
   },
 });
+
+function hasVisiblePaywall(): boolean {
+  const paywallSelectors = [
+    '.paywall', '.subscription-wall', '.meter-wall',
+    '[class*="paywall"]', '[class*="Paywall"]',
+    '[id*="paywall"]', '[id*="Paywall"]',
+    '.tp-modal', '.piano-offer',
+    '.article-gate', '.gate-content',
+  ];
+  const isVisible = Utils.createVisibilityChecker();
+  for (const selector of paywallSelectors) {
+    for (const element of document.querySelectorAll(selector)) {
+      if (isVisible(element)) return true;
+    }
+  }
+  return false;
+}

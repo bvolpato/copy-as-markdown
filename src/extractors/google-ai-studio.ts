@@ -10,11 +10,15 @@ export const googleAiStudioExtractor = registerAiConversationExtractor({
     '*://aistudio.google.com/prompts*',
     '*://aistudio.google.com/app/prompts*',
     '*://aistudio.google.com/apps/*',
+    '*://aistudio.google.com/u/*/prompts*',
+    '*://aistudio.google.com/u/*/app/prompts*',
+    '*://aistudio.google.com/u/*/apps/*',
   ],
-  pathnameRegex: /^(?:\/(?:app\/)?prompts\/[^/]+|\/apps\/[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12})(?:\/|$)/i,
+  pathnameRegex: /^(?:\/u\/\d+)?(?:\/(?:app\/)?prompts\/[^/]+|\/apps\/[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12})(?:\/|$)/i,
   route(pathname) {
-    if (/^\/apps\//i.test(pathname)) return 'app';
-    return /\/new(?:_|-)?chat(?:\/|$)/i.test(pathname) ? 'new_chat' : 'saved_prompt';
+    const normalized = pathname.replace(/^\/u\/\d+(?=\/)/i, '');
+    if (/^\/apps\//i.test(normalized)) return 'app';
+    return /\/new(?:_|-)?chat(?:\/|$)/i.test(normalized) ? 'new_chat' : 'saved_prompt';
   },
   titleFallback: 'Google AI Studio Chat Prompt',
   titleSuffix: /\s*[|·-]\s*Google AI Studio\s*$/i,
@@ -73,8 +77,8 @@ export const googleAiStudioExtractor = registerAiConversationExtractor({
     { selector: 'ms-model-selector' },
   ],
   workspaceSelectors: [
-    { selector: '[data-testid="prompt-title"]' },
-    { selector: '[data-test-id="prompt-title"]' },
+    { selector: '[data-testid="workspace-name"]' },
+    { selector: '[data-test-id="workspace-name"]' },
   ],
   citationSelectors: [
     '[data-testid*="grounding-source"] a[href]',
@@ -110,6 +114,11 @@ export const googleAiStudioExtractor = registerAiConversationExtractor({
     const turn = element.closest('ms-chat-turn');
     if (turn) return turn;
     if (element.matches('ms-text-chunk')) return element;
-    return element.querySelector('ms-text-chunk');
+    const chunks = element.querySelectorAll('ms-text-chunk');
+    if (chunks.length > 1) return element;
+    if (chunks.length === 1) {
+      return element.querySelector('.code-block') ? element : chunks[0];
+    }
+    return null;
   },
 });

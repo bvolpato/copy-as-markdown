@@ -28,11 +28,18 @@ const MESSAGE_SELECTOR = [
   '.c-message_kit__background',
 ].join(', ');
 
+let isVisible: (element: Element | null) => boolean = Utils.createVisibilityChecker();
+
 register({
   name: 'Slack',
-  matches: ['https://app.slack.com/client/*'],
+  matches: [
+    'https://app.slack.com/client/*',
+    '*://*.slack.com/archives/*',
+    '*://*.slack.com/messages/*',
+  ],
 
   async extract() {
+    isVisible = Utils.createVisibilityChecker();
     const threadRoot = findThreadRoot();
     const scope = threadRoot || findChannelRoot() || document;
     const context = threadRoot ? 'thread' : 'channel';
@@ -90,7 +97,7 @@ function extractMessages(root: ParentNode, isThread: boolean): SlackMessage[] {
 
     const timestamp = getTimestamp(element);
     const attachments = getAttachments(element);
-    const links = getLinks(bodyElement || element, attachments);
+    const links = getLinks(bodyElement || element, attachments, body);
     const reactions = getReactions(element);
     const replySummary = textFrom(element, [
       '[data-qa="reply_count"]',
@@ -130,7 +137,38 @@ function canonicalMessageElements(root: ParentNode): HTMLElement[] {
       || candidate;
     elements.add(canonical);
   });
-  return Array.from(elements);
+  const ordered = Array.from(elements).map((element, domIndex) => {
+    const rect = element.getBoundingClientRect();
+    return {
+      element,
+      domIndex,
+      ts: extractNumericTs(element),
+      top: rect.top,
+      hasBox: rect.height > 0 || rect.width > 0 || rect.top !== 0,
+    };
+  });
+  ordered.sort((left, right) => {
+    if (left.ts !== null && right.ts !== null && left.ts !== right.ts) {
+      return left.ts - right.ts;
+    }
+    if (left.hasBox && right.hasBox && left.top !== right.top) {
+      return left.top - right.top;
+    }
+    return left.domIndex - right.domIndex;
+  });
+  return ordered.map((entry) => entry.element);
+}
+
+function extractNumericTs(element: HTMLElement): number | null {
+  const rawTs = element.getAttribute('data-ts')
+    || element.querySelector<HTMLElement>('[data-ts]')?.getAttribute('data-ts')
+    || element.closest<HTMLElement>('[data-item-key]')?.getAttribute('data-item-key')
+    || element.getAttribute('data-item-key')
+    || '';
+  const match = rawTs.match(/(\d{9,}(?:\.\d+)?)/);
+  if (!match) return null;
+  const value = Number.parseFloat(match[1]);
+  return Number.isFinite(value) ? value : null;
 }
 
 function hasMessageContent(element: Element): boolean {
@@ -199,7 +237,7 @@ function getAttachments(element: Element): string[] {
   return Array.from(values).filter(Boolean);
 }
 
-function getLinks(root: ParentNode, attachments: string[]): string[] {
+function getLinks(root: ParentNode, attachments: string[], bodyMarkdown = ''): string[] {
   const attachmentUrls = new Set(
     attachments.map((value) => value.match(/\((https?:\/\/[^)]+)\)$/)?.[1]).filter(Boolean),
   );
@@ -208,6 +246,8 @@ function getLinks(root: ParentNode, attachments: string[]): string[] {
     if (link.closest('[data-qa="message_file"], [data-qa="file_attachment"], .c-message_kit__file, .c-file')) return;
     const href = safeHttpUrl(link.href);
     if (!href || attachmentUrls.has(href) || isSlackUiLink(link, href)) return;
+    const encodedHref = href.replace(/\(/g, '%28').replace(/\)/g, '%29');
+    if (bodyMarkdown && (bodyMarkdown.includes(href) || bodyMarkdown.includes(encodedHref))) return;
     links.add(href);
   });
   return Array.from(links);
@@ -236,7 +276,8 @@ function getReactions(element: Element): string[] {
       || reaction.textContent
       || '',
     );
-    if (value) reactions.add(value);
+    if (!value || /^(?:add|choose|open|find)\s+(?:a\s+|another\s+)?reaction\b/i.test(value)) return;
+    reactions.add(value);
   });
   return Array.from(reactions);
 }
@@ -279,6 +320,8 @@ function findThreadRoot(): HTMLElement | null {
   const selectors = [
     '[data-qa="thread_view"]',
     '[data-qa="thread_flexpane"]',
+    '[data-qa="threads_flexpane"]',
+    '.p-threads_flexpane',
     '[data-qa="thread_view_pane"]',
     '[role="dialog"][aria-label*="thread" i]',
     '[role="region"][aria-label*="thread" i]',
@@ -345,12 +388,6 @@ function isExcluded(element: Element): boolean {
     '[data-qa="channel_sidebar"]',
     '[aria-hidden="true"]',
   ].join(', ')));
-}
-
-function isVisible(element: HTMLElement): boolean {
-  if (element.hidden || element.getAttribute('aria-hidden') === 'true') return false;
-  const style = getComputedStyle(element);
-  return style.display !== 'none' && style.visibility !== 'hidden';
 }
 
 function safeHttpUrl(value: string): string {

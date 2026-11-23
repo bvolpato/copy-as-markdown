@@ -22,8 +22,13 @@ type GridExtraction = {
 
 register({
   name: 'Google Sheets',
-  matches: ['*://docs.google.com/spreadsheets/d/*', '*://docs.google.com/spreadsheets/u/*/d/*'],
-  pathnameRegex: /^\/spreadsheets\/(?:u\/\d+\/)?d\/(?!e(?:\/|$))[^/]+(?:\/|$)/,
+  matches: [
+    '*://docs.google.com/spreadsheets/d/*',
+    '*://docs.google.com/spreadsheets/u/*/d/*',
+    '*://docs.google.com/a/*/spreadsheets/d/*',
+    '*://docs.google.com/a/*/spreadsheets/u/*/d/*',
+  ],
+  pathnameRegex: /^(?:\/a\/[^/]+)?\/spreadsheets\/(?:u\/\d+\/)?d\/(?!e(?:\/|$))[^/]+(?:\/|$)/,
   buttonPlacement: 'anchor',
   anchor: {
     selector: [
@@ -34,13 +39,36 @@ register({
     ].join(', '),
     position: 'before',
     style: 'link',
+    wrapperTag: 'div',
+    wrapperClass: 'goog-inline-block docs-titlebar-button',
+    wrapperCss: {
+      marginInlineEnd: '8px',
+    },
+    css: {
+      display: 'inline-flex',
+      alignItems: 'center',
+      gap: '6px',
+      height: '36px',
+      padding: '0 14px',
+      border: '1px solid #dadce0',
+      borderRadius: '18px',
+      background: '#fff',
+      color: '#1f1f1f',
+      opacity: '1',
+      fontSize: '14px',
+      fontWeight: '500',
+      lineHeight: '20px',
+      textDecoration: 'none',
+      whiteSpace: 'nowrap',
+    },
     label: 'Copy as Markdown',
   },
 
   async extract() {
     const spreadsheetId = getSpreadsheetId();
     const title = getSpreadsheetTitle();
-    const gid = getActiveGridId();
+    const gidInfo = getActiveGridId();
+    const gid = gidInfo.gid;
     const range = getActiveRange();
     const sheet = getActiveSheetName();
     const metadata: Record<string, string | number | undefined> = {
@@ -69,7 +97,10 @@ register({
 
     let extraction: GridExtraction | null = null;
     try {
-      const csv = await fetchSheetResource(buildCsvExportUrl(spreadsheetId, gid, range), 'csv');
+      const csv = await fetchSheetWithFallback(
+        buildCsvExportUrls(spreadsheetId, gid, range, !gidInfo.explicit),
+        'csv',
+      );
       extraction = {
         rows: trimGrid(parseCsv(csv)),
         contentSource: 'Google Sheets authenticated CSV export',
@@ -82,7 +113,10 @@ register({
 
     if (!extraction) {
       try {
-        const html = await fetchSheetResource(buildHtmlExportUrl(spreadsheetId, gid, range), 'html');
+        const html = await fetchSheetWithFallback(
+          buildHtmlExportUrls(spreadsheetId, gid, range, !gidInfo.explicit),
+          'html',
+        );
         const rows = parseExportedHtmlGrid(html);
         if (rows.length > 0) {
           extraction = {
@@ -112,7 +146,7 @@ register({
 });
 
 function getSpreadsheetId(): string {
-  return window.location.pathname.match(/\/spreadsheets\/(?:u\/\d+\/)?d\/(?!e(?:\/|$))([^/]+)/)?.[1] || '';
+  return window.location.pathname.match(/^(?:\/a\/[^/]+)?\/spreadsheets\/(?:u\/\d+\/)?d\/(?!e(?:\/|$))([^/]+)/)?.[1] || '';
 }
 
 function getSpreadsheetTitle(): string {
@@ -125,16 +159,18 @@ function getSpreadsheetTitle(): string {
   return title.replace(/\s*-\s*Google Sheets$/, '').trim();
 }
 
-function getActiveGridId(): string {
+function getActiveGridId(): { gid: string; explicit: boolean } {
   const fromUrl = getLocationParameter('gid');
-  if (fromUrl) return fromUrl;
+  if (fromUrl) return { gid: fromUrl, explicit: true };
 
   const activeTab = document.querySelector<HTMLElement>(
     '.docs-sheet-active-tab, .docs-sheet-tab[aria-selected="true"], [role="tab"][aria-selected="true"][data-sheet-id]',
   );
-  return activeTab?.dataset.sheetId
+  const fromDom = activeTab?.dataset.sheetId
     || activeTab?.id.match(/(?:docs-sheet-tab-|gid-)(\d+)/)?.[1]
-    || '0';
+    || '';
+  if (fromDom) return { gid: fromDom, explicit: true };
+  return { gid: '0', explicit: false };
 }
 
 function getActiveSheetName(): string {
@@ -173,33 +209,153 @@ function getLocationParameter(name: string): string {
   return new URLSearchParams(hash).get(name) || '';
 }
 
-function buildCsvExportUrl(spreadsheetId: string, gid: string, range: string): string {
-  const url = new URL(`/spreadsheets/d/${spreadsheetId}/export`, window.location.origin);
-  url.searchParams.set('format', 'csv');
-  url.searchParams.set('gid', gid);
-  if (range) url.searchParams.set('range', range);
-  return url.href;
+function getSpreadsheetBasePaths(spreadsheetId: string, endpoint: 'export' | 'gviz/tq'): string[] {
+  const pathname = window.location.pathname;
+  const domainPrefix = pathname.match(/^(\/a\/[^/]+)/)?.[1] || '';
+  const accountPrefix = pathname.match(/\/spreadsheets\/(u\/\d+)\/d\//)?.[1] || '';
+  const paths = new Set<string>([
+    `${domainPrefix}/spreadsheets/${accountPrefix ? `${accountPrefix}/` : ''}d/${spreadsheetId}/${endpoint}`,
+  ]);
+  if (domainPrefix && accountPrefix) {
+    paths.add(`${domainPrefix}/spreadsheets/d/${spreadsheetId}/${endpoint}`);
+  }
+  paths.add(`/spreadsheets/d/${spreadsheetId}/${endpoint}`);
+  return Array.from(paths);
 }
 
-function buildHtmlExportUrl(spreadsheetId: string, gid: string, range: string): string {
-  const url = new URL(`/spreadsheets/d/${spreadsheetId}/gviz/tq`, window.location.origin);
-  url.searchParams.set('tqx', 'out:html');
-  url.searchParams.set('gid', gid);
-  if (range) url.searchParams.set('range', range);
-  return url.href;
+function normalizeQueryRange(range: string): string {
+  const stripped = (range.includes('!') ? range.slice(range.lastIndexOf('!') + 1) : range)
+    .replace(/\$/g, '')
+    .trim();
+  const match = stripped.match(/^([A-Z]{1,4})(\d+):([A-Z]{1,4})(\d+)$/i);
+  if (!match) return stripped;
+  const c1 = columnIndex(match[1]);
+  const r1 = Number(match[2]);
+  const c2 = columnIndex(match[3]);
+  const r2 = Number(match[4]);
+  if (!Number.isFinite(r1) || !Number.isFinite(r2)) return stripped;
+  const startCol = columnName(Math.min(c1, c2));
+  const endCol = columnName(Math.max(c1, c2));
+  const startRow = Math.min(r1, r2);
+  const endRow = Math.max(r1, r2);
+  return `${startCol}${startRow}:${endCol}${endRow}`;
+}
+
+type SheetCandidateUrl = { url: string; retryOn400: boolean };
+
+function buildCsvExportUrls(
+  spreadsheetId: string,
+  gid: string,
+  range: string,
+  allowWithoutGid: boolean,
+): SheetCandidateUrl[] {
+  const basePaths = getSpreadsheetBasePaths(spreadsheetId, 'export');
+  const build = (pathname: string, includeGid: boolean): string => {
+    const url = new URL(pathname, window.location.origin);
+    url.searchParams.set('format', 'csv');
+    if (includeGid) url.searchParams.set('gid', gid);
+    if (range) url.searchParams.set('range', normalizeQueryRange(range));
+    return url.href;
+  };
+  const candidates: SheetCandidateUrl[] = basePaths.map((pathname) => ({
+    url: build(pathname, true),
+    retryOn400: allowWithoutGid,
+  }));
+  if (allowWithoutGid) {
+    basePaths.forEach((pathname) => {
+      candidates.push({ url: build(pathname, false), retryOn400: false });
+    });
+  }
+  return candidates;
+}
+
+function buildHtmlExportUrls(
+  spreadsheetId: string,
+  gid: string,
+  range: string,
+  allowWithoutGid: boolean,
+): SheetCandidateUrl[] {
+  const basePaths = getSpreadsheetBasePaths(spreadsheetId, 'gviz/tq');
+  const build = (pathname: string, includeGid: boolean): string => {
+    const url = new URL(pathname, window.location.origin);
+    url.searchParams.set('tqx', 'out:html');
+    if (includeGid) url.searchParams.set('gid', gid);
+    if (range) url.searchParams.set('range', normalizeQueryRange(range));
+    return url.href;
+  };
+  const candidates: SheetCandidateUrl[] = basePaths.map((pathname) => ({
+    url: build(pathname, true),
+    retryOn400: allowWithoutGid,
+  }));
+  if (allowWithoutGid) {
+    basePaths.forEach((pathname) => {
+      candidates.push({ url: build(pathname, false), retryOn400: false });
+    });
+  }
+  return candidates;
+}
+
+class SheetHttpError extends Error {
+  status: number;
+  constructor(message: string, status: number) {
+    super(message);
+    this.status = status;
+  }
+}
+
+async function fetchSheetWithFallback(
+  candidates: SheetCandidateUrl[],
+  kind: 'csv' | 'html',
+): Promise<string> {
+  let lastError: unknown;
+  for (let index = 0; index < candidates.length; index += 1) {
+    const candidate = candidates[index];
+    try {
+      return await fetchSheetResource(candidate.url, kind);
+    } catch (error) {
+      lastError = error;
+      const isLast = index === candidates.length - 1;
+      const retryableHttp = error instanceof SheetHttpError
+        && (error.status === 404 || (error.status === 400 && candidate.retryOn400));
+      const retryableNetwork = error instanceof TypeError
+        || (error instanceof DOMException && error.name === 'AbortError');
+      if (isLast || (!retryableHttp && !retryableNetwork)) throw error;
+    }
+  }
+  throw lastError;
+}
+
+function isGoogleSignInResponse(response: Response, text: string): boolean {
+  try {
+    const parsedUrl = response.url ? new URL(response.url) : null;
+    if (parsedUrl && /(?:^|\.)accounts\.google\.com$/i.test(parsedUrl.hostname)) {
+      return true;
+    }
+  } catch {
+    // ignore invalid response URL
+  }
+  if (response.url.includes('ServiceLogin')) return true;
+  if (/<title[^>]*>\s*(?:sign in|google accounts)\b/i.test(text)) return true;
+  const hasSignInForm = /<form[^>]+(?:ServiceLogin|accounts\.google\.com)/i.test(text)
+    || /name=["'](?:identifier|Passwd)["']/i.test(text);
+  if (hasSignInForm) {
+    const visibleText = text.replace(/<script[\s\S]*?<\/script>|<style[\s\S]*?<\/style>|<[^>]+>/gi, ' ')
+      .replace(/\s+/g, ' ')
+      .trim();
+    if (visibleText.length < 2000) return true;
+  }
+  return false;
 }
 
 async function fetchSheetResource(url: string, kind: 'csv' | 'html'): Promise<string> {
-  const response = await fetch(url, { credentials: 'include' });
-  if (!response.ok) throw new Error(`Google Sheets request returned ${response.status}`);
+  const response = await Utils.fetchWithTimeout(url, { credentials: 'include' });
+  if (!response.ok) {
+    throw new SheetHttpError(`Google Sheets request returned ${response.status}`, response.status);
+  }
 
   const text = await response.text();
   if (!text.trim()) throw new Error('Google Sheets request returned an empty response');
-  if (
-    response.url.includes('ServiceLogin')
-    || /accounts\.google\.com/i.test(text)
-    || /<title>\s*sign in/i.test(text)
-  ) {
+  if (isGoogleSignInResponse(response, text)) {
     throw new Error('Google Sheets request redirected to sign-in');
   }
   if (kind === 'csv' && /^\s*<!doctype html|^\s*<html/i.test(text)) {
@@ -224,6 +380,7 @@ function parseCsv(csv: string): string[][] {
   let row: string[] = [];
   let field = '';
   let quoted = false;
+  let atFieldStart = true;
   const input = csv.replace(/^\uFEFF/, '');
 
   for (let index = 0; index < input.length; index += 1) {
@@ -237,23 +394,30 @@ function parseCsv(csv: string): string[][] {
       } else {
         field += char;
       }
-    } else if (char === '"') {
+    } else if (char === '"' && atFieldStart) {
       quoted = true;
+      atFieldStart = false;
     } else if (char === ',') {
       row.push(field);
       field = '';
-    } else if (char === '\n') {
-      row.push(field.replace(/\r$/, ''));
+      atFieldStart = true;
+    } else if (char === '\r' || char === '\n') {
+      if (char === '\r' && input[index + 1] === '\n') {
+        index += 1;
+      }
+      row.push(field);
       rows.push(row);
       row = [];
       field = '';
+      atFieldStart = true;
     } else {
       field += char;
+      atFieldStart = false;
     }
   }
 
   if (field || row.length > 0) {
-    row.push(field.replace(/\r$/, ''));
+    row.push(field);
     rows.push(row);
   }
   return rows;
@@ -364,15 +528,29 @@ function gridToMarkdownTable(
 }
 
 function getRangeStart(range: string): { row: number; column: number } {
-  const reference = range.includes('!') ? range.slice(range.lastIndexOf('!') + 1) : range;
-  const match = reference.match(/^\$?([A-Z]+)\$?(\d+)/i);
-  if (!match) return { row: 1, column: 0 };
+  const reference = (range.includes('!') ? range.slice(range.lastIndexOf('!') + 1) : range).trim();
+  const rangeMatch = reference.match(/^\$?([A-Z]+)\$?(\d+)(?::\$?([A-Z]+)\$?(\d+))?/i);
+  if (!rangeMatch) return { row: 1, column: 0 };
 
+  const startCol = columnIndex(rangeMatch[1]);
+  const startRow = Number(rangeMatch[2]) || 1;
+  if (rangeMatch[3] && rangeMatch[4]) {
+    const endCol = columnIndex(rangeMatch[3]);
+    const endRow = Number(rangeMatch[4]) || 1;
+    return {
+      row: Math.min(startRow, endRow),
+      column: Math.min(startCol, endCol),
+    };
+  }
+  return { row: startRow, column: startCol };
+}
+
+function columnIndex(letters: string): number {
   let column = 0;
-  for (const character of match[1].toUpperCase()) {
+  for (const character of letters.toUpperCase()) {
     column = column * 26 + character.charCodeAt(0) - 64;
   }
-  return { row: Number(match[2]) || 1, column: Math.max(0, column - 1) };
+  return Math.max(0, column - 1);
 }
 
 function columnName(index: number): string {

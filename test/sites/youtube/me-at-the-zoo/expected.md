@@ -12,4 +12,4 @@ channel_url: "https://example.invalid/fixture-link-0003"
 
 ## Description
 
-FIXTURE_SPAN_0013FIXTURE_TPYTPAPERBUTTON_0014
+FIXTURE_SPAN_0013

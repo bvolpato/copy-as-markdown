@@ -1,45 +1,69 @@
 /**
  * GitHub extractor.
- * Covers: issues, pull requests, pull request patches, commits, repo pages, and README files.
+ * Covers: issues, pull requests, pull request patches, commits, discussions,
+ * wikis, releases, actions, compare views, gists, repo pages, and README files.
  */
 
 import { register } from '../core/registry';
 import * as Markdown from '../core/markdown';
 import * as Utils from '../core/utils';
 
+const NON_REPO_PATH_RE = /^\/(?:settings|orgs|topics|sponsors|marketplace|features|enterprise|pricing|login|signup|explore|notifications|codespaces)(?:\/|$)/i;
+const GITHUB_PATH_RE = /^\/(?!(?:settings|orgs|topics|sponsors|marketplace|features|enterprise|pricing|login|signup|explore|notifications|codespaces)(?:\/|$))[^/]+/i;
+
 export const githubExtractor = register({
   name: 'GitHub',
   matches: [
     '*://github.com/*/*',
     '*://www.github.com/*/*',
+    '*://gist.github.com/*',
   ],
+  pathnameRegex: GITHUB_PATH_RE,
+  detect: (contextDocument) => isGitHubEnterpriseDocument(contextDocument),
 
   async extract() {
     const url = Utils.getCanonicalUrl();
     const path = window.location.pathname;
-
-    // Detect page type
-    const isIssue = /^\/[^/]+\/[^/]+\/issues\/\d+(?:\/|$)/.test(path);
-    const isPR = /^\/[^/]+\/[^/]+\/pull\/\d+(?:\/|$)/.test(path);
-    const isRepo = /^\/[^/]+\/[^/]+\/?$/.test(path);
-    const isCode = /^\/[^/]+\/[^/]+\/(?:blob|tree)\//.test(path);
-    const changesRoute = parseChangesRoute(path);
 
     const metadata: Record<string, string> = {
       source: 'GitHub',
       url,
     };
 
+    if (isGistPage()) {
+      return extractGist(metadata);
+    }
+
+    const changesRoute = parseChangesRoute(path);
     if (changesRoute) {
       metadata.url = window.location.href;
       return extractChanges(metadata, changesRoute);
-    } else if (isIssue || isPR) {
-      return extractIssueOrPR(metadata, isPR);
-    } else if (isRepo) {
-      return extractRepo(metadata);
-    } else if (isCode) {
-      return extractCodePage(metadata);
     }
+
+    const isPRCommits = /^\/[^/]+\/[^/]+\/pull\/\d+\/commits\/?$/i.test(path);
+    const isPRChecks = /^\/[^/]+\/[^/]+\/pull\/\d+\/checks(?:\/|$)/i.test(path);
+    const isIssue = /^\/[^/]+\/[^/]+\/issues\/\d+(?:\/|$)/i.test(path);
+    const isPR = /^\/[^/]+\/[^/]+\/pull\/\d+(?:\/|$)/i.test(path);
+    const isDiscussion = /^\/[^/]+\/[^/]+\/discussions\/\d+(?:\/|$)/i.test(path);
+    const isWiki = /^\/[^/]+\/[^/]+\/wiki(?:\/|$)/i.test(path);
+    const isReleases = /^\/[^/]+\/[^/]+\/releases(?:\/|$)/i.test(path);
+    const isActionRun = /^\/[^/]+\/[^/]+\/actions\/runs\/\d+(?:\/|$)/i.test(path);
+    const isCompare = /^\/[^/]+\/[^/]+\/compare\/.+/i.test(path);
+    const isCommitsList = /^\/[^/]+\/[^/]+\/commits(?:\/|$)/i.test(path);
+    const isRepo = /^\/[^/]+\/[^/]+\/?$/.test(path);
+    const isCode = /^\/[^/]+\/[^/]+\/(?:blob|tree)\//i.test(path);
+
+    if (isPRCommits) return extractPRCommits(metadata);
+    if (isPRChecks) return extractPRChecks(metadata);
+    if (isIssue || isPR) return extractIssueOrPR(metadata, isPR);
+    if (isDiscussion) return extractDiscussion(metadata);
+    if (isWiki) return extractWiki(metadata);
+    if (isReleases) return extractReleases(metadata);
+    if (isActionRun) return extractActionRun(metadata);
+    if (isCompare) return extractCompare(metadata);
+    if (isCommitsList) return extractCommitsList(metadata);
+    if (isRepo) return extractRepo(metadata);
+    if (isCode) return extractCodePage(metadata);
 
     // Generic fallback
     const title = Utils.getPageTitle();
@@ -52,11 +76,29 @@ export const githubExtractor = register({
   },
 });
 
+function isGitHubEnterpriseDocument(contextDocument?: Document): boolean {
+  const doc = contextDocument ?? (typeof document !== 'undefined' ? document : null);
+  if (!doc || typeof doc.querySelector !== 'function') return false;
+  const pathname = doc.location?.pathname || '';
+  if (pathname && (pathname === '/' || NON_REPO_PATH_RE.test(pathname))) return false;
+  return Boolean(doc.querySelector(
+    'meta[name="octolytics-host"], meta[name="github-keyboard-shortcuts"], meta[name="expected-hostname"]',
+  ));
+}
+
+function isGistPage(): boolean {
+  const host = window.location.hostname.toLowerCase();
+  if (host === 'gist.github.com' || host.startsWith('gist.')) return true;
+  return Boolean(document.querySelector('.gist-content, .gist-detail-container, [data-testid="gist-file"]'));
+}
+
 type ChangesRoute = {
   owner: string;
   repo: string;
   pullNumber?: string;
   commitSha?: string;
+  baseSha?: string;
+  headSha?: string;
 };
 
 type PatchCommit = {
@@ -138,9 +180,30 @@ type GitHubBlobCandidate = {
   path: string;
 };
 
+function getGitHubApiBase(): string {
+  const host = window.location.hostname.toLowerCase();
+  if (host === 'github.com' || host === 'www.github.com') {
+    return 'https://api.github.com';
+  }
+  return `${window.location.origin}/api/v3`;
+}
+
 function parseChangesRoute(path: string): ChangesRoute | null {
+  const pullRangeMatch = path.match(
+    /^\/([^/]+)\/([^/]+)\/pull\/(\d+)\/(?:files|changes)\/([0-9a-f]{7,64})\.\.([0-9a-f]{7,64})\/?$/i,
+  );
+  if (pullRangeMatch) {
+    return {
+      owner: pullRangeMatch[1],
+      repo: pullRangeMatch[2],
+      pullNumber: pullRangeMatch[3],
+      baseSha: pullRangeMatch[4],
+      headSha: pullRangeMatch[5],
+    };
+  }
+
   const pullMatch = path.match(
-    /^\/([^/]+)\/([^/]+)\/pull\/(\d+)\/(?:files|changes)(?:\/([0-9a-f]{7,40}))?\/?$/i,
+    /^\/([^/]+)\/([^/]+)\/pull\/(\d+)\/(?:files|changes)(?:\/([0-9a-f]{7,64}))?\/?$/i,
   );
   if (pullMatch) {
     return {
@@ -152,7 +215,7 @@ function parseChangesRoute(path: string): ChangesRoute | null {
   }
 
   const pullCommitMatch = path.match(
-    /^\/([^/]+)\/([^/]+)\/pull\/(\d+)\/commits\/([0-9a-f]{7,40})\/?$/i,
+    /^\/([^/]+)\/([^/]+)\/pull\/(\d+)\/commits\/([0-9a-f]{7,64})\/?$/i,
   );
   if (pullCommitMatch) {
     return {
@@ -164,7 +227,7 @@ function parseChangesRoute(path: string): ChangesRoute | null {
   }
 
   const commitMatch = path.match(
-    /^\/([^/]+)\/([^/]+)\/commit\/([0-9a-f]{7,40})\/?$/i,
+    /^\/([^/]+)\/([^/]+)\/commit\/([0-9a-f]{7,64})\/?$/i,
   );
   if (!commitMatch) return null;
   return {
@@ -179,28 +242,38 @@ async function extractChanges(
   route: ChangesRoute,
 ): Promise<string> {
   const repository = `${route.owner}/${route.repo}`;
-  const patchPath = route.commitSha
-    ? `/${route.owner}/${route.repo}/commit/${route.commitSha}.patch`
-    : `/${route.owner}/${route.repo}/pull/${route.pullNumber}.patch`;
+  const isRange = Boolean(route.baseSha && route.headSha);
+  const patchPath = isRange
+    ? `/${route.owner}/${route.repo}/compare/${route.baseSha}...${route.headSha}.patch`
+    : route.commitSha
+      ? `/${route.owner}/${route.repo}/commit/${route.commitSha}.patch`
+      : `/${route.owner}/${route.repo}/pull/${route.pullNumber}.patch`;
   const patchUrl = new URL(patchPath, window.location.origin).href;
-  const apiPath = route.commitSha
-    ? `/repos/${encodeURIComponent(route.owner)}/${encodeURIComponent(route.repo)}/commits/${route.commitSha}`
-    : `/repos/${encodeURIComponent(route.owner)}/${encodeURIComponent(route.repo)}/pulls/${route.pullNumber}`;
-  const patchApiUrl = new URL(apiPath, 'https://api.github.com').href;
-  const title = document.querySelector('.js-issue-title, .gh-header-title .markdown-title')
+  const apiPath = isRange
+    ? `/repos/${encodeURIComponent(route.owner)}/${encodeURIComponent(route.repo)}/compare/${route.baseSha}...${route.headSha}`
+    : route.commitSha
+      ? `/repos/${encodeURIComponent(route.owner)}/${encodeURIComponent(route.repo)}/commits/${route.commitSha}`
+      : `/repos/${encodeURIComponent(route.owner)}/${encodeURIComponent(route.repo)}/pulls/${route.pullNumber}`;
+  const patchApiUrl = new URL(apiPath.replace(/^\//, ''), `${getGitHubApiBase().replace(/\/$/, '')}/`).href;
+  const title = document.querySelector('.js-issue-title, .gh-header-title .markdown-title, [data-testid="issue-title"]')
     ?.textContent?.trim() || Utils.getPageTitle();
-  const state = document.querySelector('.State, [title^="Status:"]')?.textContent?.trim() || '';
+  const state = document.querySelector('.State, [title^="Status:"], [data-component="StateLabel"]')?.textContent?.trim() || '';
   const base = document.querySelector('.gh-header-meta .commit-ref:not(.head-ref)')?.getAttribute('title') || '';
   const head = document.querySelector('.gh-header-meta .head-ref')?.getAttribute('title') || '';
   const statusActor = document.querySelector('.gh-header-meta .author')?.textContent?.trim() || '';
   const statusDate = document.querySelector('.gh-header-meta relative-time')
     ?.getAttribute('datetime') || '';
 
-  metadata.type = route.commitSha ? 'GitHub Commit Patch' : 'GitHub Pull Request Patch';
+  metadata.type = route.commitSha
+    ? 'GitHub Commit Patch'
+    : isRange
+      ? 'GitHub Commit Range Patch'
+      : 'GitHub Pull Request Patch';
   metadata.title = title;
   metadata.repository = repository;
   if (route.pullNumber) metadata.pull_request = route.pullNumber;
   if (route.commitSha) metadata.commit = route.commitSha;
+  if (route.baseSha && route.headSha) metadata.commit_range = `${route.baseSha}..${route.headSha}`;
   if (state) metadata.state = state;
   if (base) metadata.base = base;
   if (head) metadata.head = head;
@@ -209,20 +282,61 @@ async function extractChanges(
   metadata.patch_url = patchUrl;
   metadata.patch_api_url = patchApiUrl;
 
-  let patch: string;
+  let patch = '';
+  let lastError = '';
+
+  // 1. Try GitHub API first (works without auth on public repos and matches canonical format).
   try {
-    const response = await fetch(patchApiUrl, {
+    const response = await Utils.fetchWithTimeout(patchApiUrl, {
       credentials: 'omit',
       headers: { Accept: 'application/vnd.github.patch' },
     });
     if (!response.ok) throw new Error(`HTTP ${response.status}`);
-    patch = await response.text();
-    if (!patch.includes('diff --git ')) throw new Error('response did not contain a Git patch');
+    const text = await response.text();
+    if (!text.includes('diff --git ')) throw new Error('response did not contain a Git patch');
+    patch = text;
   } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
+    lastError = error instanceof Error ? error.message : String(error);
+  }
+
+  // 2. Fall back to same-origin .patch URL (supports private repos and bypasses unauthenticated API rate limits).
+  if (!patch) {
+    try {
+      const response = await Utils.fetchWithTimeout(patchUrl, {
+        credentials: 'same-origin',
+        headers: { Accept: 'text/plain' },
+      });
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      const text = await response.text();
+      if (!text.includes('diff --git ')) throw new Error('response did not contain a Git patch');
+      patch = text;
+    } catch (error) {
+      lastError = error instanceof Error ? error.message : String(error);
+    }
+  }
+
+  // 3. Fall back to rendered DOM diff when patch fetches fail.
+  if (!patch) {
+    const domDiff = extractDomDiffs();
+    if (domDiff.files.length > 0) {
+      const heading = route.pullNumber
+        ? `# Pull Request #${route.pullNumber}${route.commitSha ? ' Commit' : ' Changes'}: ${title}`
+        : `# Commit ${route.commitSha?.slice(0, 12) || ''}: ${title}`;
+      const parts = [heading, ''];
+      parts.push(`**Repository:** ${repository}`);
+      if (state) parts.push(`**Status:** ${state}`);
+      if (base) parts.push(`**Base:** \`${base}\``);
+      if (head) parts.push(`**Head:** \`${head}\``);
+      parts.push('', '## Files Changed', '');
+      for (const file of domDiff.files) {
+        parts.push(`### ${file.path}`, '', fencePatch(file.diff), '');
+      }
+      return Markdown.buildPageMarkdown(metadata, parts.join('\n'));
+    }
+
     return Markdown.buildPageMarkdown(
       metadata,
-      `# ${title}\n\n*Could not fetch canonical GitHub patch: ${message}*`,
+      `# ${title}\n\n*Could not fetch canonical GitHub patch: ${lastError}*`,
     );
   }
 
@@ -266,9 +380,37 @@ async function extractChanges(
   return `${context}\n\n## Patch\n\n${fencePatch(patch)}`;
 }
 
+function extractDomDiffs(): { files: Array<{ path: string; diff: string }> } {
+  const containers = Array.from(document.querySelectorAll(
+    'copilot-diff-entry, .file.js-file, .file[data-tagsearch-path], [data-testid="diff-file"]',
+  ));
+  const files: Array<{ path: string; diff: string }> = [];
+  for (const container of containers) {
+    const filePath = container.getAttribute('data-file-path')
+      || container.getAttribute('data-tagsearch-path')
+      || container.querySelector('.file-info a[title], .file-info a, [data-testid="file-path"], h3 a')?.textContent?.trim()
+      || '';
+    const lineEls = container.querySelectorAll(
+      'td.blob-code-inner, [data-testid="diff-line-content"], .diff-text-inner',
+    );
+    const lines = Array.from(lineEls).map((el) => {
+      const marker = el.closest('[data-code-marker]')?.getAttribute('data-code-marker')
+        || el.getAttribute('data-code-marker')
+        || '';
+      const text = el.textContent || '';
+      return marker && !text.startsWith(marker) ? `${marker}${text}` : text;
+    });
+    const diff = lines.join('\n').trim();
+    if (filePath || diff) {
+      files.push({ path: filePath || 'File', diff: diff || '*Diff content not rendered.*' });
+    }
+  }
+  return { files };
+}
+
 function parsePatchDetails(patch: string): PatchDetails {
   const commits: PatchCommit[] = [];
-  const boundaries = [...patch.matchAll(/^From ([0-9a-f]{40}) Mon Sep 17 00:00:00 2001$/gm)];
+  const boundaries = [...patch.matchAll(/^From ([0-9a-f]{40,64}) Mon Sep 17 00:00:00 2001$/gm)];
   for (let index = 0; index < boundaries.length; index += 1) {
     const boundary = boundaries[index];
     const start = (boundary.index || 0) + boundary[0].length + 1;
@@ -283,7 +425,8 @@ function parsePatchDetails(patch: string): PatchDetails {
   }
 
   const files = [...new Set(
-    [...patch.matchAll(/^diff --git a\/(.+?) b\/(.+)$/gm)].map((match) => match[2]),
+    [...patch.matchAll(/^diff --git (?:"a\/(?:[^"\\]|\\.)+"|a\/.+?) (?:"b\/((?:[^"\\]|\\.)+)"|b\/(.+))$/gm)]
+      .map((match) => (match[1] !== undefined ? unescapeGitPath(match[1]) : match[2])),
   )];
   let additions = 0;
   let deletions = 0;
@@ -302,14 +445,330 @@ function parsePatchDetails(patch: string): PatchDetails {
   return { commits, files, additions, deletions };
 }
 
+function unescapeGitPath(value: string): string {
+  return value.replace(/\\(["\\])/g, '$1');
+}
+
 function fencePatch(patch: string): string {
-  const longestRun = Math.max(0, ...[...patch.matchAll(/`+/g)].map((match) => match[0].length));
+  const runs = [...patch.matchAll(/`+/g)].map((match) => match[0].length);
+  const longestRun = Math.max(0, Utils.safeMax(runs));
   const fence = '`'.repeat(Math.max(4, longestRun + 1));
   return `${fence}diff\n${patch}${patch.endsWith('\n') ? '' : '\n'}${fence}`;
 }
 
 function escapeTableCell(value: string): string {
   return Markdown.escapeMarkdownTableCell(value.replace(/\s+/g, ' '));
+}
+
+function extractGist(metadata: Record<string, string>): string {
+  metadata.type = 'Gist';
+  const author = document.querySelector('.gist-header-title a[data-hovercard-type="user"], a[rel="author"], .author a')
+    ?.textContent?.trim() || '';
+  const gistName = document.querySelector('.gist-header-title strong a, h1 strong a, .gist-blob-name')
+    ?.textContent?.trim() || Utils.getPageTitle();
+  const description = document.querySelector('[itemprop="about"], .gist-content .repository-meta-content')
+    ?.textContent?.trim() || '';
+  const title = author ? `${author}/${gistName}` : gistName;
+  metadata.title = title;
+  if (author) metadata.author = author;
+  if (description) metadata.description = description;
+
+  const parts: string[] = [`# ${title}\n`];
+  if (description) parts.push(`> ${description}\n`);
+
+  const fileBoxes = Array.from(document.querySelectorAll(
+    '.js-gist-file-update-container .file, .file-box .file, .file[id^="file-"]',
+  ));
+  for (const fileBox of fileBoxes) {
+    const fileName = fileBox.querySelector('.gist-blob-name, .file-info a strong, .file-header .file-info a, .file-header strong')
+      ?.textContent?.trim() || 'file';
+    const markdownBody = fileBox.querySelector('article.markdown-body, .markdown-body');
+    if (markdownBody) {
+      const cleaned = Utils.removeNoise(markdownBody, ['.anchor', '.octicon']);
+      parts.push(`## ${fileName}\n`);
+      parts.push(Markdown.elementToMarkdown(cleaned));
+      parts.push('');
+      continue;
+    }
+
+    const lineCells = fileBox.querySelectorAll('table.js-file-line-container td.blob-code-inner, td.blob-code-inner');
+    let code = '';
+    if (lineCells.length > 0) {
+      code = Array.from(lineCells).map((cell) => cell.textContent || '').join('\n');
+    } else {
+      const fallback = fileBox.querySelector('pre, .blob-wrapper');
+      code = fallback?.textContent?.replace(/^\n/, '').replace(/\n$/, '') || '';
+    }
+    parts.push(`## ${fileName}\n`);
+    parts.push(code ? fenceContent(code, languageFence(fileName)) : '*Empty file.*');
+    parts.push('');
+  }
+
+  appendDiscussionComments(parts, null);
+  return Markdown.buildPageMarkdown(metadata, parts.join('\n'));
+}
+
+function extractDiscussion(metadata: Record<string, string>): string {
+  metadata.type = 'Discussion';
+  const title = document.querySelector('.js-issue-title, .gh-header-title .markdown-title, [data-testid="issue-title"], h1 .markdown-title')
+    ?.textContent?.trim() || Utils.getPageTitle();
+  metadata.title = title;
+  const number = `#${window.location.pathname.split('/')[4] || ''}`;
+  const category = document.querySelector('.gh-header-meta a[href*="/discussions/categories/"], .discussion-category')?.textContent?.trim() || '';
+  const answered = Boolean(document.querySelector('.color-fg-success [aria-label*="Answered"], .State--merged, [title="Answered"]'));
+  const author = discussionAuthor(document.querySelector('.gh-header-meta, .discussion-header, .timeline-comment'));
+  const timeEl = document.querySelector('.gh-header-meta relative-time, .timeline-comment relative-time');
+  const date = timeEl?.getAttribute('datetime') || timeEl?.textContent?.trim() || '';
+
+  if (author) metadata.author = author;
+  if (date) metadata.created = date;
+  if (category) metadata.category = category;
+
+  const parts: string[] = [`# Discussion ${number}: ${title}\n`];
+  if (category) parts.push(`**Category:** ${category}`);
+  if (answered) parts.push('**Status:** Answered');
+  if (author) parts.push(`**Author:** @${author}`);
+  if (date) parts.push(`**Created:** ${date}`);
+  parts.push('');
+
+  const bodyEl = document.querySelector('.js-discussion .comment-body, .discussion .comment-body, .timeline-comment .comment-body');
+  if (bodyEl) {
+    parts.push('## Description\n');
+    parts.push(Markdown.elementToMarkdown(bodyEl));
+    parts.push('');
+  }
+
+  appendDiscussionComments(parts, bodyEl);
+  return Markdown.buildPageMarkdown(metadata, parts.join('\n'));
+}
+
+function extractWiki(metadata: Record<string, string>): string {
+  metadata.type = 'Wiki';
+  const title = document.querySelector('#wiki-wrapper h1, .gh-header-title, h1')?.textContent?.trim() || Utils.getPageTitle();
+  metadata.title = title;
+  const updatedEl = document.querySelector('#wiki-wrapper .gh-header-meta relative-time, relative-time');
+  const updated = updatedEl?.getAttribute('datetime') || updatedEl?.textContent?.trim() || '';
+  if (updated) metadata.updated = updated;
+
+  const parts: string[] = [`# ${title}\n`];
+  if (updated) parts.push(`**Updated:** ${updated}\n`);
+
+  const wikiBody = document.querySelector('#wiki-body .markdown-body, #wiki-content .markdown-body, .markdown-body');
+  if (wikiBody) {
+    const cleaned = Utils.removeNoise(wikiBody, [...Utils.NOISE_SELECTORS, '.anchor', '.octicon']);
+    parts.push(Markdown.elementToMarkdown(cleaned));
+  } else {
+    parts.push('*Could not extract wiki content.*');
+  }
+  return Markdown.buildPageMarkdown(metadata, parts.join('\n'));
+}
+
+function extractReleases(metadata: Record<string, string>): string {
+  metadata.type = 'Release';
+  const identity = getRepositoryIdentity(null);
+  const repository = identity ? `${identity.owner}/${identity.repo}` : '';
+  if (repository) metadata.repository = repository;
+
+  const releaseNodes = Array.from(document.querySelectorAll(
+    'section[aria-labelledby], [data-hpc] .Box, .release-entry, .release',
+  )).filter((el) => Boolean(el.querySelector('.markdown-body, h1, h2, a[href*="/releases/tag/"]')));
+
+  const pageHeading = document.querySelector('h1.d-inline, [data-testid="release-title"], main h1')?.textContent?.trim()
+    || (repository ? `${repository} Releases` : Utils.getPageTitle());
+  metadata.title = pageHeading;
+
+  const parts: string[] = [`# ${pageHeading}\n`];
+  if (repository) parts.push(`**Repository:** ${repository}\n`);
+
+  if (releaseNodes.length > 0) {
+    const seen = new Set<string>();
+    for (const node of releaseNodes) {
+      const heading = node.querySelector('h1, h2, a[href*="/releases/tag/"]')?.textContent?.trim() || '';
+      const tag = node.querySelector('a[href*="/tree/"], a[href*="/releases/tag/"]')?.textContent?.trim() || '';
+      const key = `${heading}|${tag}`;
+      if (!heading || seen.has(key)) continue;
+      seen.add(key);
+
+      const date = node.querySelector('relative-time')?.getAttribute('datetime') || '';
+      const releaseAuthor = discussionAuthor(node);
+      parts.push(`## ${heading}\n`);
+      const metaLine: string[] = [];
+      if (tag && tag !== heading) metaLine.push(`**Tag:** \`${tag}\``);
+      if (releaseAuthor) metaLine.push(`**Author:** @${releaseAuthor}`);
+      if (date) metaLine.push(`**Published:** ${date}`);
+      if (metaLine.length > 0) parts.push(`${metaLine.join(' · ')}\n`);
+
+      const body = node.querySelector('.markdown-body');
+      if (body) {
+        const cleaned = Utils.removeNoise(body, ['.anchor', '.octicon']);
+        parts.push(Markdown.elementToMarkdown(cleaned));
+        parts.push('');
+      }
+    }
+  } else {
+    const main = document.querySelector('main, [role="main"]');
+    if (main) {
+      parts.push(Markdown.elementToMarkdown(Utils.removeNoise(main, [...Utils.NOISE_SELECTORS, '.anchor', '.octicon'])));
+    }
+  }
+
+  return Markdown.buildPageMarkdown(metadata, parts.join('\n'));
+}
+
+function extractActionRun(metadata: Record<string, string>): string {
+  metadata.type = 'Workflow Run';
+  const title = document.querySelector('.js-issue-title, h1, [data-testid="workflow-run-title"]')?.textContent?.trim()
+    || Utils.getPageTitle();
+  metadata.title = title;
+  const parts: string[] = [`# ${title}\n`];
+
+  const status = document.querySelector('.State, [data-testid="workflow-run-status"]')?.textContent?.trim() || '';
+  if (status) {
+    metadata.status = status;
+    parts.push(`**Status:** ${status}\n`);
+  }
+
+  const jobs = Array.from(document.querySelectorAll('.ActionListItem-label, [data-testid="job-item"], .checks-list-item'));
+  if (jobs.length > 0) {
+    parts.push('## Jobs\n');
+    for (const job of jobs) {
+      const label = job.textContent?.replace(/\s+/g, ' ').trim();
+      if (label) parts.push(`- ${label}`);
+    }
+    parts.push('');
+  }
+
+  const summary = document.querySelector('.workflow-summary .markdown-body, .js-checks-summary .markdown-body, article.markdown-body');
+  if (summary) {
+    parts.push('## Summary\n');
+    parts.push(Markdown.elementToMarkdown(Utils.removeNoise(summary, ['.anchor', '.octicon'])));
+    parts.push('');
+  }
+
+  const logLines = Array.from(document.querySelectorAll('.CheckStep-line-content, .js-checks-log-display-container .d-flex'))
+    .map((el) => el.textContent || '')
+    .filter((line) => line.length > 0);
+  if (logLines.length > 0) {
+    parts.push('## Logs\n');
+    parts.push(fenceContent(logLines.join('\n'), 'text'));
+  }
+
+  return Markdown.buildPageMarkdown(metadata, parts.join('\n'));
+}
+
+function extractCompare(metadata: Record<string, string>): string {
+  metadata.type = 'Compare';
+  const title = document.querySelector('.Subhead-heading, h1')?.textContent?.trim() || Utils.getPageTitle();
+  metadata.title = title;
+  const parts: string[] = [`# ${title}\n`];
+
+  appendRenderedCommitsList(parts);
+  const domDiff = extractDomDiffs();
+  if (domDiff.files.length > 0) {
+    parts.push('## Files Changed\n');
+    for (const file of domDiff.files) {
+      parts.push(`### ${file.path}\n`);
+      parts.push(fencePatch(file.diff));
+      parts.push('');
+    }
+  } else if (parts.length === 1) {
+    const main = document.querySelector('main, [role="main"]');
+    if (main) parts.push(Markdown.elementToMarkdown(Utils.removeNoise(main, Utils.NOISE_SELECTORS)));
+  }
+
+  return Markdown.buildPageMarkdown(metadata, parts.join('\n'));
+}
+
+function extractCommitsList(metadata: Record<string, string>): string {
+  metadata.type = 'Commits';
+  const identity = getRepositoryIdentity(null);
+  const repository = identity ? `${identity.owner}/${identity.repo}` : '';
+  const title = repository ? `${repository} Commits` : Utils.getPageTitle();
+  metadata.title = title;
+  if (repository) metadata.repository = repository;
+
+  const parts: string[] = [`# ${title}\n`];
+  appendRenderedCommitsList(parts);
+  if (parts.length === 1) {
+    const main = document.querySelector('main, [role="main"]');
+    if (main) parts.push(Markdown.elementToMarkdown(Utils.removeNoise(main, Utils.NOISE_SELECTORS)));
+  }
+  return Markdown.buildPageMarkdown(metadata, parts.join('\n'));
+}
+
+function extractPRCommits(metadata: Record<string, string>): string {
+  metadata.type = 'Pull Request Commits';
+  const title = document.querySelector('.js-issue-title, .gh-header-title .markdown-title, [data-testid="issue-title"]')
+    ?.textContent?.trim() || Utils.getPageTitle();
+  const number = `#${window.location.pathname.split('/')[4] || ''}`;
+  metadata.title = title;
+  const parts: string[] = [`# Pull Request ${number} Commits: ${title}\n`];
+  appendRenderedCommitsList(parts);
+  if (parts.length === 1) {
+    const main = document.querySelector('main, [role="main"]');
+    if (main) parts.push(Markdown.elementToMarkdown(Utils.removeNoise(main, Utils.NOISE_SELECTORS)));
+  }
+  return Markdown.buildPageMarkdown(metadata, parts.join('\n'));
+}
+
+function extractPRChecks(metadata: Record<string, string>): string {
+  metadata.type = 'Pull Request Checks';
+  const title = document.querySelector('.js-issue-title, .gh-header-title .markdown-title, [data-testid="issue-title"]')
+    ?.textContent?.trim() || Utils.getPageTitle();
+  const number = `#${window.location.pathname.split('/')[4] || ''}`;
+  metadata.title = title;
+  const parts: string[] = [`# Pull Request ${number} Checks: ${title}\n`];
+
+  const checks = Array.from(document.querySelectorAll('.checks-list-item, .ActionListItem-label, [data-testid="check-run-item"]'));
+  if (checks.length > 0) {
+    parts.push('## Checks\n');
+    for (const check of checks) {
+      const text = check.textContent?.replace(/\s+/g, ' ').trim();
+      if (text) parts.push(`- ${text}`);
+    }
+    parts.push('');
+  }
+
+  const logLines = Array.from(document.querySelectorAll('.CheckStep-line-content'))
+    .map((el) => el.textContent || '')
+    .filter((line) => line.length > 0);
+  if (logLines.length > 0) {
+    parts.push('## Logs\n');
+    parts.push(fenceContent(logLines.join('\n'), 'text'));
+  } else if (parts.length === 1) {
+    const main = document.querySelector('main, [role="main"]');
+    if (main) parts.push(Markdown.elementToMarkdown(Utils.removeNoise(main, Utils.NOISE_SELECTORS)));
+  }
+
+  return Markdown.buildPageMarkdown(metadata, parts.join('\n'));
+}
+
+function appendRenderedCommitsList(parts: string[]): void {
+  const rows = Array.from(document.querySelectorAll(
+    '[data-testid="commit-row-item"], li.js-commits-list-item, .TimelineItem--condensed .js-details-container',
+  ));
+  if (rows.length === 0) return;
+
+  const commits: Array<{ sha: string; message: string; author: string; date: string }> = [];
+  for (const row of rows) {
+    const msgEl = row.querySelector('[data-testid="list-view-item-title-container"] a, a.markdown-title, .js-navigation-open, p a');
+    const message = msgEl?.textContent?.replace(/\s+/g, ' ').trim() || '';
+    const shaEl = row.querySelector('a[href*="/commit/"] code, [data-testid="commit-row-browse-repo"], a.text-mono, code');
+    const sha = shaEl?.textContent?.trim().match(/[0-9a-f]{7,64}/i)?.[0]
+      || row.querySelector<HTMLAnchorElement>('a[href*="/commit/"]')?.getAttribute('href')?.match(/\/commit\/([0-9a-f]{7,64})/i)?.[1]?.slice(0, 7)
+      || '';
+    const author = discussionAuthor(row);
+    const date = row.querySelector('relative-time')?.getAttribute('datetime') || '';
+    if (message || sha) commits.push({ sha, message, author, date });
+  }
+  if (commits.length === 0) return;
+
+  parts.push('## Commits\n');
+  parts.push('| SHA | Message | Author | Date |', '| --- | --- | --- | --- |');
+  for (const commit of commits) {
+    parts.push(`| ${commit.sha ? `\`${commit.sha}\`` : ''} | ${escapeTableCell(commit.message)} | ${escapeTableCell(commit.author)} | ${escapeTableCell(commit.date)} |`);
+  }
+  parts.push('');
 }
 
 function extractIssueOrPR(metadata: Record<string, string>, isPR: boolean): string {
@@ -360,6 +819,12 @@ function extractIssueOrPR(metadata: Record<string, string>, isPR: boolean): stri
   }
 
   // Comments
+  appendDiscussionComments(parts, bodyEl);
+
+  return Markdown.buildPageMarkdown(metadata, parts.join('\n'));
+}
+
+function appendDiscussionComments(parts: string[], bodyEl: Element | null): void {
   const candidates = Array.from(document.querySelectorAll(
     '.react-issue-comment [data-testid="markdown-body"], .timeline-comment .comment-body, .js-timeline-item .comment-body',
   ));
@@ -382,14 +847,17 @@ function extractIssueOrPR(metadata: Record<string, string>, isPR: boolean): stri
       parts.push('');
     });
   }
-
-  return Markdown.buildPageMarkdown(metadata, parts.join('\n'));
 }
 
 function discussionAuthor(container: ParentNode | null | undefined): string {
   const author = container?.querySelector('.author, [data-testid="issue-body-header-author"], [data-testid="avatar-link"], a.Link--secondary');
-  return author?.getAttribute('href')?.match(/^(?:https:\/\/(?:www\.)?github\.com)?\/([\w-]+)\/?$/)?.[1]
-    || author?.textContent?.trim() || '';
+  const text = author?.textContent?.trim() || '';
+  if (/\[bot\]$/i.test(text)) return text;
+  const href = decodePathname(author?.getAttribute('href') || '');
+  const botApp = href.match(/^(?:https?:\/\/[^/]+)?\/apps\/([\w.-]+)\/?$/i)?.[1];
+  if (botApp) return `${botApp}[bot]`;
+  return href.match(/^(?:https?:\/\/[^/]+)?\/([\w.-]+(?:\[bot\])?)\/?$/i)?.[1]
+    || text;
 }
 
 async function extractRepo(metadata: Record<string, string>): Promise<string> {
@@ -415,14 +883,6 @@ async function extractRepo(metadata: Record<string, string>): Promise<string> {
     parts.push(`> ${desc}\n`);
     metadata.description = desc;
   }
-
-  // Stats
-  const statsEls = document.querySelectorAll('.BorderGrid-cell .h4, .about-margin .Counter, a[href$="/stargazers"], a[href$="/forks"]');
-  const stats: string[] = [];
-  statsEls.forEach((el) => {
-    const text = el.textContent?.trim();
-    if (text) stats.push(text);
-  });
 
   // Topics
   const topicEls = document.querySelectorAll('.topic-tag');
@@ -475,12 +935,13 @@ async function extractDirectoryPage(
   addRepositoryMetadata(metadata, payload, treeRoute);
 
   const parts = [`# ${repository}/${directory}`, ''];
-  const items = await resolveDirectoryItems(identity, treeRoute, directory);
+  const items = await resolveDirectoryItems(identity, treeRoute, directory === '/' ? '' : directory);
   appendDirectoryListing(parts, metadata, items, identity, treeRoute.refInfo?.name, directory);
 
   const readmeEl = document.querySelector('#readme .markdown-body, article.markdown-body');
   if (readmeEl) {
-    parts.push('', '## README', '', Markdown.elementToMarkdown(readmeEl));
+    const cleaned = Utils.removeNoise(readmeEl, ['.anchor', '.octicon']);
+    parts.push('', '## README', '', Markdown.elementToMarkdown(cleaned));
   }
 
   return Markdown.buildPageMarkdown(metadata, parts.join('\n'));
@@ -505,14 +966,16 @@ async function extractBlobPage(
 
   let content = Array.isArray(rawLines) ? rawLines.join('\n') : '';
   let source = Array.isArray(rawLines) ? 'GitHub page data' : '';
+  let fetchedFullContent = false;
   if (!Array.isArray(rawLines) || blob?.truncated || (expectedLines > 0 && rawLines.length < expectedLines)) {
-    const fetched = await fetchFirstRawFile(candidates);
+    const fetched = await fetchFirstRawFile(candidates, blob?.rawBlobUrl);
     if (fetched) {
       content = fetched.content;
       source = fetched.source;
       path = fetched.candidate.path;
       ref = fetched.candidate.ref;
       fileName = path.split('/').pop() || fileName;
+      fetchedFullContent = true;
     }
   }
 
@@ -536,7 +999,7 @@ async function extractBlobPage(
   if (refInfo?.currentOid) metadata.commit = refInfo.currentOid;
   if (blob?.language) metadata.language = blob.language;
   if (blob?.headerInfo?.blobSize) metadata.size = blob.headerInfo.blobSize;
-  metadata.lines = String(countLines(content, rawLines));
+  metadata.lines = String(countLines(content, fetchedFullContent ? undefined : rawLines));
   metadata.bytes = String(new TextEncoder().encode(content).length);
   metadata.content_source = source;
   if (blob?.rawBlobUrl || blob?.displayUrl) metadata.raw_url = blob.rawBlobUrl || blob.displayUrl || '';
@@ -560,15 +1023,14 @@ function extractLegacyCodePage(metadata: Record<string, string>): string {
   const codeEl = document.querySelector('.blob-code-content, .highlight, .Box-body pre');
   if (codeEl) {
     const fileName = document.querySelector('.final-path, .breadcrumb .final-path')?.textContent?.trim() || 'file';
-    const ext = fileName.split('.').pop() || '';
-    parts.push(`\`\`\`${ext}\n${codeEl.textContent?.trim()}\n\`\`\`\n`);
+    parts.push(`${fenceContent(codeEl.textContent?.trim() || '', languageFence(fileName))}\n`);
   }
 
   // README on tree pages
   const readmeEl = document.querySelector('#readme .markdown-body');
   if (readmeEl) {
     parts.push('## README\n');
-    parts.push(Markdown.elementToMarkdown(readmeEl));
+    parts.push(Markdown.elementToMarkdown(Utils.removeNoise(readmeEl, ['.anchor', '.octicon'])));
   }
 
   return Markdown.buildPageMarkdown(metadata, parts.join('\n'));
@@ -596,23 +1058,27 @@ function getEmbeddedPayload(): GitHubEmbeddedPayload | null {
 }
 
 function payloadMatchesCurrentRoute(payload: GitHubEmbeddedPayload): boolean {
-  const pathname = decodePathname(window.location.pathname);
+  const pathname = decodePathname(window.location.pathname).replace(/\/+$/, '').toLowerCase();
   const repo = payload.codeViewLayoutRoute?.repo;
   if (!repo?.ownerLogin || !repo.name) return false;
 
-  const prefix = `/${repo.ownerLogin}/${repo.name}`;
-  if (pathname === prefix || pathname === `${prefix}/`) return Boolean(payload.codeViewRepoRoute);
+  const prefix = `/${repo.ownerLogin}/${repo.name}`.toLowerCase();
+  if (pathname === prefix) return Boolean(payload.codeViewRepoRoute);
 
   const blobRoute = payload.codeViewBlobLayoutRoute;
   const blobRef = blobRoute?.refInfo?.name;
   if (blobRoute?.path && blobRef) {
-    if (pathname === `${prefix}/blob/${blobRef}/${blobRoute.path}`) return true;
+    if (pathname === `${prefix}/blob/${blobRef}/${blobRoute.path}`.toLowerCase()) return true;
   }
 
   const treeRoute = payload.codeViewTreeRoute;
   const treeRef = treeRoute?.refInfo?.name;
-  if (treeRoute?.path && treeRef) {
-    if (pathname === `${prefix}/tree/${treeRef}/${treeRoute.path}`) return true;
+  if (treeRoute && treeRef) {
+    const treePath = (treeRoute.path || '').replace(/^\/+|\/+$/g, '');
+    const expected = treePath
+      ? `${prefix}/tree/${treeRef}/${treePath}`.toLowerCase()
+      : `${prefix}/tree/${treeRef}`.toLowerCase();
+    if (pathname === expected) return true;
   }
 
   return false;
@@ -686,7 +1152,7 @@ async function fetchDirectoryItems(
   if (!identity) return [];
   const apiUrl = githubContentsApiUrl(identity, path, ref);
   try {
-    const response = await fetch(apiUrl, {
+    const response = await Utils.fetchWithTimeout(apiUrl, {
       credentials: 'omit',
       headers: { Accept: 'application/vnd.github+json' },
     });
@@ -724,7 +1190,7 @@ async function fetchRawFile(
 ): Promise<string | null> {
   if (!identity || !path) return null;
   try {
-    const response = await fetch(githubContentsApiUrl(identity, path, ref), {
+    const response = await Utils.fetchWithTimeout(githubContentsApiUrl(identity, path, ref), {
       credentials: 'omit',
       headers: { Accept: 'application/vnd.github.raw+json' },
     });
@@ -737,10 +1203,21 @@ async function fetchRawFile(
 
 async function fetchFirstRawFile(
   candidates: GitHubBlobCandidate[],
+  embeddedRawUrl?: string,
 ): Promise<{ candidate: GitHubBlobCandidate; content: string; source: string } | null> {
+  if (embeddedRawUrl && candidates[0]) {
+    const content = await fetchRawUrl(new URL(embeddedRawUrl, window.location.origin).href);
+    if (content !== null) {
+      return { candidate: candidates[0], content, source: 'GitHub authenticated raw file' };
+    }
+  }
   for (const candidate of candidates) {
-    const content = await fetchRawDownload(candidate);
+    const content = await fetchRawUrl(githubRawUrl(candidate));
     if (content !== null) return { candidate, content, source: 'GitHub authenticated raw file' };
+    if (!/^[0-9a-f]{7,64}$/i.test(candidate.ref)) {
+      const directContent = await fetchRawUrl(githubDirectRawUrl(candidate));
+      if (directContent !== null) return { candidate, content: directContent, source: 'GitHub authenticated raw file' };
+    }
   }
   for (const candidate of candidates) {
     const content = await fetchRawFile(candidate.identity, candidate.path, candidate.ref);
@@ -749,9 +1226,9 @@ async function fetchFirstRawFile(
   return null;
 }
 
-async function fetchRawDownload(candidate: GitHubBlobCandidate): Promise<string | null> {
+async function fetchRawUrl(url: string): Promise<string | null> {
   try {
-    const response = await fetch(githubRawUrl(candidate), {
+    const response = await Utils.fetchWithTimeout(url, {
       credentials: 'same-origin',
       headers: { Accept: 'text/plain' },
     });
@@ -765,7 +1242,14 @@ async function fetchRawDownload(candidate: GitHubBlobCandidate): Promise<string 
 function githubRawUrl(candidate: GitHubBlobCandidate): string {
   const ref = candidate.ref.split('/').map(encodeURIComponent).join('/');
   const path = candidate.path.split('/').map(encodeURIComponent).join('/');
-  return `https://github.com/${encodeURIComponent(candidate.identity.owner)}/${encodeURIComponent(candidate.identity.repo)}/raw/refs/heads/${ref}/${path}`;
+  const refPrefix = /^[0-9a-f]{7,64}$/i.test(candidate.ref) ? `/raw/${ref}` : `/raw/refs/heads/${ref}`;
+  return `${window.location.origin}/${encodeURIComponent(candidate.identity.owner)}/${encodeURIComponent(candidate.identity.repo)}${refPrefix}/${path}`;
+}
+
+function githubDirectRawUrl(candidate: GitHubBlobCandidate): string {
+  const ref = candidate.ref.split('/').map(encodeURIComponent).join('/');
+  const path = candidate.path.split('/').map(encodeURIComponent).join('/');
+  return `${window.location.origin}/${encodeURIComponent(candidate.identity.owner)}/${encodeURIComponent(candidate.identity.repo)}/raw/${ref}/${path}`;
 }
 
 function githubContentsApiUrl(
@@ -776,8 +1260,8 @@ function githubContentsApiUrl(
   const encodedPath = path.split('/').filter(Boolean).map(encodeURIComponent).join('/');
   const suffix = encodedPath ? `/contents/${encodedPath}` : '/contents';
   const url = new URL(
-    `/repos/${encodeURIComponent(identity.owner)}/${encodeURIComponent(identity.repo)}${suffix}`,
-    'https://api.github.com',
+    `repos/${encodeURIComponent(identity.owner)}/${encodeURIComponent(identity.repo)}${suffix}`,
+    `${getGitHubApiBase().replace(/\/$/, '')}/`,
   );
   if (ref) url.searchParams.set('ref', ref);
   return url.href;
@@ -821,7 +1305,7 @@ function githubItemUrl(
 ): string {
   const kind = item.contentType === 'directory' ? 'tree' : 'blob';
   const encodedPath = item.path.split('/').map(encodeURIComponent).join('/');
-  return `https://github.com/${encodeURIComponent(identity.owner)}/${encodeURIComponent(identity.repo)}/${kind}/${encodeURIComponent(ref)}/${encodedPath}`;
+  return `${window.location.origin}/${encodeURIComponent(identity.owner)}/${encodeURIComponent(identity.repo)}/${kind}/${encodeURIComponent(ref)}/${encodedPath}`;
 }
 
 function countLines(content: string, rawLines?: string[]): number {
@@ -849,7 +1333,8 @@ function languageFence(fileName: string): string {
 }
 
 function fenceContent(content: string, language: string): string {
-  const longestRun = Math.max(0, ...[...content.matchAll(/`+/g)].map((match) => match[0].length));
+  const runs = [...content.matchAll(/`+/g)].map((match) => match[0].length);
+  const longestRun = Math.max(0, Utils.safeMax(runs));
   const fence = '`'.repeat(Math.max(3, longestRun + 1));
   return `${fence}${language}\n${content}${content.endsWith('\n') ? '' : '\n'}${fence}`;
 }

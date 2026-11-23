@@ -7,40 +7,23 @@ import { register } from '../core/registry';
 import * as Markdown from '../core/markdown';
 import * as Utils from '../core/utils';
 
+const GOOGLE_TLDS = [
+  'com', 'co.uk', 'ca', 'com.au', 'de', 'fr', 'com.br', 'es', 'it', 'nl',
+  'co.in', 'co.jp', 'com.mx', 'com.tr', 'co.za', 'pl', 'se', 'ch', 'at',
+  'be', 'pt', 'com.ar', 'co.kr', 'com.tw', 'com.hk', 'com.sg', 'co.nz',
+  'ie', 'dk', 'no', 'fi', 'cz', 'co.id', 'ae', 'com.ua', 'ro', 'gr',
+  'hu', 'cl', 'com.co', 'com.pe', 'com.ph', 'com.my', 'co.th', 'com.vn',
+  'co.il', 'com.sa', 'com.eg', 'com.ng',
+];
+
+const GOOGLE_MATCHES = GOOGLE_TLDS.flatMap((tld) => [
+  `*://google.${tld}/search*`,
+  `*://www.google.${tld}/search*`,
+]);
+
 register({
   name: 'Google Search',
-  matches: [
-    '*://google.com/search*',
-    '*://www.google.com/search*',
-    '*://google.co.uk/search*',
-    '*://www.google.co.uk/search*',
-    '*://google.ca/search*',
-    '*://www.google.ca/search*',
-    '*://google.com.au/search*',
-    '*://www.google.com.au/search*',
-    '*://google.de/search*',
-    '*://www.google.de/search*',
-    '*://google.fr/search*',
-    '*://www.google.fr/search*',
-    '*://google.com.br/search*',
-    '*://www.google.com.br/search*',
-    '*://google.es/search*',
-    '*://www.google.es/search*',
-    '*://google.it/search*',
-    '*://www.google.it/search*',
-    '*://google.nl/search*',
-    '*://www.google.nl/search*',
-    '*://google.co.in/search*',
-    '*://www.google.co.in/search*',
-    '*://google.co.jp/search*',
-    '*://www.google.co.jp/search*',
-    '*://google.com.mx/search*',
-    '*://www.google.com.mx/search*',
-    '*://google.com.tr/search*',
-    '*://www.google.com.tr/search*',
-    '*://google.co.za/search*',
-    '*://www.google.co.za/search*',
-  ],
+  matches: GOOGLE_MATCHES,
   pathnameRegex: /^\/search\/?$/,
   buttonPlacement: 'anchor',
   anchor: {
@@ -65,11 +48,20 @@ register({
     const parts: string[] = ['# Google Search\n'];
     if (query) parts.push(`**Query:** ${escapeMarkdownText(query)}\n`);
 
+    // AI Overview
+    const aiOverviewText = firstMatchingText(['.M8OgIe', '[data-mcpr]']);
+    if (aiOverviewText) {
+      parts.push('## AI Overview\n', `${aiOverviewText}\n`);
+    }
+
     // Featured snippet
-    appendTextSection(parts, 'Featured Snippet', [
+    const featuredText = firstMatchingText([
       '.IZ6rdc', '.hgKElc', '[data-attrid="wa:/description"]',
       '[data-attrid="wa:/title"] + [data-attrid="wa:/description"]',
     ]);
+    if (featuredText && featuredText !== aiOverviewText) {
+      parts.push('## Featured Snippet\n', `${featuredText}\n`);
+    }
 
     // Knowledge panel
     const knowledge = document.querySelector(
@@ -86,52 +78,73 @@ register({
       }
     }
 
-    // Results
-    const results = document.querySelectorAll('.MjjYud, .g:not(.g-blk), .tF2Cxc');
+    // Results: prefer granular result containers (.tF2Cxc, .g:not(.g-blk)) before outer .MjjYud wrappers.
+    const candidates: Element[] = [];
+    const seenContainers = new Set<Element>();
+    const addCandidate = (el: Element) => {
+      if (seenContainers.has(el)) return;
+      if (el.closest('#tads, #tadsb, [data-text-ad], .uEierd')) return;
+      seenContainers.add(el);
+      candidates.push(el);
+    };
+    document.querySelectorAll('.tF2Cxc').forEach(addCandidate);
+    document.querySelectorAll('.g:not(.g-blk)').forEach((el) => {
+      if (!el.querySelector('.tF2Cxc')) addCandidate(el);
+    });
+    document.querySelectorAll('.MjjYud').forEach((el) => {
+      if (!el.querySelector('.tF2Cxc, .g:not(.g-blk)')) addCandidate(el);
+    });
+
     const seen = new Set<string>();
     let resultCount = 0;
-    if (results.length > 0) {
-      parts.push('## Search Results\n');
-      results.forEach((result) => {
-        const title = cleanText(result.querySelector('h3')?.textContent || '');
-        const link = firstSafeLink(result.querySelectorAll<HTMLAnchorElement>('a[href]'));
-        const snippet = cleanText(result.querySelector(
-          '.VwiC3b, .yXK7lf, .st, .IsZvec, [data-sncf]',
-        )?.textContent || '');
-        if (!title || !link) return;
-        const key = `${title}\n${link}`;
-        if (seen.has(key)) return;
-        seen.add(key);
-        resultCount += 1;
-        parts.push(`### ${resultCount}. ${escapeMarkdownText(title)}\n`);
-        parts.push(`**URL:** ${link}\n`);
-        if (snippet) parts.push(`${snippet}\n`);
-      });
+    for (const result of candidates) {
+      const title = cleanText(result.querySelector('h3')?.textContent || '');
+      const link = firstSafeLink(result.querySelectorAll<HTMLAnchorElement>('a[href]'));
+      const snippet = cleanText(result.querySelector(
+        '.VwiC3b, .yXK7lf, .st, .IsZvec, [data-sncf]',
+      )?.textContent || '');
+      if (!title || !link) continue;
+      const key = `${title}\n${link}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      if (resultCount === 0) parts.push('## Search Results\n');
+      resultCount += 1;
+      parts.push(`### ${resultCount}. ${escapeMarkdownText(title)}\n`);
+      parts.push(`**URL:** ${link}\n`);
+      if (snippet) parts.push(`${snippet}\n`);
     }
 
     // People also ask
     const paaItems = document.querySelectorAll('.related-question-pair, [data-q]');
-    if (paaItems.length > 0) {
+    const paaSeen = new Set<string>();
+    const paaQuestions: string[] = [];
+    paaItems.forEach((item) => {
+      const q = item.getAttribute('data-q') ||
+        item.querySelector('[data-q]')?.getAttribute('data-q') ||
+        item.querySelector('.dnXCYb')?.textContent?.trim() ||
+        item.textContent?.trim();
+      const question = cleanText(q || '');
+      if (question && !paaSeen.has(question)) {
+        paaSeen.add(question);
+        paaQuestions.push(question);
+      }
+    });
+    if (paaQuestions.length > 0) {
       parts.push('## People Also Ask\n');
-      let count = 0;
-      paaItems.forEach((item) => {
-        const q = item.querySelector('[data-q]')?.getAttribute('data-q') ||
-          item.querySelector('.dnXCYb')?.textContent?.trim() ||
-          item.textContent?.trim();
-        const question = cleanText(q || '');
-        if (question) {
-          parts.push(`- ${escapeMarkdownText(question)}`);
-          count += 1;
-        }
-      });
+      paaQuestions.forEach((question) => parts.push(`- ${escapeMarkdownText(question)}`));
       parts.push('');
     }
 
+    const relatedSeen = new Set<string>();
     const related = Array.from(document.querySelectorAll<HTMLAnchorElement>(
       '.s75CSd a[href], .y6Uyqe a[href], [data-testid="related-searches"] a[href]',
     ))
       .map((link) => cleanText(link.textContent || ''))
-      .filter(Boolean);
+      .filter((item) => {
+        if (!item || relatedSeen.has(item)) return false;
+        relatedSeen.add(item);
+        return true;
+      });
     if (related.length) {
       parts.push('## Related Searches\n');
       related.forEach((item) => parts.push(`- ${escapeMarkdownText(item)}`));
@@ -142,16 +155,20 @@ register({
   },
 });
 
-function appendTextSection(parts: string[], heading: string, selectors: string[]): void {
-  const element = document.querySelector(selectors.join(', '));
-  const text = cleanText(element?.textContent || '');
-  if (!text) return;
-  parts.push(`## ${heading}\n`, `${text}\n`);
+function firstMatchingText(selectors: string[]): string {
+  for (const selector of selectors) {
+    const element = document.querySelector(selector);
+    const text = cleanText(element?.textContent || '');
+    if (text) return text;
+  }
+  return '';
 }
 
 function firstSafeLink(links: NodeListOf<HTMLAnchorElement>): string {
   for (const link of links) {
-    const href = safeHttpUrl(link.href || link.getAttribute('href') || '');
+    const raw = (link.getAttribute('href') || '').trim();
+    if (!raw || raw.startsWith('#')) continue;
+    const href = safeHttpUrl(link.href || raw);
     if (href) return href;
   }
   return '';
@@ -161,12 +178,19 @@ function safeHttpUrl(value: string): string {
   try {
     const url = new URL(value, document.baseURI);
     if (!/^https?:$/.test(url.protocol)) return '';
-    if (/^(?:www\.)?google\.[^/]+$/i.test(url.hostname) && url.pathname === '/url') {
-      const destination = url.searchParams.get('q') || url.searchParams.get('url');
-      if (destination) {
-        const parsed = new URL(destination);
-        if (/^https?:$/.test(parsed.protocol)) return parsed.href;
+    const isGoogleHost = /^(?:www\.)?google\.[^/]+$/i.test(url.hostname)
+      || /(?:^|\.)googleadservices\.com$/i.test(url.hostname);
+    if (isGoogleHost) {
+      if (url.pathname.startsWith('/aclk') || url.pathname.startsWith('/pagead')) return '';
+      if (url.pathname === '/url') {
+        const destination = url.searchParams.get('q') || url.searchParams.get('url');
+        if (destination) {
+          const parsed = new URL(destination);
+          if (/^https?:$/.test(parsed.protocol)) return parsed.href;
+        }
+        return '';
       }
+      if (url.pathname === '/search' || url.pathname === '/search/') return '';
     }
     return url.href;
   } catch {

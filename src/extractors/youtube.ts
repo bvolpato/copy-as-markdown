@@ -1,6 +1,6 @@
 /**
- * YouTube extractor for watch, Shorts, live, and embed routes.
- * Uses rendered page metadata first, then JSON-LD and Open Graph fallbacks.
+ * YouTube extractor for watch, Shorts, live, clip, and embed routes.
+ * Uses rendered page metadata first, then ytInitialPlayerResponse, JSON-LD, and Open Graph fallbacks.
  */
 
 import { register } from '../core/registry';
@@ -14,16 +14,22 @@ register({
     '*://www.youtube.com/shorts/*',
     '*://www.youtube.com/live/*',
     '*://www.youtube.com/embed/*',
+    '*://www.youtube.com/clip/*',
     '*://youtube.com/watch*',
     '*://youtube.com/shorts/*',
     '*://youtube.com/live/*',
     '*://youtube.com/embed/*',
+    '*://youtube.com/clip/*',
     '*://m.youtube.com/watch*',
     '*://m.youtube.com/shorts/*',
     '*://m.youtube.com/live/*',
     '*://m.youtube.com/embed/*',
+    '*://m.youtube.com/clip/*',
+    '*://music.youtube.com/watch*',
+    '*://www.youtube-nocookie.com/embed/*',
+    '*://youtu.be/*',
   ],
-  pathnameRegex: /^\/(?:watch|shorts|live|embed)(?:\/|$)/,
+  pathnameRegex: /^\/(?:(?:watch|shorts|live|embed|clip)(?:\/|$)|(?!(?:watch|shorts|live|embed|clip)[^/])[A-Za-z0-9_-]+\/?$)/,
   buttonPlacement: 'anchor',
   anchor: {
     selector: [
@@ -43,47 +49,49 @@ register({
     const url = Utils.getCanonicalUrl();
     const route = routeKind(window.location.pathname);
     const ld = firstJsonLd();
+    const playerVideo = readPlayerVideoDetails();
+    const scope: ParentNode = (route === 'short'
+      ? document.querySelector('ytd-reel-video-renderer[is-active]')
+      : null) || document;
 
     const title = firstText([
       'h1.ytd-watch-metadata yt-formatted-string',
       'h1.ytd-video-primary-info-renderer',
+      'h2.ytShortsVideoTitleViewModelShortsVideoTitle',
       'h1.title',
       'h1',
-    ]) || stringValue(ld?.name) || Utils.getMeta('title') || Utils.getPageTitle();
+    ], false, 'content', scope) || stringValue(playerVideo?.title) || stringValue(ld?.name) || Utils.getMeta('title') || Utils.getPageTitle();
 
-    const channelEl = document.querySelector<HTMLAnchorElement>(
-      'ytd-channel-name yt-formatted-string a, #channel-name a, #owner a, a.ytd-channel-name',
+    const channelEl = scope.querySelector<HTMLAnchorElement>(
+      'ytd-channel-name yt-formatted-string a, #channel-name a, #owner a, a.ytd-channel-name, ytd-reel-player-header-renderer a[href^="/@"]',
     );
     const channel = channelEl?.textContent?.trim() ||
+      stringValue(playerVideo?.author) ||
       stringValue(asRecord(ld?.author)?.name) ||
       stringValue(ld?.author);
     const channelUrl = safeHttpUrl(channelEl?.href || stringValue(asRecord(ld?.author)?.url));
 
     const views = firstText([
+      '#view-count',
       'ytd-watch-info-text .bold',
       '.view-count',
       'ytd-video-view-count-renderer',
-    ]) || stringValue(ld?.interactionCount) || interactionCount(ld);
+    ], false, 'content', scope) || stringValue(playerVideo?.viewCount) || stringValue(ld?.interactionCount) || interactionCount(ld);
     const date = firstText([
+      '#date-text',
+      'meta[itemprop="datePublished"]',
+      'meta[itemprop="uploadDate"]',
+      'time[datetime]',
       'ytd-watch-info-text span:nth-child(3)',
       'ytd-watch-info-text yt-formatted-string',
-      'meta[itemprop="datePublished"]',
-      'time[datetime]',
-    ], true) || stringValue(ld?.datePublished) || Utils.getMeta('datePublished');
+    ], true, 'content', scope) || stringValue(ld?.datePublished) || Utils.getMeta('datePublished');
     const duration = firstText([
       'meta[itemprop="duration"]',
       '.ytp-time-duration',
       'ytd-thumbnail-overlay-time-status-renderer span',
-    ], true) || stringValue(ld?.duration);
-    const likes = firstText([
-      'ytd-menu-renderer like-button-view-model button',
-      '#top-level-buttons-computed ytd-toggle-button-renderer:first-child',
-    ], false, 'aria-label').match(/[\d,.]+(?:\s*[KMB])?/i)?.[0] || '';
-    const description = firstText([
-      'ytd-text-inline-expander > yt-attributed-string',
-      '#description-inline-expander',
-      '#description',
-    ]);
+    ], true, 'content', scope) || stringValue(ld?.duration);
+    const likes = extractLikes(scope);
+    const description = extractDescription(scope, playerVideo);
     const thumbnail = Utils.getMeta('image') || stringValue(ld?.thumbnailUrl);
 
     const metadata: Record<string, string> = {
@@ -123,19 +131,16 @@ register({
         const author = comment.querySelector('#author-text')?.textContent?.trim() || 'Anonymous';
         const body = comment.querySelector('#content-text')?.textContent?.trim() || '';
         const score = comment.querySelector('#vote-count-middle')?.textContent?.trim() || '';
-        if (body) parts.push(`**${author}**${score ? ` (${score} likes)` : ''}:`, `> ${body}`, '');
+        if (body) {
+          parts.push(`**${author}**${score ? ` (${score} likes)` : ''}:`);
+          parts.push(...body.split(/\r?\n/).map((line) => `> ${line}`), '');
+        }
       });
     }
 
-    const transcript = Array.from(document.querySelectorAll('ytd-transcript-segment-renderer'));
+    const transcript = extractTranscript();
     if (transcript.length) {
-      parts.push('## Transcript', '');
-      transcript.forEach((segment) => {
-        const time = segment.querySelector('.segment-timestamp')?.textContent?.trim() || '';
-        const text = segment.querySelector('.segment-text')?.textContent?.trim() || '';
-        if (text) parts.push(time ? `[${time}] ${text}` : text);
-      });
-      parts.push('');
+      parts.push('## Transcript', '', ...transcript, '');
     }
 
     return Markdown.buildPageMarkdown(metadata, parts.join('\n'));
@@ -148,19 +153,102 @@ function routeKind(pathname: string): string {
   if (pathname.startsWith('/shorts/')) return 'short';
   if (pathname.startsWith('/live/')) return 'live';
   if (pathname.startsWith('/embed/')) return 'embed';
+  if (pathname.startsWith('/clip/')) return 'clip';
   return 'watch';
+}
+
+function readPlayerVideoDetails(): JsonLd | null {
+  try {
+    const win = window as unknown as { ytInitialPlayerResponse?: unknown };
+    const response = asRecord(win.ytInitialPlayerResponse);
+    return asRecord(response?.videoDetails);
+  } catch {
+    return null;
+  }
+}
+
+function extractLikes(scope: ParentNode): string {
+  const selectors = [
+    'like-button-view-model button',
+    'segmented-like-dislike-button-view-model button',
+    'ytd-menu-renderer like-button-view-model button',
+    '#top-level-buttons-computed ytd-toggle-button-renderer:first-child button',
+    '#top-level-buttons-computed ytd-toggle-button-renderer:first-child',
+  ];
+  for (const selector of selectors) {
+    const el = scope.querySelector(selector);
+    if (!el) continue;
+    const aria = el.getAttribute('aria-label') || '';
+    const ariaMatch = aria.match(/along with\s+([\d,.]+(?:\s*[KMB])?)/i)
+      || aria.match(/([\d,.]+(?:\s*[KMB])?)\s*likes?/i)
+      || aria.match(/([\d,.]+(?:\s*[KMB])?)/i);
+    if (ariaMatch) return ariaMatch[1].trim();
+    const labelText = el.querySelector('.yt-spec-button-shape-next__button-text-content')?.textContent?.trim()
+      || el.textContent?.trim() || '';
+    const textMatch = labelText.match(/^[\d,.]+(?:\s*[KMB])?$/i);
+    if (textMatch) return textMatch[0].trim();
+  }
+  return '';
+}
+
+function extractDescription(scope: ParentNode, playerVideo: JsonLd | null): string {
+  const selectors = [
+    'ytd-text-inline-expander > yt-attributed-string',
+    '#description-inline-expander',
+    '#description',
+  ];
+  let domDescription = '';
+  for (const selector of selectors) {
+    const el = scope.querySelector(selector);
+    if (!el) continue;
+    const cleaned = Utils.removeNoise(el, [
+      'script', 'style', '#expand', '#collapse', 'tp-yt-paper-button', 'button',
+    ]);
+    const text = Markdown.elementToMarkdown(cleaned).trim();
+    if (text) {
+      domDescription = text;
+      break;
+    }
+  }
+  const playerDescription = stringValue(playerVideo?.shortDescription);
+  if (playerDescription && playerDescription.length > domDescription.length) {
+    return playerDescription;
+  }
+  return domDescription;
+}
+
+function extractTranscript(): string[] {
+  const lines: string[] = [];
+  const legacySegments = Array.from(document.querySelectorAll('ytd-transcript-segment-renderer'));
+  if (legacySegments.length) {
+    legacySegments.forEach((segment) => {
+      const time = segment.querySelector('.segment-timestamp')?.textContent?.trim() || '';
+      const text = segment.querySelector('.segment-text')?.textContent?.trim() || '';
+      if (text) lines.push(time ? `[${time}] ${text}` : text);
+    });
+    return lines;
+  }
+
+  const modernSegments = Array.from(document.querySelectorAll('transcript-segment-view-model'));
+  modernSegments.forEach((segment) => {
+    const time = segment.querySelector('.ytwTranscriptSegmentViewModelTimestamp, [class*="Timestamp"]')?.textContent?.trim() || '';
+    const text = segment.querySelector('.yt-core-attributed-string, yt-formatted-string, [class*="SegmentText"]')?.textContent?.trim() || '';
+    if (text) lines.push(time ? `[${time}] ${text}` : text);
+  });
+  return lines;
 }
 
 function firstText(
   selectors: string[],
   attributeMode = false,
   attribute = 'content',
+  scope: ParentNode = document,
 ): string {
   for (const selector of selectors) {
-    const element = document.querySelector(selector);
+    const element = scope.querySelector(selector) || (scope !== document ? document.querySelector(selector) : null);
     if (!element) continue;
     const value = attributeMode
-      ? element.getAttribute(attribute) || element.textContent || ''
+      ? element.getAttribute(attribute) || element.getAttribute('datetime') || element.textContent || ''
       : attribute !== 'content' && element.hasAttribute(attribute)
         ? element.getAttribute(attribute) || ''
         : element.textContent || '';

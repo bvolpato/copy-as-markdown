@@ -11,21 +11,23 @@ register({
   name: 'Yahoo Search',
   matches: [
     '*://search.yahoo.com/search*',
+    '*://*.search.yahoo.com/search*',
     '*://search.yahoo.com/yhs/search*',
+    '*://*.search.yahoo.com/yhs/search*',
+    '*://search.yahoo.co.jp/search*',
     '*://yahoo.com/search*',
     '*://www.yahoo.com/search*',
   ],
-  pathnameRegex: /^\/(?:search|yhs\/search)\/?$/,
+  pathnameRegex: /^\/(?:search|yhs\/search)(?:;[^/?#]*)?\/?$/,
   buttonPlacement: 'anchor',
   anchor: {
     selector: [
-      '#searchCenterMiddle',
-      '#web',
+      '#hd',
+      '#yucs-top-bar',
+      '#ysch',
       '#header',
-      '.searchCenterMiddle',
-      '[data-test-locator="search-input"]',
     ].join(', '),
-    position: 'after',
+    position: 'append',
     style: 'pill',
     css: { marginLeft: '8px' },
   },
@@ -61,24 +63,23 @@ register({
     );
     let resultCount = 0;
     const seen = new Set<string>();
-    if (results.length) {
-      parts.push('## Search Results\n');
-      results.forEach((result) => {
-        const title = cleanText(result.querySelector('h3 a, h3, [data-test-locator="result-title"]')?.textContent || '');
-        const link = firstSafeLink(result.querySelectorAll<HTMLAnchorElement>('h3 a[href], [data-test-locator="result-title"] a[href], a[href]'));
-        const snippet = cleanText(result.querySelector(
-          '.compText.aAbs, .aAbs, [data-test-locator="description"], .compSummary p, p',
-        )?.textContent || '');
-        if (!title || !link) return;
-        const key = `${title}\n${link}`;
-        if (seen.has(key)) return;
-        seen.add(key);
-        resultCount += 1;
-        parts.push(`### ${resultCount}. ${escapeMarkdownText(title)}\n`);
-        parts.push(`**URL:** ${link}\n`);
-        if (snippet) parts.push(`${snippet}\n`);
-      });
-    }
+    results.forEach((result) => {
+      if (result.matches('.dd.Ad, .ads') || result.closest('.dd.Ad, .ads')) return;
+      const title = cleanText(result.querySelector('h3 a, h3, [data-test-locator="result-title"]')?.textContent || '');
+      const link = firstSafeLink(result.querySelectorAll<HTMLAnchorElement>('h3 a[href], [data-test-locator="result-title"] a[href], a[href]'));
+      const snippet = cleanText(result.querySelector(
+        '.compText.aAbs, .aAbs, [data-test-locator="description"], .compSummary p, .compText p, .compText, p',
+      )?.textContent || '');
+      if (!title || !link) return;
+      const key = `${title}\n${link}`;
+      if (seen.has(key)) return;
+      seen.add(key);
+      if (resultCount === 0) parts.push('## Search Results\n');
+      resultCount += 1;
+      parts.push(`### ${resultCount}. ${escapeMarkdownText(title)}\n`);
+      parts.push(`**URL:** ${link}\n`);
+      if (snippet) parts.push(`${snippet}\n`);
+    });
 
     const related = Array.from(document.querySelectorAll<HTMLAnchorElement>(
       '.related-searches a[href], #brs a[href], [data-test-locator="related-search"] a[href]',
@@ -97,7 +98,9 @@ register({
 
 function firstSafeLink(links: NodeListOf<HTMLAnchorElement>): string {
   for (const link of links) {
-    const href = safeYahooUrl(link.href || link.getAttribute('href') || '');
+    const raw = (link.getAttribute('href') || '').trim();
+    if (!raw || raw.startsWith('#')) continue;
+    const href = safeYahooUrl(link.href || raw);
     if (href) return href;
   }
   return '';
@@ -107,6 +110,15 @@ function safeYahooUrl(value: string): string {
   try {
     const url = new URL(value, document.baseURI);
     if (!/^https?:$/.test(url.protocol)) return '';
+    const ruMatch = url.pathname.match(/\/RU=([^/]+)(?:\/|$)/i);
+    if (ruMatch) {
+      try {
+        const destination = new URL(decodeURIComponent(ruMatch[1]));
+        if (/^https?:$/.test(destination.protocol)) return destination.href;
+      } catch {
+        // Fall through to query parameter checks.
+      }
+    }
     for (const key of ['url', 'RU', 'u']) {
       const redirected = url.searchParams.get(key);
       if (!redirected) continue;
@@ -114,7 +126,16 @@ function safeYahooUrl(value: string): string {
         const destination = new URL(redirected);
         if (/^https?:$/.test(destination.protocol)) return destination.href;
       } catch {
-        // Keep Yahoo result URL when redirect target is malformed.
+        // Ignore malformed redirect parameter.
+      }
+    }
+    if (/(?:^|\.)yahoo\.(?:com|co\.jp)$/i.test(url.hostname)) {
+      if (
+        /^\/(?:search|yhs\/search)(?:;[^/?#]*)?\/?$/i.test(url.pathname)
+        || url.pathname.startsWith('/cbclk')
+        || url.hostname.startsWith('r.search.')
+      ) {
+        return '';
       }
     }
     return url.href;

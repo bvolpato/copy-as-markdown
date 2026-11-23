@@ -1,5 +1,5 @@
 /**
- * TikTok extractor for video/photo permalinks and the active feed item.
+ * TikTok extractor for video/photo permalinks, profiles, live, and the active feed item.
  */
 
 import { register } from '../core/registry';
@@ -39,8 +39,9 @@ register({
     '*://tiktok.com/*',
     '*://m.tiktok.com/*',
     '*://vm.tiktok.com/*',
+    '*://vt.tiktok.com/*',
   ],
-  pathnameRegex: /^\/(?:$|@[^/]+\/(?:video|photo)\/\d+\/?|embed\/v2\/\d+\/?|player\/v1\/\d+\/?|(?:foryou|following|discover|search|tag|music)(?:\/|$))/,
+  pathnameRegex: /^\/(?:$|@[^/]+(?:\/(?:(?:video|photo)\/\d+|live))?\/?|t\/[^/]+\/?|live(?:\/|$)|embed\/v2\/\d+\/?|player\/v1\/\d+\/?|(?:foryou|following|discover|search|tag|music)(?:\/|$)|(?!(?:login|signup|settings|messages|notifications|about|legal|privacy|terms|business|creators|upload|studio|feedback|safety|transparency|help|download|friends|activity|coin)(?:\/|$))[A-Za-z0-9_-]{3,24}\/?$)/,
   buttonPlacement: 'anchor',
   anchor: {
     selector: [
@@ -54,8 +55,11 @@ register({
 
   async extract() {
     const url = Utils.getCanonicalUrl();
-    const routeId = window.location.pathname.match(/\/(?:video|photo)\/(\d+)/)?.[1]
-      || window.location.pathname.match(/\/(?:embed\/v2|player\/v1)\/(\d+)/)?.[1] || '';
+    const pathname = window.location.pathname;
+    const routeId = pathname.match(/\/(?:video|photo)\/(\d+)/)?.[1]
+      || pathname.match(/\/(?:embed\/v2|player\/v1)\/(\d+)/)?.[1] || '';
+    const isProfile = /^\/@[^/]+\/?$/.test(pathname);
+    const isLive = /(?:^|\/)live(?:\/|$)/.test(pathname);
     const active = findActiveVideo(routeId);
     const domItem = extractDomItem(active, routeId);
     const embeddedItem = routeId ? findEmbeddedItem(routeId) : null;
@@ -64,12 +68,25 @@ register({
     const limitedComments = limitCollection(comments, COMMENT_LIMIT);
     const captions = limitCollection(extractCaptions(active || document), CAPTION_LIMIT);
 
-    const title = item.author ? `TikTok by @${item.author.replace(/^@/, '')}` : 'TikTok post';
+    const handle = item.author.replace(/^@/, '');
+    const title = handle
+      ? isProfile
+        ? `TikTok profile @${handle}`
+        : isLive
+          ? `TikTok Live by @${handle}`
+          : `TikTok by @${handle}`
+      : 'TikTok post';
     const metadata: Record<string, string | number | undefined> = {
       source: 'TikTok',
-      type: routeId ? (/\/photo\//.test(window.location.pathname) ? 'photo post' : 'video') : 'active feed item',
+      type: routeId
+        ? (/\/photo\//.test(pathname) ? 'photo post' : 'video')
+        : isProfile
+          ? 'profile'
+          : isLive
+            ? 'live'
+            : 'active feed item',
       title,
-      author: item.author ? `@${item.author.replace(/^@/, '')}` : '',
+      author: handle ? `@${handle}` : '',
       author_name: item.displayName,
       published_at: item.timestamp,
       likes: item.likes,
@@ -84,7 +101,9 @@ register({
       caption_languages: item.captionLanguages.join(', '),
       completeness: routeId
         ? 'post fields plus comments and captions currently loaded in page'
-        : 'active visible feed item only',
+        : isProfile
+          ? 'visible profile metadata'
+          : 'active visible feed item only',
     };
 
     const sources = [embeddedItem && 'TikTok embedded page data', active && 'visible TikTok DOM']
@@ -94,7 +113,7 @@ register({
 
     const parts: string[] = [`# ${title}`, ''];
     if (item.displayName) parts.push(`**Name:** ${item.displayName}`);
-    if (item.author) parts.push(`**Handle:** @${item.author.replace(/^@/, '')}`);
+    if (handle) parts.push(`**Handle:** @${handle}`);
     if (item.timestamp) parts.push(`**Published:** ${item.timestamp}`);
     parts.push('');
     if (item.body) parts.push(item.body, '');
@@ -150,7 +169,7 @@ function findActiveVideo(routeId: string): Element | null {
     );
     if (matching) return matching;
   }
-  return mostVisible(candidates) || document.querySelector('main') || document.body;
+  return mostVisible(candidates) || document.querySelector('main') || null;
 }
 
 function mostVisible(elements: Element[]): Element | null {
@@ -168,21 +187,24 @@ function mostVisible(elements: Element[]): Element | null {
 
 function extractDomItem(scope: Element | null, routeId: string): TikTokItem {
   const item = emptyItem(routeId);
+  const pathAuthor = window.location.pathname.match(/^\/@([^/]+)/)?.[1] || '';
   if (!scope) {
-    item.author = window.location.pathname.match(/^\/@([^/]+)/)?.[1] || '';
+    item.author = pathAuthor;
     item.body = clean(Utils.getMeta('description'));
     return item;
   }
   item.author = text(scope, [
     '[data-e2e="video-author-uniqueid"]', '[data-e2e="browse-username"]',
-    'a[href^="/@"] strong', 'a[href^="/@"]',
-  ]).replace(/^@/, '');
+    '[data-e2e="user-title"]', 'a[href^="/@"] strong', 'a[href^="/@"]',
+  ]).replace(/^@/, '') || pathAuthor;
   item.displayName = text(scope, [
-    '[data-e2e="video-author-nickname"]', '[data-e2e="browse-nickname"]', '[data-e2e="browser-nickname"]',
+    '[data-e2e="video-author-nickname"]', '[data-e2e="browse-nickname"]',
+    '[data-e2e="browser-nickname"]', '[data-e2e="user-subtitle"]',
   ]);
   item.body = text(scope, [
     '[data-e2e="browse-video-desc"]', '[data-e2e="video-desc"]',
     '[data-e2e="feed-video-desc"]', 'h1[data-e2e="browse-video-desc"]',
+    '[data-e2e="user-bio"]',
   ]) || clean(Utils.getMeta('description'));
   item.timestamp = attr(scope, ['time[datetime]'], 'datetime') || text(scope, ['time']);
   item.likes = text(scope, ['[data-e2e="like-count"]', '[data-e2e="browse-like-count"]']);
@@ -206,7 +228,7 @@ function findEmbeddedItem(routeId: string): TikTokItem | null {
     '#__UNIVERSAL_DATA_FOR_REHYDRATION__, #SIGI_STATE, script[type="application/ld+json"]',
   )) {
     const raw = script.textContent || '';
-    if (!raw || raw.length > 8_000_000) continue;
+    if (!raw || raw.length > 8_000_000 || !raw.includes(routeId)) continue;
     try { payloads.push(JSON.parse(raw)); } catch { /* malformed or non-JSON state */ }
   }
 
@@ -245,7 +267,9 @@ function mapEmbeddedItem(record: Record<string, unknown>, routeId: string): TikT
   const item = emptyItem(routeId);
   const author = isRecord(record.author) ? record.author : {};
   const stats = isRecord(record.stats) ? record.stats : {};
-  item.author = stringValue(author.uniqueId) || stringValue(record.authorName);
+  item.author = stringValue(author.uniqueId)
+    || (typeof record.author === 'string' ? stringValue(record.author) : '')
+    || stringValue(record.authorName);
   item.displayName = stringValue(author.nickname);
   item.body = stringValue(record.desc) || stringValue(record.description);
   item.timestamp = formatTimestamp(record.createTime || record.dateCreated || record.uploadDate);
@@ -311,9 +335,10 @@ function mergeItems(primary: TikTokItem | null, fallback: TikTokItem): TikTokIte
 }
 
 function extractComments(scope: ParentNode): Comment[] {
-  const nodes = scope.querySelectorAll(
-    '[data-e2e="comment-item"], [data-e2e="comment-level-1"], [data-e2e="comment-level-2"]',
-  );
+  const itemNodes = Array.from(scope.querySelectorAll('[data-e2e="comment-item"]'));
+  const nodes = itemNodes.length > 0
+    ? itemNodes
+    : Array.from(scope.querySelectorAll('[data-e2e="comment-level-1"], [data-e2e="comment-level-2"]'));
   const seen = new Set<string>();
   const comments: Comment[] = [];
   nodes.forEach((node) => {
@@ -331,7 +356,9 @@ function extractComments(scope: ParentNode): Comment[] {
       body,
       timestamp: text(node, ['time', '[data-e2e="comment-time-1"]', '[data-e2e="comment-time-2"]']),
       likes: text(node, ['[data-e2e="comment-like-count"]', '[class*="LikeCount"]']),
-      reply: node.matches('[data-e2e="comment-level-2"]') || Boolean(node.closest('[data-e2e="comment-level-2"]')),
+      reply: node.matches('[data-e2e="comment-level-2"]')
+        || Boolean(node.querySelector('[data-e2e="comment-level-2"]'))
+        || Boolean(node.closest('[data-e2e="comment-level-2"]')),
     });
   });
   return comments;
