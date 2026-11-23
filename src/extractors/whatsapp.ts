@@ -20,7 +20,9 @@ register({
   },
 
   async extract() {
+    const main = document.querySelector('#main');
     const chatName =
+      document.querySelector('#main header [data-testid="conversation-info-header"] span[title]')?.getAttribute('title') ||
       document.querySelector('header [data-testid="conversation-info-header"] span[title]')?.getAttribute('title') ||
       document.querySelector('#main header span[title]')?.getAttribute('title') ||
       'WhatsApp Chat';
@@ -32,10 +34,8 @@ register({
     };
 
     const parts: string[] = [`# WhatsApp: ${chatName}\n`];
-
-    const messages = limitCollection(document.querySelectorAll(
-      '[data-testid="msg-container"], [data-id][role="row"], .message-in, .message-out',
-    ), MAX_MESSAGES);
+    const messageElements = main ? collectWhatsAppMessages(main) : [];
+    const messages = limitCollection(messageElements, MAX_MESSAGES);
 
     if (messages.items.length === 0) {
       parts.push('*No messages found. Make sure a chat is open.*');
@@ -45,26 +45,27 @@ register({
         const dateEl = msg.querySelector('[data-testid="msg-date"], [data-testid="date"], time[datetime]');
         if (dateEl) {
           const date = dateEl.getAttribute('datetime') || dateEl.textContent?.trim() || '';
-          if (date !== lastDate) { parts.push(`\n### ${date}\n`); lastDate = date; }
+          if (date && date !== lastDate) { parts.push(`\n### ${date}\n`); lastDate = date; }
         }
 
         const preamble = msg.querySelector('[data-pre-plain-text]')?.getAttribute('data-pre-plain-text') || '';
         const parsed = preamble.match(/^\[([^\]]+)]\s*([^:]+):/);
-        const sender = msg.querySelector('[data-testid="msg-author"] span, [data-testid="msg-author"], [data-testid="author"]')
+        const explicitSender = msg.querySelector('[data-testid="msg-author"] span, [data-testid="msg-author"], [data-testid="author"]')
           ?.textContent?.trim() || parsed?.[2]?.trim() || '';
+        const sender = explicitSender || fallbackSender(msg, chatName);
         const time = msg.querySelector('[data-testid="msg-time"], time')?.textContent?.trim()
           || parsed?.[1]?.trim() || '';
-        const bodyElement = msg.querySelector('[data-testid="msg-text"], .selectable-text, [data-testid="conversation-panel-messages"] [dir="auto"]');
+        const bodyElement = findWhatsAppBodyElement(msg);
         const body = bodyElement ? Markdown.elementToMarkdown(bodyElement).trim() : '';
-        const quote = msg.querySelector('[data-testid="quoted-message-text"], [data-testid="quoted-message"], [aria-label*="Quoted message"]')
+        const quote = msg.querySelector('[data-testid="quoted-message-text"], [data-testid="quoted-message"], .quoted-mention, [aria-label*="Quoted message"]')
           ?.textContent?.replace(/\s+/g, ' ').trim() || '';
         const attachment = attachmentLabel(msg);
         const reactions = Array.from(msg.querySelectorAll('[data-testid*="reaction"], [aria-label*="reaction" i]'))
-          .map((reaction) => reaction.getAttribute('aria-label') || reaction.textContent?.trim() || '')
-          .filter(Boolean);
+          .map((reaction) => (reaction.getAttribute('aria-label') || reaction.textContent || '').trim())
+          .filter((label) => label && !/^(?:react|add reaction|open reactions?)\b/i.test(label));
 
         if (body || attachment || quote) {
-          const s = sender ? `**${sender}**` : '**You**';
+          const s = `**${sender}**`;
           const t = time ? ` (${time})` : '';
           parts.push(`${s}${t}:`);
           if (quote) parts.push(`> Replying to: ${quote}`);
@@ -83,17 +84,57 @@ register({
       total: messages.total,
       included: messages.items.length,
       truncated: messages.truncated || output.truncated,
-      complete: messages.items.length > 0 && !messages.truncated && !output.truncated,
+      complete: false,
     });
     return Markdown.buildPageMarkdown(metadata, output.markdown);
   },
 });
 
+const QUOTED_SELECTOR = '.quoted-mention, [data-testid="quoted-message"], [data-testid="quoted-message-text"], [aria-label*="Quoted message"]';
+
+function collectWhatsAppMessages(main: Element): Element[] {
+  const candidates = Array.from(main.querySelectorAll(
+    '[data-testid="msg-container"], [data-id][role="row"], .message-in, .message-out',
+  ));
+  const canonical: Element[] = [];
+  const seen = new Set<Element>();
+  for (const element of candidates) {
+    const root = element.closest('.message-in, .message-out')
+      || element.closest('[data-testid="msg-container"]')
+      || element;
+    if (!main.contains(root) || seen.has(root)) continue;
+    seen.add(root);
+    canonical.push(root);
+  }
+  return canonical.filter((element) =>
+    !canonical.some((other) => other !== element && other.contains(element)),
+  );
+}
+
+function fallbackSender(message: Element, chatName: string): string {
+  if (message.matches('.message-out') || message.closest('.message-out')) return 'You';
+  if (message.matches('.message-in') || message.closest('.message-in')) return chatName || 'Contact';
+  return chatName || 'Contact';
+}
+
+function findWhatsAppBodyElement(message: Element): Element | null {
+  const candidates = Array.from(message.querySelectorAll(
+    '[data-testid="msg-text"], .selectable-text, [data-testid="conversation-panel-messages"] [dir="auto"]',
+  ));
+  return candidates.find((element) => !element.closest(QUOTED_SELECTOR)) || null;
+}
+
 function attachmentLabel(message: Element): string {
   if (message.querySelector('[data-testid*="document"], [data-icon="document"]')) return 'Document';
   if (message.querySelector('[data-testid*="audio"], audio')) return 'Audio';
   if (message.querySelector('video, [data-testid*="video"]')) return 'Video';
-  if (message.querySelector('img[src^="blob:"], img[src*="mmg.whatsapp.net"]')) return 'Image';
+  const mediaImg = Array.from(message.querySelectorAll<HTMLImageElement>(
+    'img[src^="blob:"], img[src*="mmg.whatsapp.net"]',
+  )).find((img) =>
+    !img.closest('[data-testid*="avatar"], [data-testid*="profile"], [aria-label*="profile" i]')
+    && !/(?:avatar|profile)/i.test(img.alt || ''),
+  );
+  if (mediaImg) return 'Image';
   if (message.querySelector('[data-testid*="sticker"]')) return 'Sticker';
   return '';
 }

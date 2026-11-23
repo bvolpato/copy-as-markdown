@@ -10,12 +10,16 @@ export const microsoftCopilotExtractor = registerAiConversationExtractor({
     '*://copilot.com/*',
     '*://www.copilot.com/*',
     '*://copilot.microsoft.com/*',
+    '*://m365.cloud.microsoft/chat*',
+    '*://copilot.cloud.microsoft/*',
   ],
-  pathnameRegex: /^(?:\/$|\/(?:chats?|shares?|conversations?)(?:\/|$)|\/projects\/[^/]+\/chats?(?:\/|$))/i,
+  pathnameRegex: /^(?:\/$|\/(?:chats?|shares?|conversations?|pages)(?:\/|$)|\/projects\/[^/]+\/chats?(?:\/|$))/i,
   route(pathname) {
     if (/^\/shares?\//i.test(pathname)) return 'shared';
     if (/^\/projects\//i.test(pathname)) return 'project';
+    if (/^\/pages(?:\/|$)/i.test(pathname)) return 'page';
     if (/^\/conversations?\//i.test(pathname)) return 'group';
+    if (window.location.hostname.endsWith('.cloud.microsoft')) return 'work_chat';
     return 'consumer_chat';
   },
   titleFallback: 'Microsoft Copilot Conversation',

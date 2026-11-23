@@ -7,16 +7,70 @@ import { type PageMetadata } from '../core/types';
 import * as Utils from '../core/utils';
 
 type DocumentationFramework =
+  | 'Astro Starlight'
+  | 'Docsify'
   | 'Docusaurus'
+  | 'Fern'
+  | 'Fumadocs'
   | 'GitBook'
+  | 'Hugo Docsy'
+  | 'mdBook'
   | 'Mintlify'
   | 'MkDocs'
   | 'Nextra'
   | 'Read the Docs'
+  | 'ReadMe'
   | 'Sphinx'
-  | 'VitePress';
+  | 'VitePress'
+  | 'VuePress';
 
 const ROOT_SELECTORS: Record<DocumentationFramework, readonly string[]> = {
+  'Astro Starlight': [
+    '.sl-markdown-content',
+    'main .content-panel',
+    'main',
+  ],
+  'Fumadocs': [
+    '#nd-page article',
+    '#nd-page .prose',
+    '#nd-page',
+    '#nd-docs-layout article',
+    'main article',
+  ],
+  'Fern': [
+    '.fern-prose',
+    'article.fern-layout-content',
+    'main article',
+    'main',
+  ],
+  'ReadMe': [
+    '.rm-Article .markdown-body',
+    '.rm-Article',
+    '#content-container.rm-Guides .markdown-body',
+    '#content-container.rm-Guides',
+    'article.rm-Article',
+  ],
+  'mdBook': [
+    '#content main',
+    'main .content',
+    'main',
+  ],
+  'VuePress': [
+    '[vp-content]',
+    '.theme-default-content',
+    '.page .content__default',
+    'main.page',
+  ],
+  'Hugo Docsy': [
+    '.td-content',
+    '.td-main main',
+    'main.td-main',
+  ],
+  'Docsify': [
+    '#main.markdown-section',
+    'section.content .markdown-section',
+    '.markdown-section',
+  ],
   'Mintlify': [
     '#content-area',
     '[data-page-title][data-page-href]',
@@ -51,6 +105,7 @@ const ROOT_SELECTORS: Record<DocumentationFramework, readonly string[]> = {
     'article.nextra-body-typesetting-articles',
     'article[class*="nextra-content"]',
     'main [class*="nextra-content"]',
+    '.nextra-content',
     'main article',
   ],
   'Read the Docs': [
@@ -149,9 +204,21 @@ export const documentationExtractor = register({
 
 function detectFramework(contextDocument: Document = document): DocumentationFramework | null {
   const generator = getGenerator(contextDocument);
+  const hostname = getHostname(contextDocument);
 
-  if (hasDocumentationRoot(contextDocument, 'Read the Docs') && (
-    /\.readthedocs\.(?:io|org)$/i.test(getHostname(contextDocument))
+  // Check MkDocs BEFORE Read the Docs so MkDocs sites hosted on RTD get .md-content__inner handling.
+  if ((
+    /\bMkDocs\b/i.test(generator)
+    || Boolean(contextDocument.querySelector('.md-content [data-md-component], [data-md-component] .md-content, article.md-content__inner.md-typeset'))
+    || Boolean(
+      contextDocument.querySelector('#mkdocs_search_modal')
+      && contextDocument.querySelector('#mkdocs-search-query')
+      && contextDocument.querySelector('[role="main"]'),
+    )
+  ) && hasDocumentationRoot(contextDocument, 'MkDocs')) return 'MkDocs';
+
+  if ((
+    /\.readthedocs\.(?:io|org)$/i.test(hostname)
     || /\bRead the Docs\b/i.test(generator)
     || hasAny(contextDocument, [
       'meta[name="readthedocs-project-slug"]',
@@ -159,57 +226,92 @@ function detectFramework(contextDocument: Document = document): DocumentationFra
       'readthedocs-flyout',
       '[data-readthedocs-flyout]',
     ])
-  )) return 'Read the Docs';
+  ) && hasDocumentationRoot(contextDocument, 'Read the Docs')) return 'Read the Docs';
 
-  if (hasDocumentationRoot(contextDocument, 'Mintlify') && (
+  if ((
     /\bMintlify\b/i.test(generator)
-    || Boolean(contextDocument.querySelector('[data-page-title][data-page-href]'))
     || hasAny(contextDocument, [
+      '[data-page-title][data-page-href]',
       '[data-mintlify]',
       'script[src*="mintlify"]',
       'link[href*="mintlify"]',
     ])
-  )) return 'Mintlify';
+  ) && hasDocumentationRoot(contextDocument, 'Mintlify')) return 'Mintlify';
 
-  if (hasDocumentationRoot(contextDocument, 'Docusaurus') && (
+  if ((
     /\bDocusaurus\b/i.test(generator)
     || Boolean(contextDocument.querySelector('#__docusaurus .theme-doc-markdown'))
-  )) return 'Docusaurus';
+  ) && hasDocumentationRoot(contextDocument, 'Docusaurus')) return 'Docusaurus';
 
-  if (hasDocumentationRoot(contextDocument, 'GitBook') && (
+  if ((
     /\bGitBook\b/i.test(generator)
-    || Boolean(contextDocument.querySelector('[data-content-ref-root]'))
     || hasAny(contextDocument, [
+      '[data-content-ref-root]',
       'script[src*="gitbook"]',
       'link[href*="gitbook"]',
     ])
-  )) return 'GitBook';
+  ) && hasDocumentationRoot(contextDocument, 'GitBook')) return 'GitBook';
 
-  if (hasDocumentationRoot(contextDocument, 'MkDocs') && (
-    /\bMkDocs\b/i.test(generator)
-    || Boolean(contextDocument.querySelector('.md-content [data-md-component], [data-md-component] .md-content'))
-    || Boolean(contextDocument.querySelector('article.md-content__inner.md-typeset'))
-    || Boolean(
-      contextDocument.querySelector('#mkdocs_search_modal')
-      && contextDocument.querySelector('#mkdocs-search-query')
-      && contextDocument.querySelector('[role="main"]'),
-    )
-  )) return 'MkDocs';
-
-  if (hasDocumentationRoot(contextDocument, 'VitePress') && (
+  if ((
     /\bVitePress\b/i.test(generator)
     || Boolean(contextDocument.querySelector('.VPDoc .vp-doc'))
-  )) return 'VitePress';
+  ) && hasDocumentationRoot(contextDocument, 'VitePress')) return 'VitePress';
 
-  if (hasDocumentationRoot(contextDocument, 'Nextra') && (
+  if ((
     /\bNextra\b/i.test(generator)
+    || Boolean(contextDocument.querySelector('.nextra-content, .nextra-body-typesetting-articles, article[class*="nextra-content"]'))
     || Boolean(
       contextDocument.querySelector('main[data-pagefind-body]')
       && contextDocument.querySelector('.nextra-navbar, #nextra-skip-nav'),
     )
-  )) return 'Nextra';
+  ) && hasDocumentationRoot(contextDocument, 'Nextra')) return 'Nextra';
 
-  if (hasDocumentationRoot(contextDocument, 'Sphinx') && (
+  if ((
+    /\bStarlight\b/i.test(generator)
+    || Boolean(contextDocument.querySelector('.sl-markdown-content'))
+  ) && hasDocumentationRoot(contextDocument, 'Astro Starlight')) return 'Astro Starlight';
+
+  if (
+    Boolean(contextDocument.querySelector('#nd-page, .fd-steps, [data-fumadocs], #nd-docs-layout'))
+    && hasDocumentationRoot(contextDocument, 'Fumadocs')
+  ) return 'Fumadocs';
+
+  if ((
+    /\bFern\b/i.test(generator)
+    || Boolean(contextDocument.querySelector('#fern-toc, .fern-prose'))
+  ) && hasDocumentationRoot(contextDocument, 'Fern')) return 'Fern';
+
+  if ((
+    /\.readme\.io$/i.test(hostname)
+    || hasAny(contextDocument, [
+      'meta[name="readme-version"]',
+      '.rm-Article',
+      '#content-container.rm-Guides',
+    ])
+  ) && hasDocumentationRoot(contextDocument, 'ReadMe')) return 'ReadMe';
+
+  if ((
+    /\bmdBook\b/i.test(generator)
+    || Boolean(contextDocument.querySelector('#mdbook-sidebar'))
+    || Boolean(contextDocument.querySelector('#menu-bar') && contextDocument.querySelector('main .content, #content main'))
+  ) && hasDocumentationRoot(contextDocument, 'mdBook')) return 'mdBook';
+
+  if ((
+    /\bVuePress\b/i.test(generator)
+    || Boolean(contextDocument.querySelector('.theme-default-content, [vp-content]'))
+  ) && hasDocumentationRoot(contextDocument, 'VuePress')) return 'VuePress';
+
+  if (
+    Boolean(contextDocument.querySelector('.td-content, .td-main'))
+    && hasDocumentationRoot(contextDocument, 'Hugo Docsy')
+  ) return 'Hugo Docsy';
+
+  if ((
+    Boolean(contextDocument.querySelector('#main.markdown-section'))
+    || Boolean(contextDocument.querySelector('section.content') && contextDocument.querySelector('.markdown-section'))
+  ) && hasDocumentationRoot(contextDocument, 'Docsify')) return 'Docsify';
+
+  if ((
     /\bSphinx\b/i.test(generator)
     || hasAny(contextDocument, [
       'html[data-content_root]',
@@ -218,7 +320,7 @@ function detectFramework(contextDocument: Document = document): DocumentationFra
       'script[src$="documentation_options.js"]',
       'script#documentation_options',
     ])
-  )) return 'Sphinx';
+  ) && hasDocumentationRoot(contextDocument, 'Sphinx')) return 'Sphinx';
 
   return null;
 }
@@ -284,10 +386,9 @@ function findDocumentationRoot(
 
 function cloneCompleteDocumentationSection(section: HTMLElement): HTMLElement {
   const clone = section.cloneNode(true) as HTMLElement;
-  for (const element of [clone, ...Array.from(clone.querySelectorAll<HTMLElement>('[hidden], [aria-hidden="true"]'))]) {
+  for (const element of [clone, ...Array.from(clone.querySelectorAll<HTMLElement>('[hidden]'))]) {
     element.hidden = false;
     element.removeAttribute('hidden');
-    element.removeAttribute('aria-hidden');
   }
   return clone;
 }
@@ -392,7 +493,7 @@ async function fetchPublicMarkdown(markdownUrl: URL, pageHref: string): Promise<
     throw new Error('Documentation Markdown URL does not describe current public page');
   }
 
-  const response = await fetch(markdownUrl.toString(), {
+  const response = await Utils.fetchWithTimeout(markdownUrl.toString(), {
     credentials: 'omit',
     redirect: 'error',
     referrerPolicy: 'no-referrer',
@@ -401,8 +502,11 @@ async function fetchPublicMarkdown(markdownUrl: URL, pageHref: string): Promise<
   if (!response.ok) {
     throw new Error(`Documentation Markdown request returned ${response.status}`);
   }
-  if (response.url && !isSamePublicMarkdownPage(new URL(response.url), pageUrl)) {
-    throw new Error('Documentation Markdown response does not describe current public page');
+  if (response.url) {
+    const finalUrl = new URL(response.url);
+    if (finalUrl.origin !== pageUrl.origin || !isSamePublicMarkdownPage(finalUrl, pageUrl)) {
+      throw new Error('Documentation Markdown response does not describe current public page');
+    }
   }
 
   const contentType = response.headers.get('content-type') || '';
@@ -813,6 +917,33 @@ function removeDocumentationNoise(root: HTMLElement): void {
     '[data-nosnippet]',
     'readthedocs-flyout',
     '[data-readthedocs-flyout]',
+    '.sl-link-button',
+    '.sl-anchor-link',
+    '.pagination-links',
+    'starlight-toc',
+    '#nd-toc',
+    '#nd-sidebar',
+    '#fern-toc',
+    '.fern-footer',
+    '.fern-feedback',
+    '.rm-TOC',
+    '.rm-Footer',
+    '.rm-Feedback',
+    '.rm-SuggestEdits',
+    '#menu-bar',
+    '.nav-wrapper',
+    '.nav-wide-wrapper',
+    '#mdbook-sidebar',
+    '.page-meta',
+    '.page-nav',
+    '.vp-page-meta',
+    '.vp-page-nav',
+    '.td-sidebar',
+    '.td-toc',
+    '.td-page-meta',
+    '.feedback--answer',
+    '.docsify-copy-code-button',
+    '.sidebar-toggle',
   ].join(', ')).forEach((element) => element.remove());
 }
 
@@ -850,7 +981,7 @@ function annotateCodeLanguages(root: HTMLElement): void {
       existingCode.classList.add(`language-${language}`);
       return;
     }
-    const code = document.createElement('code');
+    const code = root.ownerDocument.createElement('code');
     code.className = `language-${language}`;
     code.textContent = pre.textContent || '';
     pre.replaceChildren(code);

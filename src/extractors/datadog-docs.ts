@@ -44,8 +44,8 @@ function buildMarkdownUrl(href: string): string | null {
 }
 
 async function fetchSourceMarkdown(url: string): Promise<string> {
-  const response = await fetch(url, {
-    credentials: 'same-origin',
+  const response = await Utils.fetchWithTimeout(url, {
+    credentials: 'omit',
     headers: { Accept: 'text/markdown, text/plain;q=0.9' },
   });
   if (!response.ok) {
@@ -76,7 +76,11 @@ function extractRenderedDocumentation(): string {
     '.feedback-section',
     '.js-feedback',
     '[data-nosnippet]',
-    '.code-toolbar > .toolbar',
+    '.code-toolbar .toolbar',
+    '.code-toolbar button',
+    '.highlight button',
+    'button.copy-code-button',
+    'button[aria-label*="copy" i]',
     '.copy-button',
   ]);
   const body = Markdown.elementToMarkdown(cleaned).trim();

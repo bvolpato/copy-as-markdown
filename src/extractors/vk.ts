@@ -1,5 +1,5 @@
 /**
- * VK extractor for wall posts, video pages, profiles, and loaded feeds.
+ * VK extractor for wall posts, clips, photos, topics, video pages, profiles, and loaded feeds.
  * VK serves several DOM generations at once, so selectors stay semantic and
  * post selection is scoped to the route id whenever one is available.
  */
@@ -40,8 +40,11 @@ register({
     '*://m.vk.com/*',
     '*://vk.ru/*',
     '*://www.vk.ru/*',
+    '*://m.vk.ru/*',
+    '*://vkvideo.ru/*',
+    '*://www.vkvideo.ru/*',
   ],
-  pathnameRegex: /^\/(?:$|wall-?\d+_\d+(?:\/|$)|[^/]+\/wall-?\d+_\d+(?:\/|$)|feed(?:\/|$)|id\d+(?:\/|$)|club\d+(?:\/|$)|public\d+(?:\/|$)|video(?:-?\d+_\d+|\/\d+)(?:\/|$)|@[^/]+(?:\/|$)|groups(?:\/|$))$/,
+  pathnameRegex: /^\/(?:$|wall-?\d+(?:_\d+)?(?:\/|$)|[^/]+\/wall-?\d+_\d+(?:\/|$)|feed(?:\/|$)|id\d+(?:\/|$)|club\d+(?:\/|$)|public\d+(?:\/|$)|(?:video|clip|photo|topic)(?:-?\d+_\d+|\/\d+)(?:\/|$)|@[^/]+(?:\/|$)|groups(?:\/|$)|(?!(?:im|mail|settings|login|join|restore|support|help|dev|legal|terms|privacy|apps|games|market|music|audios|friends|bookmarks|fave|docs|calls|clips|search|al_[^/]*)(?:\/|$))[A-Za-z0-9._]{3,64}\/?)$/,
   buttonPlacement: 'anchor',
   anchor: {
     selector: [
@@ -120,12 +123,21 @@ register({
 });
 
 function parseRoute(): { id: string; kind: 'post' | 'video' | 'profile' | 'feed' } {
+  const params = new URLSearchParams(window.location.search);
+  const modalWall = params.get('w')?.match(/^wall(-?\d+_\d+)/);
+  if (modalWall) return { id: modalWall[1], kind: 'post' };
+  const modalMedia = params.get('z')?.match(/^(video|clip|photo)(-?\d+_\d+)/);
+  if (modalMedia) return { id: modalMedia[2], kind: modalMedia[1] === 'photo' ? 'post' : 'video' };
+
   const path = window.location.pathname;
   const wall = path.match(/\/wall(-?\d+_\d+)/);
   if (wall) return { id: wall[1], kind: 'post' };
-  const video = path.match(/\/video(?:-?\d+_\d+|\/\d+)/);
-  if (video) return { id: video[0].replace(/^\/video/, '').replace(/^\//, ''), kind: 'video' };
-  if (/^\/(?:id\d+|club\d+|public\d+|@[^/]+)/.test(path)) return { id: '', kind: 'profile' };
+  const video = path.match(/\/(?:video|clip)(?:-?\d+_\d+|\/\d+)/);
+  if (video) return { id: video[0].replace(/^\/(?:video|clip)/, '').replace(/^\//, ''), kind: 'video' };
+  const photoOrTopic = path.match(/\/(?:photo|topic)(-?\d+_\d+)/);
+  if (photoOrTopic) return { id: photoOrTopic[1], kind: 'post' };
+  if (/^\/(?:wall-?\d+|id\d+|club\d+|public\d+|@[^/]+)/.test(path)) return { id: '', kind: 'profile' };
+  if (/^\/(?!$|feed(?:\/|$)|groups(?:\/|$))[A-Za-z0-9._]{3,64}\/?$/.test(path)) return { id: '', kind: 'profile' };
   return { id: '', kind: 'feed' };
 }
 
@@ -224,33 +236,45 @@ function appendComment(parts: string[], comment: VkComment): void {
 
 function extractMedia(scope: ParentNode): string[] {
   const media: string[] = [];
+  const seenMedia = new Set<string>();
   scope.querySelectorAll<HTMLImageElement>('img[src], img[data-src]').forEach((image) => {
     const alt = clean(image.alt) || 'VK image';
     if (/avatar|profile|logo|icon/i.test(alt)) return;
     const src = safeHttpUrl(image.currentSrc || image.src || image.getAttribute('data-src') || '');
-    const value = src ? `[${escapeLabel(alt)}](${src})` : alt;
-    if (!media.includes(value)) media.push(value);
+    const key = src || alt;
+    if (seenMedia.has(key)) return;
+    seenMedia.add(key);
+    media.push(src ? `[${escapeLabel(alt)}](${src})` : alt);
   });
   scope.querySelectorAll<HTMLVideoElement>('video[src], video[poster]').forEach((video) => {
     const src = safeHttpUrl(video.currentSrc || video.src || video.poster || '');
-    if (src && !media.includes(src)) media.push(`[VK video](${src})`);
+    if (src && !seenMedia.has(src)) {
+      seenMedia.add(src);
+      media.push(`[VK video](${src})`);
+    }
   });
   return media;
 }
 
 function findEmbeddedPost(id: string): VkPost | null {
   const payloads: unknown[] = [];
+  const suffix = id.split('_').pop() || id;
   for (const script of document.querySelectorAll<HTMLScriptElement>(
     'script[type="application/json"], script[type="application/ld+json"], script[id*="initial" i], script[id*="state" i]',
   )) {
     const raw = script.textContent || '';
-    if (!raw || raw.length > 8_000_000) continue;
+    if (!raw || raw.length > 8_000_000 || (!raw.includes(id) && !raw.includes(suffix))) continue;
     try { payloads.push(JSON.parse(raw)); } catch { /* VK may include non-JSON scripts */ }
   }
   for (const payload of payloads) {
     const record = findObject(payload, (candidate) => {
       const candidateId = stringValue(candidate.id || candidate.post_id || candidate.postId);
-      return candidateId === id || candidateId.endsWith(`_${id.split('_').pop() || ''}`);
+      const matchesId = candidateId === id || (Boolean(suffix) && candidateId.endsWith(`_${suffix}`));
+      if (!matchesId) return false;
+      return Boolean(
+        candidate.text || candidate.body || candidate.title || candidate.description
+        || candidate.likes || candidate.comments || candidate.author || candidate.owner,
+      );
     });
     if (record) return mapEmbeddedPost(record, id);
     const ld = findObject(payload, (candidate) =>

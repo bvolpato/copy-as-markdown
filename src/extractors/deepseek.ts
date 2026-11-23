@@ -28,6 +28,7 @@ export const deepSeekExtractor = registerAiConversationExtractor({
     '[data-role="user"], [data-role="assistant"]',
     'div.ds-message._63c77b1',
     'div.ds-message',
+    '[class*="ds-message"]',
     'div.dad65929, div._4f9bf79:not(._43c05b5), div._9663006',
   ],
   userSelectors: [
@@ -46,7 +47,9 @@ export const deepSeekExtractor = registerAiConversationExtractor({
     '[data-author="assistant"]',
     'div.ds-message._4f9bf79._43c05b5',
     'div.ds-message ._4f9bf79._43c05b5',
+    '.ds-think-content',
     '.ds-markdown',
+    '[class*="ds-markdown"]',
   ],
   contentSelectors: [
     '[data-testid="message-content"]',
@@ -55,6 +58,7 @@ export const deepSeekExtractor = registerAiConversationExtractor({
     '.d29f3d7d',
     '._9663006',
     '.ds-markdown',
+    '[class*="ds-markdown"]',
     '.fbb737a4',
     '.markdown',
   ],
@@ -77,21 +81,46 @@ export const deepSeekExtractor = registerAiConversationExtractor({
     '[data-testid*="load-previous"]',
   ],
   resolveRole(element) {
+    if (element.matches('[data-role="user"], [data-message-author-role="user"], [data-testid="user-message"]')) {
+      return 'user';
+    }
+    if (element.matches('[data-role="assistant"], [data-message-author-role="assistant"], [data-testid="assistant-message"]')) {
+      return 'assistant';
+    }
     if (
-      element.matches('.d29f3d7d, ._9663006')
-      || element.querySelector('.d29f3d7d, ._9663006')
+      element.matches('.d29f3d7d, ._9663006, .fbb737a4')
+      || element.querySelector('.d29f3d7d, ._9663006, .fbb737a4')
     ) return 'user';
     if (
-      element.matches('._4f9bf79._43c05b5')
-      || element.querySelector('._4f9bf79._43c05b5')
+      element.matches('._4f9bf79._43c05b5, .ds-markdown, .ds-think-content, [class*="ds-markdown"], [class*="think-content"]')
+      || element.querySelector('._4f9bf79._43c05b5, .ds-markdown, .ds-think-content, [class*="ds-markdown"], [class*="think-content"]')
     ) return 'assistant';
-    if (element.matches('.ds-markdown') || element.querySelector('.ds-markdown')) return 'assistant';
-    if (element.matches('.fbb737a4') || element.querySelector('.fbb737a4')) return 'user';
+    if (element.matches('.ds-message, [class*="ds-message"]') && !element.querySelector('.ds-message, [class*="ds-message"]')) {
+      return 'user';
+    }
     return null;
   },
   resolveContent(element, role) {
-    return role === 'assistant'
-      ? element.querySelector('.ds-markdown, ._4f9bf79._43c05b5')
-      : element.querySelector('.fbb737a4, .d29f3d7d, ._9663006');
+    if (role === 'assistant') {
+      const think = element.querySelector('.ds-think-content, [class*="think-content"], [data-testid*="think"]');
+      const markdowns = element.querySelectorAll('.ds-markdown, [class*="ds-markdown"]');
+      if (think || markdowns.length > 1) {
+        const wrapper = element.querySelector('._4f9bf79._43c05b5');
+        if (
+          wrapper
+          && (!think || wrapper.contains(think))
+          && wrapper.querySelectorAll('.ds-markdown, [class*="ds-markdown"]').length === markdowns.length
+        ) {
+          return wrapper;
+        }
+        return element;
+      }
+      return element.querySelector(
+        '.ds-markdown, [class*="ds-markdown"], ._4f9bf79._43c05b5, [data-testid="message-content"], [data-testid*="response-content"]',
+      );
+    }
+    return element.querySelector(
+      '.fbb737a4, .d29f3d7d, ._9663006, [data-testid="user-message"], [data-testid="message-content"], .ds-message-content',
+    );
   },
 });

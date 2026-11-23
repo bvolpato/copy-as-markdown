@@ -26,13 +26,27 @@ register({
   async extract() {
     const url = Utils.getCanonicalUrl();
     const schema = findSchema(['NewsArticle', 'Article', 'VideoObject']);
-    const title = text('h1, .content-head__title, [data-testid="content-title"]')
+    const title = firstText([
+      '.content-head__title',
+      '[data-testid="content-title"]',
+      'article h1',
+      'main h1',
+      'h1',
+    ])
       || stringValue(schema?.headline)
       || stringValue(schema?.name)
       || Utils.getPageTitle();
-    const author = text('[rel="author"], .content-publication-data__from, .mc-article-author')
+    const author = firstText([
+      '.content-publication-data__from',
+      '[rel="author"]',
+      '.mc-article-author',
+    ])
       || schemaAuthor(schema?.author);
-    const published = text('time, .content-publication-data__updated')
+    const published = firstText([
+      '.content-publication-data__updated',
+      'time[datetime]',
+      'time',
+    ])
       || stringValue(schema?.datePublished);
     const description = Utils.getMeta('description') || stringValue(schema?.description);
     const content = [
@@ -50,6 +64,9 @@ register({
     if (author) parts.push('', `**Author:** ${author}`);
     if (published) parts.push(`**Published:** ${published}`);
     if (description) parts.push('', `*${description}*`);
+    if (hasGloboPaywall()) {
+      parts.push('', '> **Paywall detected.** Content below may be incomplete.');
+    }
 
     if (content) {
       const cleaned = Utils.removeNoise(content, [
@@ -74,8 +91,44 @@ register({
   },
 });
 
-function text(selector: string): string {
-  return document.querySelector(selector)?.textContent?.replace(/\s+/g, ' ').trim() || '';
+function hasGloboPaywall(): boolean {
+  const selectors = [
+    '.barreira-paywall',
+    '.paywall-barreira',
+    '#barreiraJornada',
+    '.assinante-wall',
+    '.paywall',
+    '#paywall',
+    '[class*="paywall"]',
+    '[id*="paywall"]',
+  ];
+  const isVisible = Utils.createVisibilityChecker();
+  for (const selector of selectors) {
+    for (const element of document.querySelectorAll(selector)) {
+      if (isVisible(element)) return true;
+    }
+  }
+  return false;
+}
+
+function firstText(selectors: string[]): string {
+  for (const selector of selectors) {
+    const element = document.querySelector(selector);
+    const value = spacedText(element);
+    if (value) return value;
+  }
+  return '';
+}
+
+function spacedText(element: Element | null): string {
+  if (!element) return '';
+  const chunks: string[] = [];
+  const walker = document.createTreeWalker(element, NodeFilter.SHOW_TEXT);
+  for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+    const chunk = (node.textContent || '').replace(/\s+/g, ' ').trim();
+    if (chunk) chunks.push(chunk);
+  }
+  return chunks.join(' ').replace(/\s+([,.;:!?])/g, '$1').trim();
 }
 
 function stringValue(value: unknown): string {

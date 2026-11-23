@@ -13,7 +13,14 @@ register({
     '*://medium.com/*',
     '*://*.medium.com/*',
   ],
-  regex: /^https?:\/\/([a-z0-9-]+\.)?medium\.com\/.+/,
+  pathnameRegex: /^\/.+/,
+  detect: (contextDocument = document) => {
+    const isMedium =
+      /^medium$/i.test(contextDocument.querySelector<HTMLMetaElement>('meta[property="al:android:app_name"]')?.content?.trim() || '')
+      || /^medium$/i.test(contextDocument.querySelector<HTMLMetaElement>('meta[name="twitter:app:name:iphone"]')?.content?.trim() || '')
+      || /medium\.com/i.test(contextDocument.querySelector<HTMLMetaElement>('meta[name="parsely-network-canonical"]')?.content || '');
+    return isMedium && Boolean(contextDocument.querySelector('article'));
+  },
 
   buttonPlacement: 'anchor',
   anchor: {
@@ -26,12 +33,12 @@ register({
     const url = Utils.getCanonicalUrl();
 
     // Title
-    const titleEl = document.querySelector('article h1, h1[data-testid="storyTitle"]');
+    const titleEl = document.querySelector('h1[data-testid="storyTitle"], article h1, h1');
     const title = titleEl?.textContent?.trim() || Utils.getPageTitle();
 
     // Author
     const authorEl = document.querySelector('[data-testid="authorName"], article a[rel="author"], .pw-author-name');
-    const author = authorEl?.textContent?.trim() || '';
+    const author = authorEl?.textContent?.trim() || Utils.getMeta('author') || '';
 
     // Publication
     const pubEl = document.querySelector('[data-testid="publicationName"], .pw-published-in-publication a');
@@ -42,7 +49,7 @@ register({
     const date = dateEl?.textContent?.trim() || '';
 
     // Subtitle
-    const subtitleEl = document.querySelector('article h2:first-of-type, [data-testid="storySubtitle"]');
+    const subtitleEl = document.querySelector('[data-testid="storySubtitle"], article h2:first-of-type');
     const subtitle = subtitleEl?.textContent?.trim() || '';
 
     // Reading time
@@ -74,16 +81,66 @@ register({
     if (claps) meta.push(`**Claps:** ${claps}`);
     if (meta.length) parts.push(meta.join(' · ') + '\n');
 
-    // Article body
-    const articleEl = document.querySelector('article section, article .meteredContent, article');
-    if (articleEl) {
-      // Remove elements we don't want
-      const clone = articleEl.cloneNode(true) as HTMLElement;
-      clone.querySelectorAll('[data-testid="headerClapButton"], [data-testid="headerSocialShareButton"], .pw-multi-vote-count, [role="button"]').forEach(el => el.remove());
+    // Article body: collect all <section> children inside <article> (or fallback to .meteredContent / <article>).
+    const article = document.querySelector('article');
+    const sections = article ? Array.from(article.querySelectorAll(':scope > section, :scope > div > section')) : [];
+    let bodyContainer: HTMLElement | null = null;
+    if (sections.length > 0) {
+      const wrapper = document.createElement('div');
+      sections.forEach((section) => wrapper.appendChild(section.cloneNode(true)));
+      bodyContainer = wrapper;
+    } else {
+      const fallback = document.querySelector('article .meteredContent, article');
+      if (fallback) bodyContainer = fallback.cloneNode(true) as HTMLElement;
+    }
 
-      parts.push(Markdown.elementToMarkdown(clone));
+    if (bodyContainer) {
+      const cleaned = Utils.removeNoise(bodyContainer, [
+        ...Utils.NOISE_SELECTORS,
+        'h1',
+        '[data-testid="headerClapButton"]',
+        '[data-testid="headerSocialShareButton"]',
+        '[data-testid="headerBookmarkButton"]',
+        '[data-testid="audioPlayButton"]',
+        '.pw-multi-vote-count',
+      ]);
+
+      // Remove interactive button wrappers except those wrapping zoomable images/figures.
+      cleaned.querySelectorAll('[role="button"]').forEach((el) => {
+        if (el.querySelector('img, figure, picture')) return;
+        el.remove();
+      });
+
+      // Preserve <br> line breaks inside <pre> code blocks before text extraction.
+      cleaned.querySelectorAll('pre br').forEach((br) => {
+        br.replaceWith(document.createTextNode('\n'));
+      });
+
+      const body = Markdown.elementToMarkdown(cleaned);
+      if (body) parts.push(body);
+    }
+
+    if (hasMediumPaywall()) {
+      parts.push('\n---\n*⚠️ The rest of this article is behind a Medium paywall.*\n');
     }
 
     return Markdown.buildPageMarkdown(metadata, parts.join('\n'));
   },
 });
+
+function hasMediumPaywall(): boolean {
+  const selectors = [
+    '#paywall-background-color',
+    '#regwall-heading',
+    '[data-testid="paywall"]',
+    '.paywall',
+    '[class*="paywall"]',
+  ];
+  const isVisible = Utils.createVisibilityChecker();
+  for (const selector of selectors) {
+    for (const element of document.querySelectorAll(selector)) {
+      if (isVisible(element)) return true;
+    }
+  }
+  return false;
+}

@@ -12,6 +12,7 @@ register({
   matches: [
     '*://duckduckgo.com/*',
     '*://www.duckduckgo.com/*',
+    '*://start.duckduckgo.com/*',
     '*://html.duckduckgo.com/*',
     '*://lite.duckduckgo.com/*',
     '*://safe.duckduckgo.com/*',
@@ -25,11 +26,6 @@ register({
       '[data-testid="duckbar"] nav > ul:first-of-type',
       '#react-duckbar nav > ul:first-of-type',
       '#duckbar nav > ul:first-of-type',
-      '#duckbar',
-      '.header--aside',
-      '.header--search',
-      '.searchbox',
-      '#search_form_input_homepage',
     ].join(', '),
     position: 'append',
     style: 'link',
@@ -52,24 +48,31 @@ register({
   async extract() {
     const url = Utils.getCanonicalUrl();
     const params = new URLSearchParams(window.location.search);
-    const query = cleanText(params.get('q') || '');
+    const inputQuery = document.querySelector<HTMLInputElement>('input[name="q"]')?.value || '';
+    const query = cleanText(params.get('q') || inputQuery);
     const metadata = { source: 'DuckDuckGo Search', query, url };
     const parts: string[] = ['# DuckDuckGo Search\n'];
     if (query) parts.push(`**Query:** ${escapeMarkdownText(query)}\n`);
+
+    const assistCard = document.querySelector('[data-testid="assist-card"]');
+    const assistText = cleanText(assistCard?.textContent || '');
+    if (assistText) parts.push('## DuckAssist\n', `${assistText}\n`);
 
     const instantAnswer = document.querySelector(
       '#zero_click_wrapper .zci__body, .zci__body, .module--text .module__content, [data-testid="instant-answer"]',
     );
     const answerText = cleanText(instantAnswer?.textContent || '');
-    if (answerText) parts.push('## Instant Answer\n', `${answerText}\n`);
+    if (answerText && answerText !== assistText) {
+      parts.push('## Instant Answer\n', `${answerText}\n`);
+    }
 
     const knowledge = document.querySelector(
-      '#zero_click_wrapper .zci, .results--sidebar .module, [data-testid="knowledge-panel"]',
+      '[data-testid="about_module"], #zero_click_wrapper .zci, .results--sidebar .module, [data-testid="knowledge-panel"]',
     );
-    if (knowledge && knowledge !== instantAnswer) {
+    if (knowledge && knowledge !== instantAnswer && knowledge !== assistCard) {
       const title = cleanText(knowledge.querySelector('h2, h3, .module__title')?.textContent || '');
       const description = cleanText(knowledge.querySelector('.module__content, .zci__body, p')?.textContent || '');
-      if ((title || description) && description !== answerText) {
+      if ((title || description) && description !== answerText && description !== assistText) {
         parts.push(`## Knowledge Panel${title ? `: ${escapeMarkdownText(title)}` : ''}\n`);
         if (description) parts.push(`${description}\n`);
       }
@@ -93,6 +96,12 @@ register({
     }
 
     results.forEach((result) => {
+      if (
+        result.matches('.result--ad, [data-testid="ad"], li[data-layout="ad"]')
+        || result.closest('.result--ad, [data-testid="ad"], li[data-layout="ad"]')
+      ) {
+        return;
+      }
       const title = cleanText(result.querySelector(
         '.result__title, h2 a, h2, [data-testid="result-title"]',
       )?.textContent || '');
@@ -106,6 +115,9 @@ register({
     });
 
     document.querySelectorAll<HTMLAnchorElement>('a.result-link[href]').forEach((link) => {
+      const raw = (link.getAttribute('href') || '').trim();
+      if (!raw || raw.startsWith('#')) return;
+      if (link.closest('.result--ad, [data-testid="ad"], li[data-layout="ad"]')) return;
       let row = link.closest('tr')?.nextElementSibling;
       let snippet = '';
       while (row && !row.querySelector('a.result-link')) {
@@ -116,11 +128,11 @@ register({
         }
         row = row.nextElementSibling;
       }
-      appendResult(cleanText(link.textContent || ''), safeSearchUrl(link.href), snippet);
+      appendResult(cleanText(link.textContent || ''), safeSearchUrl(link.href || raw), snippet);
     });
 
     const related = Array.from(document.querySelectorAll<HTMLAnchorElement>(
-      '.related-searches a[href], .tile--c a[href], [data-testid="related-search"] a[href]',
+      '.related-searches a[href], .tile--c a[href], [data-testid="related-searches"] a[href], [data-testid="related-search"] a[href]',
     ))
       .map((link) => cleanText(link.textContent || ''))
       .filter(Boolean);
@@ -136,7 +148,9 @@ register({
 
 function firstSafeLink(links: NodeListOf<HTMLAnchorElement>): string {
   for (const link of links) {
-    const href = safeSearchUrl(link.href || link.getAttribute('href') || '');
+    const raw = (link.getAttribute('href') || '').trim();
+    if (!raw || raw.startsWith('#')) continue;
+    const href = safeSearchUrl(link.href || raw);
     if (href) return href;
   }
   return '';
@@ -145,18 +159,22 @@ function firstSafeLink(links: NodeListOf<HTMLAnchorElement>): string {
 function safeSearchUrl(value: string): string {
   try {
     const url = new URL(value, document.baseURI);
-    if (/^https?:$/.test(url.protocol)) {
-      const redirected = url.searchParams.get('uddg');
-      if (redirected) {
-        try {
-          const destination = new URL(redirected);
-          if (/^https?:$/.test(destination.protocol)) return destination.href;
-        } catch {
-          // Keep DuckDuckGo result URL when redirect target is malformed.
-        }
+    if (!/^https?:$/.test(url.protocol)) return '';
+    const redirected = url.searchParams.get('uddg');
+    if (redirected) {
+      try {
+        const destination = new URL(redirected);
+        if (/^https?:$/.test(destination.protocol)) return destination.href;
+      } catch {
+        return '';
       }
-      return url.href;
     }
+    if (/(?:^|\.)duckduckgo\.com$/i.test(url.hostname)) {
+      if (url.pathname === '/y.js' || url.pathname === '/search' || url.pathname === '/search/' || url.pathname === '/l/') {
+        return '';
+      }
+    }
+    return url.href;
   } catch {
     // Ignore malformed or non-HTTP links.
   }

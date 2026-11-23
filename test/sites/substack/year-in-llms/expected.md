@@ -7,7 +7,7 @@ url: "https://simonw.substack.com/p/2025-the-year-in-llms"
 
 *FIXTURE_H3_0010*
 
-**Date:** FIXTURE_TIME_0012 · **Likes:** FIXTURE_DIV_0013 · **Comments:** FIXTURE_DIV_0387
+**Publication:** FIXTURE_A_0001 · **Date:** FIXTURE_TIME_0012 · **Likes:** FIXTURE_DIV_0013
 
 FIXTURE_P_0016
 

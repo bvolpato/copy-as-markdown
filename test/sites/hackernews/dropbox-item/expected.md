@@ -10,8 +10,6 @@ url: "https://news.ycombinator.com/item?id=8863"
 **Author:** FIXTURE_A_0022
 **Posted:** FIXTURE_A_0023
 
-## Post
-
 ## Comments (71)
 
 - **FIXTURE_A_0032** (FIXTURE_A_0033):

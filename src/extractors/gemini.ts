@@ -21,8 +21,15 @@ register({
     '*://gemini.google.com/chat/*',
     '*://gemini.google.com/gem/*',
     '*://gemini.google.com/spark/*',
+    '*://gemini.google.com/canvas/*',
+    '*://gemini.google.com/u/*/app*',
+    '*://gemini.google.com/u/*/share/*',
+    '*://gemini.google.com/u/*/chat/*',
+    '*://gemini.google.com/u/*/gem/*',
+    '*://gemini.google.com/u/*/spark/*',
+    '*://gemini.google.com/u/*/canvas/*',
   ],
-  pathnameRegex: /^\/(?:app|share|chat|gem|spark)(?:\/|$)/,
+  pathnameRegex: /^(?:\/u\/\d+)?\/(?:app|share|chat|gem|spark|canvas)(?:\/|$)/,
 
   async extract() {
     const title = cleanTitle(Utils.getPageTitle()) || 'Gemini Conversation';
@@ -32,10 +39,7 @@ register({
       url: Utils.getCanonicalUrl(),
       route: conversationRoute(window.location.pathname),
     };
-    const model = document.querySelector('[data-model], [data-model-name], [data-testid*="model"]')
-      ?.getAttribute('data-model')
-      || document.querySelector('[data-model-name]')?.getAttribute('data-model-name')
-      || '';
+    const model = extractModel();
     if (model) metadata.model = model;
 
     const turns = limitCollection(collectTurns(), MAX_TURNS);
@@ -98,6 +102,20 @@ register({
   },
 });
 
+function extractModel(): string {
+  const dataModel = document.querySelector('[data-model]')?.getAttribute('data-model')?.trim();
+  if (dataModel) return dataModel;
+  const dataModelName = document.querySelector('[data-model-name]')?.getAttribute('data-model-name')?.trim();
+  if (dataModelName) return dataModelName;
+  const isVisible = Utils.createVisibilityChecker();
+  for (const el of document.querySelectorAll('[data-testid*="model"]')) {
+    if (!isVisible(el)) continue;
+    const text = normalize(el.textContent || '');
+    if (text && text.length <= 100) return text;
+  }
+  return '';
+}
+
 function collectTurns(): Turn[] {
   const result: Turn[] = [];
   const roots = firstElements([
@@ -133,7 +151,7 @@ function collectTurns(): Turn[] {
       if (user) result.push({ role: 'user', element: messageContent(user) || user, container: root });
       if (assistant) result.push({ role: 'assistant', element: messageContent(assistant) || assistant, container: root });
     }
-    return dedupeTurns(result);
+    if (result.length) return dedupeTurns(result);
   }
 
   const standalone = Array.from(document.querySelectorAll([
@@ -164,10 +182,10 @@ function roleFor(element: Element): Role | null {
     element.getAttribute('aria-label'),
     element.getAttribute('data-testid'),
     element.tagName,
-    element.className,
+    typeof element.className === 'string' ? element.className : '',
   ].filter(Boolean).join(' ').toLowerCase();
-  if (/user|human|you|prompt|query/.test(value)) return 'user';
-  if (/assistant|gemini|model|response|answer/.test(value)) return 'assistant';
+  if (/(?:^|[\s_-])(user|human|you|prompt|query)(?:$|[\s_-])/.test(value)) return 'user';
+  if (/(?:^|[\s_-])(assistant|gemini|model|response|answer)(?:$|[\s_-])/.test(value)) return 'assistant';
   return null;
 }
 
@@ -177,20 +195,21 @@ function messageContent(element: Element): Element | null {
     '[data-testid="model-response-content"]',
     '[data-testid="message-content"]',
     '[data-testid*="markdown"]',
-    '.query-text-line',
     '.query-text',
+    '.query-text-line',
     '.markdown',
   ]);
 }
 
 function dedupeTurns(turns: Turn[]): Turn[] {
   const seenElements = new Set<Element>();
-  return turns.filter((turn) => {
+  const unique = turns.filter((turn) => {
     if (seenElements.has(turn.element)) return false;
     seenElements.add(turn.element);
-    return !turns.some((other) => other.role === turn.role
-      && other.element !== turn.element && other.element.contains(turn.element));
+    return true;
   });
+  return unique.filter((turn) => !unique.some((other) => other.role === turn.role
+    && other.element !== turn.element && other.element.contains(turn.element)));
 }
 
 function extractCitations(container: Element): Array<{ label: string; href: string }> {
@@ -217,11 +236,15 @@ function extractCitations(container: Element): Array<{ label: string; href: stri
 }
 
 function standaloneImages(container: Element, content: Element): string[] {
-  const existing = new Set(Array.from(content.querySelectorAll<HTMLImageElement>('img[src]')).map(imageSource));
+  const existing = new Set(
+    Array.from(content.querySelectorAll<HTMLImageElement>('img[src]'))
+      .map((image) => safeImageUrl(imageSource(image)))
+      .filter(Boolean),
+  );
   const result: string[] = [];
   for (const image of container.querySelectorAll<HTMLImageElement>('img[src]')) {
     if (content.contains(image) || image.getAttribute('aria-hidden') === 'true') continue;
-    const source = imageSource(image);
+    const source = safeImageUrl(imageSource(image));
     if (!source || existing.has(source)) continue;
     const alt = image.getAttribute('alt') || '';
     const meaningful = Boolean(image.closest('figure, [data-testid*="image"], [class*="generated"], [class*="image"]'))
@@ -238,7 +261,7 @@ function clean(element: Element): Element {
   return Utils.removeNoise(element, [
     ...Utils.NOISE_SELECTORS,
     'button', '[data-testid*="actions"]', '[data-testid*="feedback"]',
-    '[class*="toolbar"]', '[class*="avatar"]', 'textarea',
+    '[class*="toolbar"]:not(.code-toolbar)', '[class*="avatar"]', 'textarea',
     '[contenteditable="true"]',
   ]);
 }
@@ -275,10 +298,12 @@ function hasUnrenderedHistory(): boolean {
 }
 
 function conversationRoute(path: string): string {
-  if (/^\/share\//.test(path)) return 'share';
-  if (/^\/spark\//.test(path)) return 'spark';
-  if (/^\/gem\//.test(path)) return 'gem';
-  if (/^\/chat\//.test(path)) return 'chat';
+  const normalized = path.replace(/^\/u\/\d+(?=\/)/, '');
+  if (/^\/share(?:\/|$)/.test(normalized)) return 'share';
+  if (/^\/spark(?:\/|$)/.test(normalized)) return 'spark';
+  if (/^\/gem(?:\/|$)/.test(normalized)) return 'gem';
+  if (/^\/chat(?:\/|$)/.test(normalized)) return 'chat';
+  if (/^\/canvas(?:\/|$)/.test(normalized)) return 'canvas';
   return 'app';
 }
 
@@ -286,10 +311,28 @@ function imageSource(image: HTMLImageElement): string {
   return image.currentSrc || image.src || image.getAttribute('src') || '';
 }
 
+function escapeMarkdownDestination(value: string): string {
+  return value.replace(/\(/g, '%28').replace(/\)/g, '%29');
+}
+
 function safeHttpUrl(value: string): string {
   try {
     const url = new URL(value, document.baseURI);
-    return /^https?:$/.test(url.protocol) ? url.href : '';
+    return /^https?:$/.test(url.protocol) ? escapeMarkdownDestination(url.href) : '';
+  } catch {
+    return '';
+  }
+}
+
+function safeImageUrl(value: string): string {
+  const trimmed = value.trim();
+  if (!trimmed) return '';
+  if (/^data:image\/(?:avif|gif|jpe?g|png|webp);base64,/i.test(trimmed)) {
+    return escapeMarkdownDestination(trimmed);
+  }
+  try {
+    const url = new URL(trimmed, document.baseURI);
+    return /^(?:https?|blob):$/.test(url.protocol) ? escapeMarkdownDestination(url.href) : '';
   } catch {
     return '';
   }

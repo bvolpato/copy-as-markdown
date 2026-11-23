@@ -43,12 +43,12 @@ register({
     if (description && !containsText(root, description)) parts.push('', description);
 
     if (root) {
+      const references = extractReferences(root);
       const content = findBodyRoot(root, route);
-      const cleaned = clean(content);
+      const cleaned = clean(content, title, references.length > 0);
       const body = Markdown.elementToMarkdown(cleaned).trim();
       if (body) parts.push('', body);
 
-      const references = extractReferences(root);
       if (references.length) {
         parts.push('', '## References', '', ...references.map((reference) => `- [${reference.title}](${reference.href})`));
         metadata.reference_count = references.length;
@@ -113,26 +113,35 @@ function findBodyRoot(root: Element, route: RouteKind): Element {
   return root;
 }
 
-function clean(element: Element): Element {
-  return Utils.removeNoise(element, [
+function clean(element: Element, title: string, stripReferences: boolean): Element {
+  const clone = Utils.removeNoise(element, [
     ...Utils.NOISE_SELECTORS,
     '[data-print-hidden]',
     '[data-print-only]',
     '[data-print-code-header]',
     '[data-print-question]',
-    '[data-print-references] > *:not([data-print-reference])',
+    ...(stripReferences
+      ? ['[data-print-references]', '[data-print-reference]']
+      : ['[data-print-references] > *:not([data-print-reference])']),
     'button',
     'textarea',
     'input',
     '[contenteditable="true"]',
     '[role="dialog"]',
     '[role="tablist"]',
-    '[class*="comment"]',
+    '[class*="comment"]:not(pre *):not(code *):not(.hljs-comment):not(.token)',
     '[class*="share"]',
     '[class*="progress"]',
     '[class*="editor"]',
     '[class*="result"]',
   ]);
+  const normalizedTitle = normalize(title).toLowerCase();
+  for (const heading of clone.querySelectorAll('h1')) {
+    if (cleanTitle(normalize(heading.textContent || '')).toLowerCase() === normalizedTitle) {
+      heading.remove();
+    }
+  }
+  return clone;
 }
 
 function extractReferences(root: Element): Array<{ title: string; href: string }> {
@@ -155,16 +164,16 @@ function extractReferences(root: Element): Array<{ title: string; href: string }
 }
 
 function addRouteMetadata(metadata: PageMetadata, route: RouteKind, root: Element | null): void {
-  const structured = getStructuredArticleData(root);
-  const section = firstText(root, [
-    '[data-section]', '[data-testid="article-section"]', '[itemprop="articleSection"]',
-  ]) || structured.articleSection || '';
-  const difficulty = firstText(root, [
-    '[data-difficulty]', '[data-testid="difficulty"]', '[itemprop="educationalLevel"]',
-  ]) || structured.educationalLevel || '';
-  const category = firstText(root, [
-    '[data-category]', '[data-testid="category"]', '[itemprop="genre"]',
-  ]) || structured.genre || '';
+  const structured = getStructuredArticleData();
+  const section = firstAttr(root, ['[data-section]'], 'data-section')
+    || firstText(root, ['[data-section]', '[data-testid="article-section"]', '[itemprop="articleSection"]'])
+    || structured.articleSection || '';
+  const difficulty = firstAttr(root, ['[data-difficulty]'], 'data-difficulty')
+    || firstText(root, ['[data-difficulty]', '[data-testid="difficulty"]', '[itemprop="educationalLevel"]'])
+    || structured.educationalLevel || '';
+  const category = firstAttr(root, ['[data-category]'], 'data-category')
+    || firstText(root, ['[data-category]', '[data-testid="category"]', '[itemprop="genre"]'])
+    || structured.genre || '';
   const author = firstText(root, ['[itemprop="author"] [itemprop="name"]', '[itemprop="author"]'])
     || structured.author?.name || '';
   const published = firstAttr(root, ['time[itemprop="datePublished"]', 'time[dateTime]'], 'dateTime')
@@ -192,9 +201,8 @@ type StructuredArticle = {
   author?: { name?: string };
 };
 
-function getStructuredArticleData(root: Element | null): StructuredArticle {
-  if (!root) return {};
-  for (const script of root.querySelectorAll('script[type="application/ld+json"]')) {
+function getStructuredArticleData(): StructuredArticle {
+  for (const script of document.querySelectorAll('script[type="application/ld+json"]')) {
     try {
       const value = JSON.parse(script.textContent || '') as StructuredArticle | StructuredArticle[];
       const candidate = Array.isArray(value) ? value.find((item) => item && typeof item === 'object') : value;
@@ -209,12 +217,7 @@ function getStructuredArticleData(root: Element | null): StructuredArticle {
 function firstText(root: Element | null, selectors: string[]): string {
   if (!root) return '';
   for (const selector of selectors) {
-    const element = root.querySelector(selector);
-    const value = element?.getAttribute('data-section')
-      || element?.getAttribute('data-difficulty')
-      || element?.getAttribute('data-category')
-      || element?.textContent
-      || '';
+    const value = root.querySelector(selector)?.textContent || '';
     if (value.trim()) return value.trim();
   }
   return '';
@@ -236,7 +239,9 @@ function containsText(root: Element | null, value: string): boolean {
 function safeHttpUrl(value: string): string {
   try {
     const url = new URL(value, document.baseURI);
-    return /^https?:$/.test(url.protocol) ? url.href : '';
+    return /^https?:$/.test(url.protocol)
+      ? url.href.replace(/\(/g, '%28').replace(/\)/g, '%29')
+      : '';
   } catch {
     return '';
   }

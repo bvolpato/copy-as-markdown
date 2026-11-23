@@ -10,10 +10,20 @@ import * as Utils from '../core/utils';
 register({
   name: 'Netflix',
   matches: [
-    '*://www.netflix.com/*',
-    '*://netflix.com/*',
+    '*://www.netflix.com/title/*',
+    '*://www.netflix.com/watch/*',
+    '*://www.netflix.com/*/title/*',
+    '*://www.netflix.com/*/watch/*',
+    '*://www.netflix.com/browse?*jbv=*',
+    '*://www.netflix.com/*/browse?*jbv=*',
+    '*://netflix.com/title/*',
+    '*://netflix.com/watch/*',
+    '*://netflix.com/*/title/*',
+    '*://netflix.com/*/watch/*',
+    '*://netflix.com/browse?*jbv=*',
+    '*://netflix.com/*/browse?*jbv=*',
   ],
-  pathnameRegex: /^\/(?:[a-z]{2}(?:-[a-z]{2})?\/)?(?:watch|title)\/\d+(?:\/[^/?#]*)?\/?$/,
+  pathnameRegex: /^\/(?:[a-z]{2}(?:-[a-z]{2})?\/)?(?:(?:watch|title)\/\d+(?:\/[^/?#]*)?|browse)\/?$/i,
   buttonPlacement: 'anchor',
   anchor: {
     selector: '[data-uia="metadata"] h2, [data-uia="video-title"], [data-uia="title-info"], h1',
@@ -61,11 +71,12 @@ register({
       '[data-uia="title-info-cast"]',
       '.title-info-cast',
     ]) || peopleValue(payload?.creator);
-    const rating = firstText([
-      '[data-uia="video-rating"]',
+    const rawRating = firstText([
       '[data-uia="rating"]',
+      '[data-uia="match-score"]',
     ]) || stringValue(payload?.aggregateRating && asRecord(payload.aggregateRating)?.ratingValue);
-    const route = window.location.pathname.match(/^\/(?:[a-z]{2}(?:-[a-z]{2})?\/)?(watch|title)\//)?.[1] || 'title';
+    const rating = rawRating && rawRating !== maturity ? rawRating : '';
+    const route = window.location.pathname.match(/^\/(?:[a-z]{2}(?:-[a-z]{2})?\/)?(watch|title)\//i)?.[1]?.toLowerCase() || 'title';
 
     const metadata: Record<string, string> = {
       source: 'Netflix', title, url, route, year, maturity, duration, genres, creator, rating,
@@ -84,9 +95,23 @@ register({
     if (titleInfo) {
       const clone = cleanTitleContent(titleInfo);
       clone.querySelectorAll('h1, h2').forEach((heading) => {
-        if (heading.textContent?.trim() === title) heading.remove();
+        if (heading.textContent?.trim() === title) {
+          heading.remove();
+        } else {
+          const replacement = document.createElement('h3');
+          replacement.textContent = heading.textContent;
+          heading.replaceWith(replacement);
+        }
       });
-      parts.push('## Title Information', '', Markdown.elementToMarkdown(clone), '');
+      if (description) {
+        clone.querySelectorAll(
+          '[data-uia="video-description"], [data-uia="title-info-synopsis"], [data-uia="title-info-synopsis-talent"], .title-info-synopsis',
+        ).forEach((el) => {
+          if (normalizeText(el.textContent || '') === normalizeText(description)) el.remove();
+        });
+      }
+      const infoMarkdown = Markdown.elementToMarkdown(clone);
+      if (infoMarkdown) parts.push('## Title Information', '', infoMarkdown, '');
     }
 
     const episode = route === 'watch' ? firstText([
@@ -110,8 +135,15 @@ register({
     ]) {
       const items = Array.from(document.querySelectorAll(selector));
       if (items.length) {
-        parts.push(`## ${label}`, '', ...items.map((item) =>
-          Markdown.elementToMarkdown(cleanTitleContent(item))), '');
+        parts.push(`## ${label}`, '', ...items.map((item) => {
+          const cleaned = cleanTitleContent(item);
+          cleaned.querySelectorAll('h1, h2').forEach((heading) => {
+            const replacement = document.createElement('h3');
+            replacement.textContent = heading.textContent;
+            heading.replaceWith(replacement);
+          });
+          return Markdown.elementToMarkdown(cleaned);
+        }), '');
       }
     }
 
@@ -120,6 +152,10 @@ register({
 });
 
 type JsonRecord = Record<string, unknown>;
+
+function normalizeText(value: string): string {
+  return value.replace(/\s+/g, ' ').trim().toLowerCase();
+}
 
 function cleanTitleContent(element: Element): Element {
   return Utils.removeNoise(element, [

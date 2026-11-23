@@ -11,6 +11,8 @@ register({
   matches: [
     '*://www.bing.com/search*',
     '*://bing.com/search*',
+    '*://cn.bing.com/search*',
+    '*://global.bing.com/search*',
   ],
   pathnameRegex: /^\/search\/?$/,
   buttonPlacement: 'anchor',
@@ -18,6 +20,7 @@ register({
     selector: '#b_header .b_scopebar ul, #b_header',
     position: 'append',
     style: 'pill',
+    wrapperTag: 'li',
     css: { marginLeft: '12px' },
   },
 
@@ -30,24 +33,29 @@ register({
     const parts: string[] = ['# Bing Search\n'];
     if (query) parts.push(`**Query:** ${escapeMarkdownText(query)}\n`);
 
-    const answer = document.querySelector('.b_ans .b_focusTextLarge, .b_ans .b_xlText, .b_focusTextLarge');
+    const answer = document.querySelector(
+      '#b_copilot_search, [data-testid="copilot-answer"], .b_ans .b_ai_answer, .gs_cit, .b_ans .b_focusTextLarge, .b_ans .b_xlText, .b_focusTextLarge',
+    );
     const answerText = cleanText(answer?.textContent || '');
     if (answerText) parts.push('## Answer\n', `${answerText}\n`);
 
     const results = document.querySelectorAll('.b_algo');
     if (results.length > 0) {
-      parts.push('## Search Results\n');
       let count = 0;
       const seen = new Set<string>();
       results.forEach((result) => {
+        if (result.closest('.b_ad, .b_adTop, .b_adBottom')) return;
         const titleEl = result.querySelector('h2 a, h2') as HTMLAnchorElement | HTMLElement | null;
         const link = firstSafeLink(result.querySelectorAll<HTMLAnchorElement>('h2 a[href], a[href]'));
-        const snippet = cleanText(result.querySelector('.b_caption p, .b_lineclamp2, .b_paractl')?.textContent || '');
+        const snippet = cleanText(result.querySelector(
+          '.b_caption p, .b_lineclamp2, .b_lineclamp3, .b_lineclamp4, .b_algoSlug, .b_paractl',
+        )?.textContent || '');
         const title = cleanText(titleEl?.textContent || '');
         if (!title || !link) return;
         const key = `${title}\n${link}`;
         if (seen.has(key)) return;
         seen.add(key);
+        if (count === 0) parts.push('## Search Results\n');
         count += 1;
         parts.push(`### ${count}. ${escapeMarkdownText(title)}\n`);
         parts.push(`**URL:** ${link}\n`);
@@ -80,7 +88,9 @@ register({
 
 function firstSafeLink(links: NodeListOf<HTMLAnchorElement>): string {
   for (const link of links) {
-    const href = safeHttpUrl(link.href || link.getAttribute('href') || '');
+    const raw = (link.getAttribute('href') || '').trim();
+    if (!raw || raw.startsWith('#')) continue;
+    const href = safeHttpUrl(link.href || raw);
     if (href) return href;
   }
   return '';
@@ -90,13 +100,19 @@ function safeHttpUrl(value: string): string {
   try {
     const url = new URL(value, document.baseURI);
     if (!/^https?:$/.test(url.protocol)) return '';
-    if (/^(?:www\.)?bing\.com$/i.test(url.hostname) && url.pathname === '/ck/a') {
-      const direct = url.searchParams.get('url');
-      const encoded = url.searchParams.get('u');
-      const destination = direct || (encoded?.startsWith('a1') ? decodeBingUrl(encoded.slice(2)) : '');
-      if (destination) {
-        const parsed = new URL(destination);
-        if (/^https?:$/.test(parsed.protocol)) return parsed.href;
+    if (/^(?:(?:www|cn|global)\.)?bing\.com$/i.test(url.hostname)) {
+      if (url.pathname === '/ck/a') {
+        const direct = url.searchParams.get('url');
+        const encoded = url.searchParams.get('u');
+        const destination = direct || (encoded?.startsWith('a1') ? decodeBingUrl(encoded.slice(2)) : '');
+        if (destination) {
+          const parsed = new URL(destination);
+          if (/^https?:$/.test(parsed.protocol)) return parsed.href;
+        }
+        return '';
+      }
+      if (url.pathname === '/search' || url.pathname === '/search/' || url.pathname.startsWith('/aclick')) {
+        return '';
       }
     }
     return url.href;
@@ -108,7 +124,9 @@ function safeHttpUrl(value: string): string {
 function decodeBingUrl(value: string): string {
   try {
     const normalized = value.replace(/-/g, '+').replace(/_/g, '/');
-    return atob(normalized.padEnd(Math.ceil(normalized.length / 4) * 4, '='));
+    const binary = atob(normalized.padEnd(Math.ceil(normalized.length / 4) * 4, '='));
+    const bytes = Uint8Array.from(binary, (char) => char.charCodeAt(0));
+    return new TextDecoder().decode(bytes);
   } catch {
     return '';
   }

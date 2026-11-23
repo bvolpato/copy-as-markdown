@@ -1,5 +1,5 @@
 /**
- * Instagram extractor for posts, reels, legacy IGTV, and the active feed item.
+ * Instagram extractor for posts, reels, profiles, legacy IGTV, and the active feed item.
  */
 
 import { register } from '../core/registry';
@@ -35,13 +35,14 @@ register({
     '*://www.instagram.com/*',
     '*://instagram.com/*',
   ],
-  pathnameRegex: /^\/(?:|(?:p|reel|tv)\/[^/]+\/?)$/,
+  pathnameRegex: /^\/(?:|(?:[^/]+\/)?(?:p|reel|reels|tv)\/[^/]+\/?|(?!(?:explore|direct|accounts|stories|reels|reel|p|tv|legal|about|developer|directory|api|graphql|challenge|session)(?:\/|$))[A-Za-z0-9._]{1,30}\/?)$/,
   buttonPlacement: 'anchor',
   anchor: {
     selector: [
       'article section',
       'article header [role="button"]',
       'main article',
+      'main header section',
     ].join(', '),
     position: 'overlay',
     style: 'icon',
@@ -49,20 +50,33 @@ register({
 
   async extract() {
     const url = Utils.getCanonicalUrl();
-    const route = window.location.pathname.match(/^\/(p|reel|tv)\/([^/]+)/);
-    const routeType = route?.[1] || 'feed';
+    const pathname = window.location.pathname;
+    const route = pathname.match(/^\/(?:[^/]+\/)?(p|reel|reels|tv)\/([^/]+)/);
+    const rawRouteType = route?.[1] || (pathname === '/' ? 'feed' : 'profile');
+    const routeType = rawRouteType === 'reels' ? 'reel' : rawRouteType;
     const shortcode = route?.[2] || '';
-    const article = findActiveArticle(shortcode);
-    const domPost = extractDomPost(article, shortcode);
+    const article = findActiveContainer(shortcode, routeType);
+    const domPost = extractDomPost(article, shortcode, routeType);
     const embeddedPost = shortcode ? findEmbeddedPost(shortcode) : null;
     const post = mergePosts(embeddedPost, domPost);
-    const comments = extractComments(article || document, post);
+    const comments = article ? extractComments(article, post) : [];
     const limitedComments = limitCollection(comments, COMMENT_LIMIT);
-    const title = post.author ? `Instagram ${routeType === 'reel' ? 'reel' : 'post'} by @${post.author}` : 'Instagram post';
+    const labelKind = routeType === 'reel' ? 'reel' : routeType === 'profile' ? 'profile' : 'post';
+    const title = post.author
+      ? `Instagram ${labelKind} by @${post.author}`
+      : `Instagram ${labelKind}`;
 
     const metadata: Record<string, string | number | undefined> = {
       source: 'Instagram',
-      type: routeType === 'feed' ? 'active feed item' : routeType === 'reel' ? 'reel' : routeType === 'tv' ? 'IGTV video' : 'post',
+      type: routeType === 'feed'
+        ? 'active feed item'
+        : routeType === 'reel'
+          ? 'reel'
+          : routeType === 'tv'
+            ? 'IGTV video'
+            : routeType === 'profile'
+              ? 'profile'
+              : 'post',
       title,
       author: post.author ? `@${post.author}` : '',
       author_name: post.authorName,
@@ -76,7 +90,9 @@ register({
       media_items: post.media.length,
       completeness: shortcode
         ? 'post fields plus comments currently loaded in page'
-        : 'active visible feed item only',
+        : routeType === 'profile'
+          ? 'visible profile metadata and loaded posts'
+          : 'active visible feed item only',
     };
 
     const parts: string[] = [`# ${title}`, ''];
@@ -90,7 +106,7 @@ register({
       ['Likes', post.likes], ['Comments', post.comments], ['Views', post.views],
     ].filter(([, value]) => value).map(([label, value]) => `- **${label}:** ${value}`);
     if (engagement.length) parts.push('## Engagement', '', ...engagement, '');
-    if (post.media.length) parts.push('## Media', '', ...post.media.map((alt) => `- ${alt}`), '');
+    if (post.media.length) parts.push('## Media', '', ...post.media.map((item) => `- ${item}`), '');
     if (limitedComments.items.length) {
       parts.push(`## Comments (${limitedComments.items.length} loaded)`, '');
       limitedComments.items.forEach((comment) => appendComment(parts, comment));
@@ -121,16 +137,22 @@ function emptyPost(shortcode = ''): InstagramPost {
   };
 }
 
-function findActiveArticle(shortcode: string): Element | null {
+function findActiveContainer(shortcode: string, routeType: string): Element | null {
   const articles = Array.from(document.querySelectorAll('main article, article'));
-  if (shortcode) {
+  if (shortcode && articles.length) {
     const match = articles.find((article) =>
-      article.querySelector(`a[href*="/p/${shortcode}"], a[href*="/reel/${shortcode}"], a[href*="/tv/${shortcode}"]`),
+      article.querySelector(`a[href*="/p/${shortcode}"], a[href*="/reel/${shortcode}"], a[href*="/reels/${shortcode}"], a[href*="/tv/${shortcode}"]`),
     );
     if (match) return match;
     if (articles.length === 1) return articles[0];
   }
-  return mostVisible(articles) || document.querySelector('main article') || null;
+  const visibleArticle = mostVisible(articles);
+  if (visibleArticle) return visibleArticle;
+
+  if (routeType === 'reel' || routeType === 'profile' || shortcode) {
+    return document.querySelector('[role="dialog"] section, main section, main');
+  }
+  return null;
 }
 
 function mostVisible(elements: Element[]): Element | null {
@@ -146,29 +168,47 @@ function mostVisible(elements: Element[]): Element | null {
   return best || elements[0] || null;
 }
 
-function extractDomPost(article: Element | null, shortcode: string): InstagramPost {
+function extractDomPost(container: Element | null, shortcode: string, routeType: string): InstagramPost {
   const post = emptyPost(shortcode);
-  if (!article) {
+  if (routeType === 'profile') {
+    const pathUser = window.location.pathname.replace(/^\/|\/$/g, '');
+    if (pathUser) post.author = pathUser;
+  }
+  if (!container) {
     post.caption = clean(Utils.getMeta('description'));
     return post;
   }
 
-  const authorLink = article.querySelector<HTMLAnchorElement>('header a[href^="/"], a[href^="/"][role="link"]');
-  post.author = clean(authorLink?.getAttribute('href')?.split('/').filter(Boolean)[0] || authorLink?.textContent || '').replace(/^@/, '');
-  post.authorName = attr(article, ['header img[alt]'], 'alt').replace(/['’]s profile picture.*$/i, '').trim();
-  post.caption = text(article, ['h1', '[data-testid="post-caption"]', 'section + div h1']);
-  post.timestamp = attr(article, ['time[datetime]'], 'datetime') || text(article, ['time']);
-  post.likes = engagementFromDom(article, /likes?/i, ['section button', 'a[href$="/liked_by/"]', '[data-testid="like-count"]']);
-  post.comments = engagementFromDom(article, /comments?/i, ['a[href*="comments"]', 'button', '[data-testid="comment-count"]']);
-  post.views = engagementFromDom(article, /views?|plays?/i, ['span', 'div']);
-  post.media = unique(Array.from(article.querySelectorAll<HTMLImageElement>('img[alt]'))
-    .map((image) => clean(image.alt))
-    .filter((alt) => alt && !/profile picture|avatar|emoji/i.test(alt)));
-  article.querySelectorAll('figcaption').forEach((caption) => {
-    const value = clean(caption.textContent || '');
-    if (value) post.media.push(value);
+  const authorLink = container.querySelector<HTMLAnchorElement>('header a[href^="/"], a[href^="/"][role="link"]');
+  post.author = post.author
+    || clean(authorLink?.getAttribute('href')?.split('/').filter(Boolean)[0] || authorLink?.textContent || '').replace(/^@/, '');
+  post.authorName = attr(container, ['header img[alt]'], 'alt').replace(/['’]s profile picture.*$/i, '').trim()
+    || (routeType === 'profile' ? text(container, ['header h1', 'header span']) : '');
+  post.caption = text(container, ['h1', '[data-testid="post-caption"]', 'section + div h1'])
+    || (routeType === 'profile' ? clean(Utils.getMeta('description')) : '');
+  post.timestamp = attr(container, ['time[datetime]'], 'datetime') || text(container, ['time']);
+  post.likes = engagementFromDom(container, /likes?/i, ['section button', 'a[href$="/liked_by/"]', '[data-testid="like-count"]']);
+  post.comments = engagementFromDom(container, /comments?/i, ['a[href*="comments"]', 'button', '[data-testid="comment-count"]']);
+  post.views = engagementFromDom(container, /views?|plays?/i, ['span', 'div']);
+
+  const seenMedia = new Set<string>();
+  container.querySelectorAll<HTMLImageElement>('img[src], img[alt]').forEach((image) => {
+    const alt = clean(image.alt);
+    if (alt && /profile picture|avatar|emoji|icon/i.test(alt)) return;
+    const src = safeHttpUrl(image.currentSrc || image.src || '');
+    if (!alt && !src) return;
+    const key = src || alt;
+    if (seenMedia.has(key)) return;
+    seenMedia.add(key);
+    post.media.push(src ? `[${escapeLabel(alt || 'Instagram image')}](${src})` : alt);
   });
-  post.media = unique(post.media);
+  container.querySelectorAll('figcaption').forEach((caption) => {
+    const value = clean(caption.textContent || '');
+    if (value && !seenMedia.has(value)) {
+      seenMedia.add(value);
+      post.media.push(value);
+    }
+  });
   return post;
 }
 
@@ -178,7 +218,7 @@ function findEmbeddedPost(shortcode: string): InstagramPost | null {
     'script[type="application/json"], script[type="application/ld+json"]',
   )) {
     const raw = script.textContent || '';
-    if (!raw || raw.length > 8_000_000) continue;
+    if (!raw || raw.length > 8_000_000 || !raw.includes(shortcode)) continue;
     try { payloads.push(JSON.parse(raw)); } catch { /* ignore non-JSON state */ }
   }
 
@@ -214,16 +254,25 @@ function mapMediaRecord(record: Record<string, unknown>, shortcode: string): Ins
   post.likes = nestedCount(record, ['like_count'], ['edge_media_preview_like', 'count'], ['edge_liked_by', 'count']);
   post.comments = nestedCount(record, ['comment_count'], ['edge_media_to_parent_comment', 'count'], ['edge_media_to_comment', 'count']);
   post.views = nestedCount(record, ['video_view_count'], ['video_play_count'], ['play_count']);
-  const directAlt = stringValue(record.accessibility_caption || record.accessibilityCaption || record.alt);
-  if (directAlt) post.media.push(directAlt);
 
+  const appendEmbeddedMedia = (entry: Record<string, unknown>) => {
+    const alt = stringValue(entry.accessibility_caption || entry.accessibilityCaption || entry.alt);
+    const candidates = getNestedArray(entry, ['image_versions2', 'candidates']);
+    const firstCandidate = candidates.length && isRecord(candidates[0]) ? candidates[0] : {};
+    const imgUrl = safeHttpUrl(stringValue(entry.display_url || firstCandidate.url));
+    if (imgUrl) {
+      post.media.push(`[${escapeLabel(alt || 'Instagram media')}](${imgUrl})`);
+    } else if (alt) {
+      post.media.push(alt);
+    }
+  };
+
+  appendEmbeddedMedia(record);
   const carousel = Array.isArray(record.carousel_media) ? record.carousel_media : [];
   const sidecar = getNestedArray(record, ['edge_sidecar_to_children', 'edges'])
     .map((edge) => isRecord(edge) && isRecord(edge.node) ? edge.node : edge);
   [...carousel, ...sidecar].forEach((entry) => {
-    if (!isRecord(entry)) return;
-    const alt = stringValue(entry.accessibility_caption || entry.accessibilityCaption || entry.alt);
-    if (alt) post.media.push(alt);
+    if (isRecord(entry)) appendEmbeddedMedia(entry);
   });
   post.media = unique(post.media);
   return post;
@@ -246,8 +295,8 @@ function mapLdRecord(record: Record<string, unknown>, shortcode: string): Instag
     else if (/comment/i.test(kind)) post.comments = count;
     else if (/watch|view/i.test(kind)) post.views = count;
   });
-  const thumbnail = record.thumbnailUrl;
-  if (typeof thumbnail === 'string') post.media.push(`Thumbnail: ${thumbnail}`);
+  const thumbnail = safeHttpUrl(stringValue(record.thumbnailUrl));
+  if (thumbnail) post.media.push(`[Thumbnail](${thumbnail})`);
   return post;
 }
 
@@ -266,11 +315,15 @@ function mergePosts(primary: InstagramPost | null, fallback: InstagramPost): Ins
   };
 }
 
-function extractComments(scope: ParentNode, post: InstagramPost): InstagramComment[] {
-  const nodes = scope.querySelectorAll('[data-testid="comment"], ul li');
+function extractComments(scope: Element, post: InstagramPost): InstagramComment[] {
+  const allowListItems = scope.matches('article, [role="dialog"]')
+    || Boolean(scope.querySelector('[data-testid="post-comments"], [aria-label*="Comments" i]'));
+  const selector = allowListItems ? '[data-testid="comment"], ul li' : '[data-testid="comment"]';
+  const nodes = scope.querySelectorAll(selector);
   const comments: InstagramComment[] = [];
   const seen = new Set<string>();
   nodes.forEach((node) => {
+    if (node.closest('nav, header, footer')) return;
     const timeEl = node.querySelector('time');
     const authorLink = node.querySelector<HTMLAnchorElement>('h3 a[href^="/"], a[href^="/"]');
     const author = clean(authorLink?.textContent || '').replace(/^@/, '');
@@ -358,6 +411,15 @@ function attr(scope: ParentNode, selectors: string[], name: string): string {
   }
   return '';
 }
+function safeHttpUrl(value: string): string {
+  try {
+    const url = new URL(value, document.baseURI);
+    return /^https?:$/.test(url.protocol) ? url.href : '';
+  } catch {
+    return '';
+  }
+}
+function escapeLabel(value: string): string { return value.replace(/[\\\[\]]/g, '\\$&'); }
 function clean(value: string): string { return Markdown.normalizeWhitespace(value); }
 function unique(values: string[]): string[] { return [...new Set(values)]; }
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -368,8 +430,11 @@ function countValue(value: unknown): string {
   return typeof value === 'number' || typeof value === 'string' ? String(value) : '';
 }
 function formatTimestamp(value: unknown): string {
-  if (typeof value === 'number' || (typeof value === 'string' && /^\d{10}$/.test(value))) {
-    return new Date(Number(value) * 1000).toISOString();
+  if (typeof value === 'number' || (typeof value === 'string' && /^\d{10,13}$/.test(value))) {
+    const num = Number(value);
+    const ms = num < 1e12 ? num * 1000 : num;
+    const date = new Date(ms);
+    return Number.isNaN(date.getTime()) ? '' : date.toISOString();
   }
   return stringValue(value);
 }

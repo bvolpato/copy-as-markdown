@@ -1,5 +1,5 @@
 /**
- * Pinterest extractor for pins, pin feeds, ideas, and search results.
+ * Pinterest extractor for pins, pin feeds, ideas, boards, profiles, and search results.
  *
  * Pinterest renders most content through a virtualized React tree. Prefer the
  * active pin DOM, then fall back to the bounded JSON-LD/PWS payloads which are
@@ -12,6 +12,13 @@ import { register } from '../core/registry';
 import * as Utils from '../core/utils';
 
 const COMMENT_LIMIT = 30;
+
+const PINTEREST_TLDS = [
+  'com', 'co.uk', 'de', 'fr', 'ca', 'jp', 'es', 'it', 'com.au',
+  'com.br', 'com.mx', 'co.kr', 'at', 'ch', 'nl', 'se', 'pt', 'cl', 'ie', 'nz', 'ph', 'dk',
+];
+
+const PINTEREST_MATCHES = PINTEREST_TLDS.map((tld) => `*://*.pinterest.${tld}/*`);
 
 interface PinterestPin {
   id: string;
@@ -34,12 +41,8 @@ interface PinterestComment {
 
 register({
   name: 'Pinterest',
-  matches: [
-    '*://www.pinterest.com/*',
-    '*://pinterest.com/*',
-    '*://*.pinterest.com/*',
-  ],
-  pathnameRegex: /^\/(?:pin\/[^/]+|ideas(?:\/[^/]+(?:\/\d+)?)?|search\/(?:pins|boards|ideas)|[^/]+\/saved)\/?$/,
+  matches: PINTEREST_MATCHES,
+  pathnameRegex: /^\/(?:pin\/[^/]+|ideas(?:\/[^/]+(?:\/\d+)?)?|search\/(?:pins|boards|ideas)|(?!(?:pin|ideas|ideas-[^/]*|search|settings|login|logout|signup|business|about|help|privacy|terms|notifications|messages|password|resource|_)(?:\/|$))[A-Za-z0-9._-]+(?:\/(?!(?:settings|edit|delete|followers|following)(?:\/|$))[A-Za-z0-9._-]+)?)\/?$/,
   buttonPlacement: 'anchor',
   anchor: {
     selector: [
@@ -56,11 +59,11 @@ register({
   async extract() {
     const url = Utils.getCanonicalUrl();
     const route = parseRoute();
-    const root = findPinRoot(route.id) || (route.id ? document.documentElement : findVisiblePin());
+    const root = findPinRoot(route.id) || (route.id ? document.querySelector('main') : findVisiblePin());
     const domPin = extractDomPin(root, route.id);
     const embeddedPin = route.id ? findEmbeddedPin(route.id) : null;
     const pin = mergePins(embeddedPin, domPin);
-    const comments = extractComments(root || document);
+    const comments = root ? extractComments(root) : [];
     const limitedComments = limitCollection(comments, COMMENT_LIMIT);
     const type = route.id ? 'pin' : route.kind === 'search' ? 'search results' : 'pin feed';
     const title = pin.title || Utils.getPageTitle() || `Pinterest ${type}`;
@@ -132,12 +135,15 @@ function emptyPin(id = ''): PinterestPin {
 
 function findPinRoot(id: string): Element | null {
   const candidates = Array.from(document.querySelectorAll<HTMLElement>([
-    '[data-test-id="pin"]', '[data-test-id="pinWrapper"]', '[data-test-id="pin-closeup"]',
+    '[data-test-id="pin-closeup"]', '[data-test-id="closeup-body"]',
+    '[data-test-id="pin"]', '[data-test-id="pinWrapper"]',
     'article', '[data-test-id="pinGrid"] > *',
   ].join(', ')));
   if (!id) return mostVisible(candidates);
-  return candidates.find((candidate) => Array.from(candidate.querySelectorAll<HTMLAnchorElement>('a[href]'))
-    .some((link) => /\/pin\//.test(link.pathname) && link.pathname.includes(`/${id}`))) || null;
+  const linked = candidates.find((candidate) => Array.from(candidate.querySelectorAll<HTMLAnchorElement>('a[href]'))
+    .some((link) => /\/pin\//.test(link.pathname) && link.pathname.includes(`/${id}`)));
+  if (linked) return linked;
+  return document.querySelector('[data-test-id="pin-closeup"], [data-test-id="closeup-body"], main [data-test-id="pin"], main article');
 }
 
 function findVisiblePin(): Element | null {
@@ -176,7 +182,8 @@ function extractDomPin(scope: Element | null, id: string): PinterestPin {
   ]);
   pin.author = text(scope, [
     '[data-test-id="creator-profile-name"]', '[data-test-id="pin-creator-name"]',
-    'a[href^="/"][href$="/"]', '[data-test-id="creatorName"]',
+    '[data-test-id="creatorName"]', '[data-test-id="official-user-attribution"] a',
+    '[data-test-id="user-profile-link"]',
   ]).replace(/^@/, '');
   pin.timestamp = attr(scope, ['time[datetime]'], 'datetime') || text(scope, ['time']);
   pin.saves = count(scope, /save|saved/i);
@@ -226,10 +233,11 @@ function appendComment(parts: string[], comment: PinterestComment): void {
 function extractMedia(scope: ParentNode): string[] {
   const media: string[] = [];
   scope.querySelectorAll<HTMLImageElement>('img[src], img[data-src]').forEach((image) => {
-    const alt = clean(image.alt).replace(/\b(pin|image)\b/gi, '').trim() || 'Pinterest image';
+    if (/profile|avatar|logo|icon/i.test(image.alt)) return;
+    const alt = clean(image.alt) || 'Pinterest image';
     const src = safeHttpUrl(image.currentSrc || image.src || image.getAttribute('data-src') || '');
     const value = src ? `[${escapeLabel(alt)}](${src})` : alt;
-    if (value && !media.includes(value) && !/profile|avatar|logo|icon/i.test(image.alt)) media.push(value);
+    if (value && !media.includes(value)) media.push(value);
   });
   return media;
 }
@@ -240,14 +248,20 @@ function findEmbeddedPin(id: string): PinterestPin | null {
     'script[type="application/ld+json"], script[type="application/json"], script[id*="PWS" i], script[id*="initial" i]',
   )) {
     const raw = script.textContent || '';
-    if (!raw || raw.length > 8_000_000) continue;
+    if (!raw || raw.length > 8_000_000 || !raw.includes(id)) continue;
     try { payloads.push(JSON.parse(raw)); } catch { /* hydration payload may not be JSON */ }
   }
   for (const payload of payloads) {
     const record = findObject(payload, (candidate) => {
       const candidateId = stringValue(candidate.id || candidate.pin_id || candidate.pinId);
       const candidateUrl = stringValue(candidate.url || candidate.link);
-      return candidateId === id || candidateUrl.includes(`/pin/${id}`);
+      const matchesId = candidateId === id || candidateUrl.includes(`/pin/${id}`);
+      if (!matchesId) return false;
+      return Boolean(
+        candidate.title || candidate.grid_title || candidate.description
+        || candidate.closeup_description || candidate.images || candidate.pinner
+        || candidate.creator || candidate.author,
+      );
     });
     if (record) return mapEmbeddedPin(record, id);
     const ld = findObject(payload, (candidate) =>
@@ -262,10 +276,12 @@ function findEmbeddedPin(id: string): PinterestPin | null {
 function mapEmbeddedPin(record: Record<string, unknown>, id: string): PinterestPin {
   const pin = emptyPin(id);
   const creator = isRecord(record.creator) ? record.creator
-    : isRecord(record.author) ? record.author : isRecord(record.user) ? record.user : {};
+    : isRecord(record.pinner) ? record.pinner
+      : isRecord(record.author) ? record.author
+        : isRecord(record.user) ? record.user : {};
   pin.title = stringValue(record.title || record.grid_title || record.name);
   pin.description = stringValue(record.description || record.caption || record.closeup_description);
-  pin.author = stringValue(creator.name || creator.username || record.username);
+  pin.author = stringValue(creator.full_name || creator.name || creator.username || record.username);
   pin.timestamp = formatTimestamp(record.datePublished || record.created_at || record.createdAt);
   pin.saves = nestedCount(record, ['aggregated_pin_data', 'aggregated_stats', 'saves'], ['save_count'], ['repin_count']);
   pin.comments = nestedCount(record, ['comment_count'], ['aggregated_pin_data', 'comment_count']);

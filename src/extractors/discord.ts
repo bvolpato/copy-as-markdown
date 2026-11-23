@@ -26,6 +26,8 @@ const MESSAGE_SELECTOR = [
   '[id^="message-content-"]',
 ].join(', ');
 
+let isVisible: (element: Element | null) => boolean = Utils.createVisibilityChecker();
+
 register({
   name: 'Discord',
   matches: [
@@ -35,23 +37,33 @@ register({
   ],
 
   async extract() {
-    const server = getServerName();
+    isVisible = Utils.createVisibilityChecker();
+    const isDm = /^\/channels\/@me(?:\/|$)/i.test(window.location.pathname);
+    const server = isDm ? '' : getServerName();
     const channel = getChannelName();
     const threadRoot = findThreadRoot();
-    const context = threadRoot ? 'thread' : 'channel';
+    const context = threadRoot ? 'thread' : isDm ? 'dm' : 'channel';
     const messages = extractMessages(threadRoot || findChannelRoot() || document);
     const limited = limitCollection(messages);
     const metadata: PageMetadata = {
       source: 'Discord',
-      type: context === 'thread' ? 'Discord Thread' : 'Discord Channel',
+      type: context === 'thread'
+        ? 'Discord Thread'
+        : context === 'dm'
+          ? 'Discord Direct Message'
+          : 'Discord Channel',
       url: Utils.getCanonicalUrl(),
-      server,
-      channel,
+      server: server || undefined,
+      channel: channel || undefined,
       messages: limited.items.length,
       scope: 'loaded semantic DOM; older history may be virtualized or unloaded',
     };
 
-    const heading = ['Discord', server, channel ? formatChannel(channel) : '']
+    const heading = [
+      'Discord',
+      server,
+      channel ? (isDm ? channel : formatChannel(channel)) : '',
+    ]
       .filter(Boolean)
       .join(' · ');
     const body = buildMarkdown(heading, limited.items);
@@ -77,7 +89,9 @@ function extractMessages(scope: ParentNode): DiscordMessage[] {
   roots.forEach((root) => {
     if (isExcluded(root)) return;
     const bodyElement = findBodyElement(root);
-    const body = bodyElement ? messageBodyToMarkdown(bodyElement) : '';
+    const rawBody = bodyElement ? messageBodyToMarkdown(bodyElement) : '';
+    const embeds = extractEmbeds(root);
+    const body = [rawBody, ...embeds].filter(Boolean).join('\n\n');
     const attachments = getAttachments(root);
     if (!body && attachments.length === 0) return;
 
@@ -99,7 +113,7 @@ function extractMessages(scope: ParentNode): DiscordMessage[] {
       author,
       timestamp,
       body,
-      links: getLinks(bodyElement || root, attachments),
+      links: getLinks(bodyElement || root, attachments, body),
       attachments,
       reactions: getReactions(root),
       replyTo,
@@ -121,6 +135,13 @@ function canonicalMessageElements(scope: ParentNode): HTMLElement[] {
 }
 
 function findBodyElement(root: ParentNode): HTMLElement | null {
+  if (
+    root instanceof HTMLElement
+    && root.matches('[id^="message-content-"], [class*="messageContent"]')
+    && !root.closest('[class*="repliedMessage"]')
+  ) {
+    return root;
+  }
   const candidates = Array.from(root.querySelectorAll<HTMLElement>(
     '[id^="message-content-"], [class*="messageContent"]',
   ));
@@ -162,19 +183,59 @@ function getReplyContext(root: Element): string {
   return summary || normalize(reply.getAttribute('aria-label') || reply.textContent || '');
 }
 
+function extractEmbeds(root: Element): string[] {
+  const embeds: string[] = [];
+  const candidates = Array.from(root.querySelectorAll<HTMLElement>('[class*="embedWrapper"]'))
+    .filter((candidate) => !candidate.closest('[class*="repliedMessage"]'));
+  const unique = candidates.filter((candidate, index, all) =>
+    !all.some((other, otherIndex) => otherIndex < index && other.contains(candidate)),
+  );
+  unique.forEach((embed) => {
+    const lines: string[] = [];
+    const titleEl = embed.querySelector<HTMLElement>('[class*="embedTitle"]');
+    const titleLink = titleEl?.matches('a[href]')
+      ? titleEl as HTMLAnchorElement
+      : titleEl?.querySelector<HTMLAnchorElement>('a[href]') || null;
+    const titleText = normalize(titleEl?.textContent || '');
+    const titleHref = safeHttpUrl(titleLink?.href || '');
+    if (titleText) {
+      lines.push(titleHref ? `**${escapeLabel(titleText)}** (${titleHref})` : `**${titleText}**`);
+    }
+    const descriptionEl = embed.querySelector<HTMLElement>('[class*="embedDescription"]');
+    const description = descriptionEl ? messageBodyToMarkdown(descriptionEl) : '';
+    if (description) lines.push(description);
+    embed.querySelectorAll<HTMLElement>('[class*="embedField"]').forEach((field) => {
+      if (field.matches('[class*="embedFields"]')) return;
+      const fieldName = normalize(field.querySelector<HTMLElement>('[class*="embedFieldName"]')?.textContent || '');
+      const fieldValueEl = field.querySelector<HTMLElement>('[class*="embedFieldValue"]');
+      const fieldValue = fieldValueEl ? messageBodyToMarkdown(fieldValueEl) : '';
+      if (fieldName && fieldValue) lines.push(`**${fieldName}:** ${fieldValue}`);
+      else if (fieldValue) lines.push(fieldValue);
+    });
+    if (lines.length > 0) {
+      embeds.push(lines.map((line) => line.split('\n').map((sub) => `> ${sub}`).join('\n')).join('\n>\n'));
+    }
+  });
+  return embeds;
+}
+
 function getAttachments(root: Element): string[] {
   const attachments = new Map<string, string>();
-  root.querySelectorAll<HTMLElement>([
+  const rawCandidates = Array.from(root.querySelectorAll<HTMLElement>([
     '[class*="attachment"]',
     '[class*="fileWrapper"]',
-    '[class*="embedWrapper"]',
-  ].join(', ')).forEach((candidate) => {
-    if (candidate.closest('[class*="repliedMessage"]')) return;
+  ].join(', '))).filter((candidate) =>
+    !candidate.closest('[class*="repliedMessage"], [class*="embedWrapper"]')
+    && !/\battachmentsContainer\b/i.test(candidate.className),
+  );
+  const candidates = rawCandidates.filter((candidate) =>
+    !rawCandidates.some((other) => other !== candidate && candidate.contains(other)),
+  );
+  candidates.forEach((candidate) => {
     const link = candidate.querySelector<HTMLAnchorElement>('a[href]');
     const name = normalize(
       link?.getAttribute('download')
       || candidate.querySelector<HTMLElement>('[class*="filename"]')?.textContent
-      || candidate.querySelector<HTMLElement>('[class*="embedTitle"]')?.textContent
       || link?.textContent
       || candidate.querySelector<HTMLImageElement>('img[alt]')?.alt
       || candidate.getAttribute('aria-label')
@@ -188,7 +249,7 @@ function getAttachments(root: Element): string[] {
   return Array.from(attachments.values()).filter(Boolean);
 }
 
-function getLinks(root: ParentNode, attachments: string[]): string[] {
+function getLinks(root: ParentNode, attachments: string[], bodyMarkdown = ''): string[] {
   const attachmentUrls = new Set(
     attachments.map((value) => value.match(/\((https?:\/\/[^)]+)\)$/)?.[1]).filter(Boolean),
   );
@@ -197,6 +258,8 @@ function getLinks(root: ParentNode, attachments: string[]): string[] {
     if (link.closest('[class*="repliedMessage"], [class*="attachment"], [class*="fileWrapper"], [class*="embedWrapper"]')) return;
     const href = safeHttpUrl(link.href);
     if (!href || attachmentUrls.has(href) || isDiscordUiLink(href)) return;
+    const encodedHref = href.replace(/\(/g, '%28').replace(/\)/g, '%29');
+    if (bodyMarkdown && (bodyMarkdown.includes(href) || bodyMarkdown.includes(encodedHref))) return;
     links.add(href);
   });
   return Array.from(links);
@@ -220,7 +283,8 @@ function getReactions(root: Element): string[] {
       && !/reaction|reacted/i.test(button.getAttribute('aria-label') || '')
     ) return;
     const value = normalize(button.getAttribute('aria-label') || button.textContent || '');
-    if (value) reactions.add(value);
+    if (!value || /^(?:add|choose|open)\s+(?:a\s+)?(?:super\s+)?reaction\b/i.test(value)) return;
+    reactions.add(value);
   });
   return Array.from(reactions);
 }
@@ -335,12 +399,6 @@ function findChannelRoot(): HTMLElement | null {
   return document.querySelector<HTMLElement>(
     '[data-list-id="chat-messages"], main[role="main"], main',
   );
-}
-
-function isVisible(element: HTMLElement): boolean {
-  if (element.hidden || element.getAttribute('aria-hidden') === 'true') return false;
-  const style = getComputedStyle(element);
-  return style.display !== 'none' && style.visibility !== 'hidden';
 }
 
 function formatChannel(channel: string): string {

@@ -24,7 +24,7 @@ register({
     '*://meta.ai/*',
     '*://www.meta.ai/*',
   ],
-  pathnameRegex: /^\/(?:chat|c|conversation|share|search|discover|ask|home)(?:\/|$)|^\/$/i,
+  pathnameRegex: /^\/(?:chat|c|conversation|share|search|discover|ask|home|prompt|imagine)(?:\/|$)|^\/$/i,
 
   async extract() {
     const title = cleanTitle(
@@ -38,13 +38,7 @@ register({
       route: conversationRoute(window.location.pathname),
     };
 
-    const model = document.querySelector(
-      '[data-model], [data-model-name], [data-testid*="model"], meta[name="model"]',
-    )?.getAttribute('data-model')
-      || document.querySelector('[data-model-name]')?.getAttribute('data-model-name')
-      || document.querySelector('[data-testid*="model"]')?.textContent?.trim()
-      || document.querySelector('meta[name="model"]')?.getAttribute('content')
-      || '';
+    const model = extractModel();
     if (model) metadata.model = model;
 
     const turns = limitCollection(collectTurns(), MAX_TURNS);
@@ -108,6 +102,21 @@ register({
   },
 });
 
+function extractModel(): string {
+  const direct = document.querySelector('[data-model]')?.getAttribute('data-model')?.trim()
+    || document.querySelector('[data-model-name]')?.getAttribute('data-model-name')?.trim()
+    || document.querySelector('meta[name="model"]')?.getAttribute('content')?.trim()
+    || '';
+  if (direct && direct.length <= 100) return direct;
+  const isVisible = Utils.createVisibilityChecker();
+  for (const el of document.querySelectorAll('[data-testid*="model"]')) {
+    if (!isVisible(el)) continue;
+    const text = normalize(el.textContent || '');
+    if (text && text.length <= 100) return text;
+  }
+  return '';
+}
+
 function collectTurns(): Turn[] {
   const result: Turn[] = [];
   const roots = firstElements([
@@ -116,7 +125,6 @@ function collectTurns(): Turn[] {
     '[data-testid*="message"]',
     '[data-role="user"], [data-role="assistant"]',
     '[role="article"]',
-    '[role="listitem"]',
   ]);
 
   if (roots.length) {
@@ -144,9 +152,9 @@ function collectTurns(): Turn[] {
         '[data-author="assistant"]',
       ]);
       if (user) result.push({ role: 'user', element: messageContent(user) || user, container: root });
-      if (assistant) result.push({ role: 'assistant', element: messageContent(assistant) || assistant, container: root });
+      if (assistant && assistant !== user) result.push({ role: 'assistant', element: messageContent(assistant) || assistant, container: root });
     }
-    return dedupeTurns(result);
+    if (result.length) return dedupeTurns(result);
   }
 
   const standalone = Array.from(document.querySelectorAll([
@@ -176,10 +184,10 @@ function roleFor(element: Element): Role | null {
     element.getAttribute('data-author'),
     element.getAttribute('aria-label'),
     element.getAttribute('data-testid'),
-    element.className,
+    typeof element.className === 'string' ? element.className : '',
   ].filter(Boolean).join(' ').toLowerCase();
-  if (/user|human|you|prompt/.test(value)) return 'user';
-  if (/assistant|meta[ -]?ai|model|response|answer/.test(value)) return 'assistant';
+  if (/(?:^|[\s_-])(user|human|you|prompt|query)(?:$|[\s_-])/.test(value)) return 'user';
+  if (/(?:^|[\s_-])(assistant|meta(?:[\s_-]?ai)?|model|response|answer)(?:$|[\s_-])/.test(value)) return 'assistant';
   return null;
 }
 
@@ -191,18 +199,18 @@ function messageContent(element: Element): Element | null {
     '[data-message-content]',
     '.markdown',
     '.prose',
-    '[dir="auto"]',
   ]);
 }
 
 function dedupeTurns(turns: Turn[]): Turn[] {
   const seenElements = new Set<Element>();
-  return turns.filter((turn) => {
+  const unique = turns.filter((turn) => {
     if (seenElements.has(turn.element)) return false;
     seenElements.add(turn.element);
-    return !turns.some((other) => other.role === turn.role
-      && other.element !== turn.element && other.element.contains(turn.element));
+    return true;
   });
+  return unique.filter((turn) => !unique.some((other) => other.role === turn.role
+    && other.element !== turn.element && other.element.contains(turn.element)));
 }
 
 function extractCitations(container: Element): Array<{ label: string; href: string }> {
@@ -229,11 +237,16 @@ function extractCitations(container: Element): Array<{ label: string; href: stri
 }
 
 function standaloneImages(container: Element, content: Element): string[] {
-  const existing = new Set(Array.from(content.querySelectorAll<HTMLImageElement>('img[src]')).map(imageSource));
+  const existing = new Set(
+    Array.from(content.querySelectorAll<HTMLImageElement>('img[src]'))
+      .map((image) => safeImageUrl(imageSource(image)))
+      .filter(Boolean),
+  );
   const result: string[] = [];
   for (const image of container.querySelectorAll<HTMLImageElement>('img[src]')) {
-    const source = imageSource(image);
-    if (!source || existing.has(source) || image.getAttribute('aria-hidden') === 'true') continue;
+    if (content.contains(image) || image.getAttribute('aria-hidden') === 'true') continue;
+    const source = safeImageUrl(imageSource(image));
+    if (!source || existing.has(source)) continue;
     const alt = image.getAttribute('alt') || '';
     const meaningful = Boolean(image.closest('figure, [data-testid*="image"], [class*="generated"]'))
       || /generated|uploaded|image/i.test(alt)
@@ -249,7 +262,7 @@ function clean(element: Element): Element {
   return Utils.removeNoise(element, [
     ...Utils.NOISE_SELECTORS,
     'button', '[data-testid*="actions"]', '[data-testid*="feedback"]',
-    '[class*="toolbar"]', '[class*="avatar"]', '[class*="profile"]',
+    '[class*="toolbar"]:not(.code-toolbar)', '[class*="avatar"]', '[class*="profile"]',
     'textarea', '[contenteditable="true"]',
   ]);
 }
@@ -271,7 +284,7 @@ function queryFirst(root: Element, selectors: string[]): Element | null {
 }
 
 function closestTurn(element: Element): Element {
-  return element.closest('[data-message-id], [data-testid*="message"], [role="article"], [role="listitem"]') || element;
+  return element.closest('[data-message-id], [data-testid*="message"], [role="article"]') || element;
 }
 
 function compareDomOrder(left: Element, right: Element): number {
@@ -287,7 +300,8 @@ function hasUnrenderedHistory(): boolean {
 
 function conversationRoute(path: string): string {
   if (/^\/share\//i.test(path)) return 'shared';
-  if (/^\/(?:chat|c|conversation)\//i.test(path)) return 'authenticated';
+  if (/^\/(?:chat|c|conversation|prompt)\//i.test(path)) return 'authenticated';
+  if (/^\/imagine\//i.test(path)) return 'imagine';
   if (/^\/(?:search|discover|ask)\//i.test(path)) return 'search';
   return 'conversation';
 }
@@ -296,10 +310,28 @@ function imageSource(image: HTMLImageElement): string {
   return image.currentSrc || image.src || image.getAttribute('src') || '';
 }
 
+function escapeMarkdownDestination(value: string): string {
+  return value.replace(/\(/g, '%28').replace(/\)/g, '%29');
+}
+
 function safeHttpUrl(value: string): string {
   try {
     const url = new URL(value, document.baseURI);
-    return /^https?:$/.test(url.protocol) ? url.href : '';
+    return /^https?:$/.test(url.protocol) ? escapeMarkdownDestination(url.href) : '';
+  } catch {
+    return '';
+  }
+}
+
+function safeImageUrl(value: string): string {
+  const trimmed = value.trim();
+  if (!trimmed) return '';
+  if (/^data:image\/(?:avif|gif|jpe?g|png|webp);base64,/i.test(trimmed)) {
+    return escapeMarkdownDestination(trimmed);
+  }
+  try {
+    const url = new URL(trimmed, document.baseURI);
+    return /^(?:https?|blob):$/.test(url.protocol) ? escapeMarkdownDestination(url.href) : '';
   } catch {
     return '';
   }

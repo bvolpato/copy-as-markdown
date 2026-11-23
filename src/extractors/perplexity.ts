@@ -16,7 +16,7 @@ register({
     '*://perplexity.ai/*',
     '*://www.perplexity.ai/*',
   ],
-  pathnameRegex: /^\/(?:search|page|spaces|collections|discover|thread|chat)(?:\/|$)/,
+  pathnameRegex: /^\/(?:search|page|spaces|collections|discover|thread|chat|s)(?:\/|$)/,
 
   async extract() {
     const title = cleanTitle(Utils.getPageTitle()) || 'Perplexity Conversation';
@@ -93,6 +93,7 @@ function collectTurns(): Turn[] {
     '[data-testid="conversation-turn"]',
     '[data-testid="thread-item"]',
     '[data-testid^="conversation-item-"]',
+    '[data-testid^="thread-block"]',
     '.conversation-turn',
   ]);
 
@@ -104,6 +105,7 @@ function collectTurns(): Turn[] {
         '[data-message-author-role="user"]',
         '[data-role="user"]',
         '.query-text',
+        'h1.group\\/query',
       ]);
       const assistant = queryFirst(unit, [
         '[data-testid="answer"]',
@@ -112,11 +114,13 @@ function collectTurns(): Turn[] {
         '[data-message-author-role="assistant"]',
         '[data-role="assistant"]',
         '.answer-content',
+        '[id^="markdown-content-"]',
+        '.prose',
       ]);
       if (user) result.push({ role: 'user', element: user, container: unit });
-      if (assistant) result.push({ role: 'assistant', element: assistant, container: unit });
+      if (assistant && assistant !== user) result.push({ role: 'assistant', element: assistant, container: unit });
     }
-    return dedupeTurns(result);
+    if (result.length) return dedupeTurns(result);
   }
 
   const standalone = Array.from(document.querySelectorAll([
@@ -124,28 +128,47 @@ function collectTurns(): Turn[] {
     '[data-testid="query"]',
     '[data-message-author-role="user"]',
     '[data-role="user"]',
+    '.query-text',
+    'h1.group\\/query',
     '[data-testid="answer"]',
     '[data-testid="assistant-response"]',
     '[data-testid="copilot-answer"]',
     '[data-message-author-role="assistant"]',
     '[data-role="assistant"]',
+    '.answer-content',
+    '[id^="markdown-content-"]',
   ].join(',')));
   standalone.sort(compareDomOrder);
   for (const element of standalone) {
-    const role = isUserElement(element) ? 'user' : 'assistant';
+    const role = roleFor(element) || (isUserElement(element) ? 'user' : 'assistant');
     result.push({ role, element, container: closestTurn(element) });
   }
   return dedupeTurns(result);
 }
 
+function roleFor(element: Element): Role | null {
+  const value = [
+    element.getAttribute('data-role'),
+    element.getAttribute('data-message-author-role'),
+    element.getAttribute('data-author'),
+    element.getAttribute('aria-label'),
+    element.getAttribute('data-testid'),
+    typeof element.className === 'string' ? element.className : '',
+  ].filter(Boolean).join(' ').toLowerCase();
+  if (/(?:^|[\s_-])(user|human|you|prompt|query)(?:$|[\s_-])/.test(value)) return 'user';
+  if (/(?:^|[\s_-])(assistant|perplexity|copilot|model|response|answer)(?:$|[\s_-])/.test(value)) return 'assistant';
+  return null;
+}
+
 function dedupeTurns(turns: Turn[]): Turn[] {
   const seenElements = new Set<Element>();
-  return turns.filter((turn) => {
+  const unique = turns.filter((turn) => {
     if (seenElements.has(turn.element)) return false;
     seenElements.add(turn.element);
-    return !turns.some((other) => other.role === turn.role
-      && other.element !== turn.element && other.element.contains(turn.element));
+    return true;
   });
+  return unique.filter((turn) => !unique.some((other) => other.role === turn.role
+    && other.element !== turn.element && other.element.contains(turn.element)));
 }
 
 function extractCitations(container: Element): Array<{ label: string; href: string }> {
@@ -171,11 +194,16 @@ function extractCitations(container: Element): Array<{ label: string; href: stri
 }
 
 function standaloneImages(container: Element, content: Element): string[] {
-  const existing = new Set(Array.from(content.querySelectorAll<HTMLImageElement>('img[src]')).map(imageSource));
+  const existing = new Set(
+    Array.from(content.querySelectorAll<HTMLImageElement>('img[src]'))
+      .map((image) => safeImageUrl(imageSource(image)))
+      .filter(Boolean),
+  );
   const result: string[] = [];
   for (const image of container.querySelectorAll<HTMLImageElement>('img[src]')) {
-    const source = imageSource(image);
-    if (!source || existing.has(source) || image.getAttribute('aria-hidden') === 'true') continue;
+    if (content.contains(image) || image.getAttribute('aria-hidden') === 'true') continue;
+    const source = safeImageUrl(imageSource(image));
+    if (!source || existing.has(source)) continue;
     const alt = image.getAttribute('alt') || '';
     const meaningful = Boolean(image.closest('figure, [data-testid*="image"], [class*="generated"]'))
       || /generated|uploaded|image/i.test(alt)
@@ -191,7 +219,8 @@ function clean(element: Element): Element {
   return Utils.removeNoise(element, [
     ...Utils.NOISE_SELECTORS,
     'button', '[data-testid*="actions"]', '[data-testid*="feedback"]',
-    '[class*="toolbar"]', '[class*="follow-up"]', 'textarea',
+    '[class*="toolbar"]:not(.code-toolbar)', '[class*="follow-up"]',
+    '[class*="avatar"]', 'textarea', 'input', '[contenteditable="true"]',
   ]);
 }
 
@@ -212,11 +241,18 @@ function queryFirst(root: Element, selectors: string[]): Element | null {
 }
 
 function isUserElement(element: Element): boolean {
-  return element.matches('[data-testid="user-query"], [data-testid="query"], [data-message-author-role="user"], [data-role="user"]');
+  return element.matches([
+    '[data-testid="user-query"]',
+    '[data-testid="query"]',
+    '[data-message-author-role="user"]',
+    '[data-role="user"]',
+    '.query-text',
+    'h1.group\\/query',
+  ].join(', '));
 }
 
 function closestTurn(element: Element): Element {
-  return element.closest('[data-testid="conversation-turn"], [data-testid="thread-item"], .conversation-turn') || element;
+  return element.closest('[data-testid="conversation-turn"], [data-testid="thread-item"], [data-testid^="thread-block"], .conversation-turn') || element;
 }
 
 function compareDomOrder(left: Element, right: Element): number {
@@ -231,7 +267,7 @@ function hasUnrenderedHistory(): boolean {
 }
 
 function conversationRoute(path: string): string {
-  if (/^\/page\//.test(path)) return 'shared';
+  if (/^\/(?:page|s)\//.test(path)) return 'shared';
   if (/^\/search\//.test(path)) return 'search';
   if (/^\/(?:spaces|collections)\//.test(path)) return 'space';
   return 'authenticated';
@@ -241,10 +277,28 @@ function imageSource(image: HTMLImageElement): string {
   return image.currentSrc || image.src || image.getAttribute('src') || '';
 }
 
+function escapeMarkdownDestination(value: string): string {
+  return value.replace(/\(/g, '%28').replace(/\)/g, '%29');
+}
+
 function safeHttpUrl(value: string): string {
   try {
     const url = new URL(value, document.baseURI);
-    return /^https?:$/.test(url.protocol) ? url.href : '';
+    return /^https?:$/.test(url.protocol) ? escapeMarkdownDestination(url.href) : '';
+  } catch {
+    return '';
+  }
+}
+
+function safeImageUrl(value: string): string {
+  const trimmed = value.trim();
+  if (!trimmed) return '';
+  if (/^data:image\/(?:avif|gif|jpe?g|png|webp);base64,/i.test(trimmed)) {
+    return escapeMarkdownDestination(trimmed);
+  }
+  try {
+    const url = new URL(trimmed, document.baseURI);
+    return /^(?:https?|blob):$/.test(url.protocol) ? escapeMarkdownDestination(url.href) : '';
   } catch {
     return '';
   }

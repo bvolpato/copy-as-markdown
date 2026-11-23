@@ -6,7 +6,7 @@ import { register } from '../core/registry';
 import type { PageMetadata } from '../core/types';
 import * as Utils from '../core/utils';
 
-type RouteKind = 'issue' | 'project' | 'document';
+type RouteKind = 'issue' | 'project' | 'document' | 'view' | 'cycle' | 'initiative' | 'team';
 
 type LinearRoute = {
   kind: RouteKind;
@@ -31,8 +31,10 @@ type PageLink = {
   url: string;
 };
 
-const LINEAR_ROUTE = /\/(?:issue|project|document)\/[^/?#]+/i;
+const LINEAR_ROUTE = /\/(?:(?:issue|project|document|view|cycle|initiative)\/[^/?#]+|team\/[^/?#]+\/(?:active|backlog|all)(?:\/|$))/i;
 const ISSUE_IDENTIFIER = /^[A-Z][A-Z0-9]*-\d+$/i;
+
+let isVisible: (element: Element | null) => boolean = Utils.createVisibilityChecker();
 
 export const linearExtractor = register({
   name: 'Linear',
@@ -40,6 +42,7 @@ export const linearExtractor = register({
   pathnameRegex: LINEAR_ROUTE,
 
   async extract() {
+    isVisible = Utils.createVisibilityChecker();
     const route = parseRoute(window.location.pathname);
     const root = findPageRoot(route.kind);
     const title = getTitle(route, root);
@@ -47,7 +50,7 @@ export const linearExtractor = register({
     const comments = limitCollection(extractComments(root));
     const descriptionElement = findDescription(route.kind, root);
     const description = descriptionElement ? contentToMarkdown(descriptionElement, title) : '';
-    const links = limitCollection(extractLinks(root));
+    const links = limitCollection(extractLinks(root, descriptionElement));
     const virtualized = hasVirtualizedContent(root);
 
     const metadata: PageMetadata = {
@@ -100,12 +103,13 @@ export const linearExtractor = register({
       parts.push('*Comments include visible rendered items only; older or virtualized comments may be omitted.*');
     }
 
-    const itemCount = (description ? 1 : 0) + fields.length + comments.total + links.total;
+    const totalItems = (description ? 1 : 0) + fields.length + comments.total + links.total;
+    const includedItems = (description ? 1 : 0) + fields.length + comments.items.length + links.items.length;
     const bounded = limitMarkdown(parts.join('\n\n'));
     addExtractionMetadata(metadata, {
       contentSource: 'Linear rendered DOM',
-      total: itemCount,
-      included: itemCount,
+      total: totalItems,
+      included: includedItems,
       truncated: virtualized || comments.truncated || links.truncated || bounded.truncated,
       complete: false,
     });
@@ -116,14 +120,25 @@ export const linearExtractor = register({
 
 function parseRoute(pathname: string): LinearRoute {
   const segments = decodeURIComponentSafe(pathname).split('/').filter(Boolean);
-  const routeIndex = segments.findIndex((segment) => /^(?:issue|project|document)$/i.test(segment));
-  const kind = (segments[routeIndex]?.toLowerCase() || 'issue') as RouteKind;
-  const identifier = segments[routeIndex + 1] || '';
+  const routeIndex = segments.findIndex((segment) =>
+    /^(?:issue|project|document|view|cycle|initiative|team)$/i.test(segment),
+  );
+  const rawKind = (segments[routeIndex]?.toLowerCase() || 'issue') as RouteKind;
   const workspace = routeIndex > 0 ? segments[routeIndex - 1] : '';
+  if (rawKind === 'team') {
+    const teamKey = segments[routeIndex + 1] || '';
+    const viewName = segments[routeIndex + 2] || '';
+    return {
+      kind: 'team',
+      workspace,
+      identifier: [teamKey, viewName].filter(Boolean).join('/'),
+    };
+  }
+  const identifier = segments[routeIndex + 1] || '';
   return {
-    kind,
+    kind: rawKind,
     workspace,
-    identifier: kind === 'issue' && ISSUE_IDENTIFIER.test(identifier)
+    identifier: rawKind === 'issue' && ISSUE_IDENTIFIER.test(identifier)
       ? identifier.toUpperCase()
       : identifier,
   };
@@ -140,23 +155,34 @@ function getTitle(route: LinearRoute, root: Element): string {
       '[role="main"] h1',
       'main h1',
     ]
-    : route.kind === 'project'
+    : route.kind === 'project' || route.kind === 'initiative'
       ? [
         '[data-testid="project-title"]',
         '[data-testid*="project-title"]',
+        '[data-testid="initiative-title"]',
+        '[data-testid*="initiative-title"]',
         '[aria-label="Project title"]',
+        '[aria-label="Initiative title"]',
         '[contenteditable="true"][data-placeholder*="project name" i]',
         '[role="main"] h1',
         'main h1',
       ]
-      : [
-        '[data-testid="document-title"]',
-        '[data-testid*="document-title"]',
-        '[aria-label="Document title"]',
-        '[contenteditable="true"][data-placeholder*="document title" i]',
-        '[role="main"] h1',
-        'main h1',
-      ];
+      : route.kind === 'document'
+        ? [
+          '[data-testid="document-title"]',
+          '[data-testid*="document-title"]',
+          '[aria-label="Document title"]',
+          '[contenteditable="true"][data-placeholder*="document title" i]',
+          '[role="main"] h1',
+          'main h1',
+        ]
+        : [
+          '[data-testid="view-title"]',
+          '[data-testid="cycle-title"]',
+          '[role="main"] h1',
+          'main h1',
+          'h1',
+        ];
 
   const selected = firstValue(root, selectors);
   const fallback = Utils.getMeta('title') || Utils.getPageTitle();
@@ -179,17 +205,25 @@ function findPageRoot(kind: RouteKind): Element {
       '[data-testid*="issue-detail"]',
       '[aria-label="Issue details"]',
     ]
-    : kind === 'project'
+    : kind === 'project' || kind === 'initiative'
       ? [
         '[data-testid="project-view"]',
         '[data-testid="project-page"]',
         '[data-testid*="project-overview"]',
+        '[data-testid="initiative-view"]',
+        '[data-testid="initiative-page"]',
       ]
-      : [
-        '[data-testid="document-view"]',
-        '[data-testid="document-page"]',
-        '[data-testid*="document-content"]',
-      ];
+      : kind === 'document'
+        ? [
+          '[data-testid="document-view"]',
+          '[data-testid="document-page"]',
+          '[data-testid*="document-content"]',
+        ]
+        : [
+          '[data-testid="view-page"]',
+          '[data-testid="cycle-view"]',
+          '[data-testid="team-view"]',
+        ];
   return firstElement(document, [...kindSelectors, '[role="main"]', 'main']) || document.body;
 }
 
@@ -203,7 +237,7 @@ function extractFields(kind: RouteKind, root: Element): Field[] {
       fieldSpec('Project', 'project'),
       fieldSpec('Cycle', 'cycle'),
     ]
-    : kind === 'project'
+    : kind === 'project' || kind === 'initiative'
       ? [
         fieldSpec('Status', 'status'),
         fieldSpec('Priority', 'priority'),
@@ -220,7 +254,7 @@ function extractFields(kind: RouteKind, root: Element): Field[] {
   const labels = extractLabels(kind, root);
   if (labels.length > 0) fields.push({ name: 'Labels', key: 'labels', value: labels.join(', ') });
 
-  const dates = kind === 'project'
+  const dates = kind === 'project' || kind === 'initiative'
     ? [
       dateSpec('Start date', 'start_date', ['start-date', 'start_date', 'startdate']),
       dateSpec('Target date', 'target_date', ['target-date', 'target_date', 'targetdate']),
@@ -237,13 +271,13 @@ function extractFields(kind: RouteKind, root: Element): Field[] {
         dateSpec('Created', 'created', ['created-at', 'created_at', 'created']),
         dateSpec('Updated', 'updated', ['updated-at', 'updated_at', 'updated']),
       ];
+  const cachedAnonymousDates = anonymousDateButtons(kind, root);
   dates.forEach(({ name, key, fragments }) => {
-    const value = findDateValue(name, fragments, kind, root);
+    const value = findDateValue(name, fragments, kind, root, cachedAnonymousDates);
     if (value) fields.push({ name, key, value });
   });
-  const anonymousDates = anonymousDateButtons(kind, root);
-  if (anonymousDates.length > 0 && anonymousDates.length !== dateFieldOrder(kind).length) {
-    const values = anonymousDates.map(readDateButtonValue).filter(Boolean);
+  if (cachedAnonymousDates.length > 0 && cachedAnonymousDates.length !== dateFieldOrder(kind).length) {
+    const values = cachedAnonymousDates.map(readDateButtonValue).filter(Boolean);
     if (values.length > 0) fields.push({ name: 'Dates', key: 'dates', value: values.join(', ') });
   }
 
@@ -307,19 +341,18 @@ function findPropertyValue(name: string, kind: RouteKind, root: Element): string
 function findAnonymousDateButton(
   name: string,
   kind: RouteKind,
-  root: Element,
+  candidates: HTMLElement[],
 ): HTMLElement | null {
   const dateOrder = dateFieldOrder(kind);
   const targetIndex = dateOrder.indexOf(name.toLowerCase());
   if (targetIndex < 0) return null;
-  const candidates = anonymousDateButtons(kind, root);
   if (candidates.length !== dateOrder.length) return null;
   return candidates[targetIndex] || null;
 }
 
 function dateFieldOrder(kind: RouteKind): string[] {
   if (kind === 'issue') return ['due date', 'created', 'updated'];
-  if (kind === 'project') return ['start date', 'target date', 'created', 'updated'];
+  if (kind === 'project' || kind === 'initiative') return ['start date', 'target date', 'created', 'updated'];
   return [];
 }
 
@@ -426,7 +459,13 @@ function extractLabels(kind: RouteKind, root: Element): string[] {
   return Array.from(labels);
 }
 
-function findDateValue(name: string, fragments: string[], kind: RouteKind, root: Element): string {
+function findDateValue(
+  name: string,
+  fragments: string[],
+  kind: RouteKind,
+  root: Element,
+  cachedAnonymousDates: HTMLElement[],
+): string {
   const selectors = fragments.flatMap((fragment) => [
     `[data-testid*="${kind}-${fragment}"]`,
     `[data-testid*="${fragment}"]`,
@@ -462,7 +501,7 @@ function findDateValue(name: string, fragments: string[], kind: RouteKind, root:
     if (value) return value;
   }
 
-  const anonymousDateButton = findAnonymousDateButton(name, kind, root);
+  const anonymousDateButton = findAnonymousDateButton(name, kind, cachedAnonymousDates);
   if (anonymousDateButton) {
     const time = anonymousDateButton.querySelector('time');
     return normalize(
@@ -526,30 +565,67 @@ function findDescription(kind: RouteKind, root: Element): Element | null {
       '[aria-label="Issue description"]',
       '[data-placeholder*="description" i]',
     ]
-    : kind === 'project'
+    : kind === 'project' || kind === 'initiative'
       ? [
         '[data-testid="project-description"]',
         '[data-testid="project-overview-description"]',
         '[data-testid*="project-description"] [data-testid*="editor"]',
         '[data-testid*="project-description"] .ProseMirror',
+        '[data-testid="initiative-description"]',
         '[aria-label="Project description"]',
+        '[aria-label="Initiative description"]',
       ]
-      : [
-        '[data-testid="document-content"]',
-        '[data-testid="document-editor"]',
-        '[data-testid*="document-content"] .ProseMirror',
-        '[aria-label="Document content"]',
-        'article',
-        '.ProseMirror',
-      ];
+      : kind === 'document'
+        ? [
+          '[data-testid="document-content"]',
+          '[data-testid="document-editor"]',
+          '[data-testid*="document-content"] .ProseMirror',
+          '[aria-label="Document content"]',
+          'article',
+          '.ProseMirror',
+        ]
+        : [
+          '[data-testid="view-description"]',
+          '[data-testid="cycle-description"]',
+          '[role="list"]',
+          'main',
+        ];
   if (root instanceof HTMLElement && selectors.some((selector) => root.matches(selector)) && isVisible(root)) {
     return root;
   }
-  return firstElement(root, selectors);
+  const matched = firstElement(root, selectors);
+  if (matched) return matched;
+  if (kind === 'issue' || kind === 'project' || kind === 'initiative') {
+    return matchingElements(root, ['.ProseMirror']).find((el) =>
+      isVisible(el)
+      && !isInsideComment(el)
+      && !isCommentComposer(el)
+      && !/title/i.test(el.getAttribute('aria-label') || ''),
+    ) || null;
+  }
+  return null;
+}
+
+function preserveInlineChips(clone: Element): void {
+  clone.querySelectorAll<HTMLElement>('button').forEach((button) => {
+    if (button.closest('[role="toolbar"], [role="menu"], [data-testid*="toolbar"], [data-testid*="action"]')) {
+      return;
+    }
+    const text = normalize(button.textContent || '');
+    if (!text) return;
+    const isMentionOrChip = button.matches('[data-mention], [data-testid*="mention"], [data-testid*="chip"], [data-issue-mention]')
+      || text.startsWith('@')
+      || ISSUE_IDENTIFIER.test(text);
+    if (isMentionOrChip) {
+      button.replaceWith(clone.ownerDocument.createTextNode(text));
+    }
+  });
 }
 
 function contentToMarkdown(element: Element, title: string): string {
-  const cleaned = Utils.removeNoise(element, [
+  const clone = element.cloneNode(true) as Element;
+  preserveInlineChips(clone);
+  const cleaned = Utils.removeNoise(clone, [
     ...Utils.NOISE_SELECTORS,
     'button',
     '[role="toolbar"]',
@@ -621,30 +697,30 @@ function extractComments(root: Element): Comment[] {
     addCandidate(container, container);
   });
 
+  const authorSelectors = [
+    '[data-comment-author]',
+    '[data-comment-user-name]',
+    '[data-testid="comment-author"]',
+    '[data-testid*="comment-author"]',
+    '[data-testid*="author-name"]',
+    '[data-testid="user-name"]',
+    '[rel="author"]',
+  ];
   const comments: Comment[] = [];
   candidates.forEach(({ body: bodyElement, container }) => {
     const body = commentToMarkdown(bodyElement, bodyElement === container);
     if (!body) return;
-    const authorElement = firstElement(container, [
-      '[data-comment-author]',
-      '[data-comment-user-name]',
-      '[data-testid="comment-author"]',
-      '[data-testid*="comment-author"]',
-      '[data-testid*="author-name"]',
-      '[data-testid="user-name"]',
-      '[rel="author"]',
-    ]);
+    const authorElement = firstElement(container, authorSelectors);
     const avatar = commentHeaderAvatar(container, bodyElement);
     const ariaAuthor = container.getAttribute('aria-label')?.match(/^Comment by\s+(.+?)(?:\s+at\s+|$)/i)?.[1] || '';
-    const author = firstValue(container, [
-      '[data-comment-author]',
-      '[data-comment-user-name]',
-      '[data-testid="comment-author"]',
-      '[data-testid*="comment-author"]',
-      '[data-testid*="author-name"]',
-      '[data-testid="user-name"]',
-      '[rel="author"]',
-    ]) || normalize(authorElement?.getAttribute('aria-label') || avatar?.alt || ariaAuthor);
+    const author = (authorElement
+      ? (
+        inputValue(authorElement)
+        || normalize(authorElement.textContent || '')
+        || normalize(authorElement.getAttribute('aria-label') || '')
+        || normalize(authorElement.getAttribute('title') || '')
+      )
+      : '') || normalize(avatar?.alt || ariaAuthor);
     comments.push({ author, date: commentTimestamp(container), body });
   });
   return comments;
@@ -793,17 +869,20 @@ function commentToMarkdown(element: Element, removeNestedComments: boolean): str
       '[data-testid^="comment-"]',
     );
   }
-  return Markdown.elementToMarkdown(Utils.removeNoise(element, selectors)).trim();
+  const clone = element.cloneNode(true) as Element;
+  preserveInlineChips(clone);
+  return Markdown.elementToMarkdown(Utils.removeNoise(clone, selectors)).trim();
 }
 
-function extractLinks(root: Element): PageLink[] {
+function extractLinks(root: Element, descriptionElement: Element | null = null): PageLink[] {
   const current = normalizedUrl(Utils.getCanonicalUrl());
+  const description = descriptionElement || findDescriptionFromAnyRoute(root);
   const links = new Map<string, PageLink>();
   root.querySelectorAll<HTMLAnchorElement>('a[href]').forEach((anchor) => {
     if (!isVisible(anchor) || isLinkControl(anchor)) return;
     const url = safeHttpUrl(anchor.getAttribute('href') || '');
     if (!url || normalizedUrl(url) === current) return;
-    if (!isRelevantLink(anchor, url, root)) return;
+    if (!isRelevantLink(anchor, url, root, description)) return;
     const label = normalize(anchor.textContent || anchor.getAttribute('aria-label') || '')
       || new URL(url).hostname;
     if (!links.has(url)) links.set(url, { label: Utils.truncate(label, 200), url });
@@ -825,11 +904,15 @@ function findDescriptionFromAnyRoute(root: Element): Element | null {
   ]);
 }
 
-function isRelevantLink(anchor: HTMLAnchorElement, value: string, root: Element): boolean {
+function isRelevantLink(
+  anchor: HTMLAnchorElement,
+  value: string,
+  root: Element,
+  description: Element | null,
+): boolean {
   const url = new URL(value);
   if (url.hostname.toLowerCase() === 'linear.app') return LINEAR_ROUTE.test(url.pathname);
 
-  const description = findDescriptionFromAnyRoute(root);
   if (description?.contains(anchor)) return true;
   if (anchor.closest([
     '.ProseMirror[aria-label="Comment" i]',
@@ -979,24 +1062,6 @@ function inputValue(element: Element): string {
   return element instanceof HTMLInputElement || element instanceof HTMLTextAreaElement
     ? normalize(element.value)
     : '';
-}
-
-function isVisible(element: Element): boolean {
-  let current: Element | null = element;
-  while (current) {
-    if (
-      current.hasAttribute('hidden')
-      || current.getAttribute('aria-hidden') === 'true'
-      || (current instanceof HTMLElement && isHiddenByStyle(current))
-    ) return false;
-    current = current.parentElement;
-  }
-  return true;
-}
-
-function isHiddenByStyle(element: HTMLElement): boolean {
-  const style = window.getComputedStyle(element);
-  return style.display === 'none' || style.visibility === 'hidden' || style.visibility === 'collapse';
 }
 
 function safeHttpUrl(value: string): string {

@@ -16,11 +16,18 @@ register({
     '*://www.yandex.ru/search*',
     '*://yandex.kz/search*',
     '*://www.yandex.kz/search*',
+    '*://yandex.by/search*',
+    '*://www.yandex.by/search*',
+    '*://yandex.uz/search*',
+    '*://www.yandex.uz/search*',
+    '*://yandex.eu/search*',
+    '*://www.yandex.eu/search*',
     '*://yandex.com.tr/search*',
     '*://www.yandex.com.tr/search*',
     '*://ya.ru/search*',
+    '*://www.ya.ru/search*',
   ],
-  pathnameRegex: /^\/search\/?$/,
+  pathnameRegex: /^\/search(?:\/(?:touch|pad))?\/?$/,
   buttonPlacement: 'anchor',
   anchor: {
     selector: [
@@ -44,7 +51,7 @@ register({
     if (query) parts.push(`**Query:** ${escapeMarkdownText(query)}\n`);
 
     const answer = document.querySelector(
-      '.serp-adv__snippet, .CbirSites-Item, [data-testid="answer"], [class*="Answer"]',
+      '.Fact-Answer, .ObjectAnswer, .CbirSites-Item, [data-testid="answer"], [class*="Answer"]:not([class*="Adv"])',
     );
     const answerText = cleanText(answer?.textContent || '');
     if (answerText) parts.push('## Answer\n', `${answerText}\n`);
@@ -66,28 +73,27 @@ register({
     );
     let resultCount = 0;
     const seen = new Set<string>();
-    if (results.length) {
-      parts.push('## Search Results\n');
-      results.forEach((result) => {
-        const title = cleanText(result.querySelector(
-          'h2 a, .OrganicTitle-Link, .serp-item__title, [data-testid="result-title"]',
-        )?.textContent || '');
-        const link = firstSafeLink(result.querySelectorAll<HTMLAnchorElement>(
-          'h2 a[href], .OrganicTitle-Link[href], .serp-item__title[href], [data-testid="result-title"] a[href], a[href]',
-        ));
-        const snippet = cleanText(result.querySelector(
-          '.OrganicTextContentSpan, .TextContainer, .serp-item__snippet, [data-snippet], [data-testid="result-snippet"], p',
-        )?.textContent || '');
-        if (!title || !link) return;
-        const key = `${title}\n${link}`;
-        if (seen.has(key)) return;
-        seen.add(key);
-        resultCount += 1;
-        parts.push(`### ${resultCount}. ${escapeMarkdownText(title)}\n`);
-        parts.push(`**URL:** ${link}\n`);
-        if (snippet) parts.push(`${snippet}\n`);
-      });
-    }
+    results.forEach((result) => {
+      if (isYandexAd(result)) return;
+      const title = cleanText(result.querySelector(
+        '.OrganicTitleContentSpan, h2 a, .OrganicTitle-Link, .serp-item__title, [data-testid="result-title"]',
+      )?.textContent || '');
+      const link = firstSafeLink(result.querySelectorAll<HTMLAnchorElement>(
+        'h2 a[href], .OrganicTitle-Link[href], .serp-item__title[href], [data-testid="result-title"] a[href], a[href]',
+      ));
+      const snippet = cleanText(result.querySelector(
+        '.ExtendedText-Full, .OrganicTextContentSpan, .OrganicText, .TextContainer, .serp-item__snippet, [data-snippet], [data-testid="result-snippet"], p',
+      )?.textContent || '');
+      if (!title || !link) return;
+      const key = `${title}\n${link}`;
+      if (seen.has(key)) return;
+      seen.add(key);
+      if (resultCount === 0) parts.push('## Search Results\n');
+      resultCount += 1;
+      parts.push(`### ${resultCount}. ${escapeMarkdownText(title)}\n`);
+      parts.push(`**URL:** ${link}\n`);
+      if (snippet) parts.push(`${snippet}\n`);
+    });
 
     const related = Array.from(document.querySelectorAll<HTMLAnchorElement>(
       '.RelatedQueries a[href], .related-queries a[href], [data-testid="related-search"] a[href]',
@@ -104,9 +110,18 @@ register({
   },
 });
 
+function isYandexAd(result: Element): boolean {
+  const adSelector = '.serp-item[data-fast-name="adv"], .Adv, .Organic_adv, .serp-adv';
+  return result.matches(adSelector)
+    || Boolean(result.closest(adSelector))
+    || Boolean(result.querySelector('.Adv, .Organic_adv'));
+}
+
 function firstSafeLink(links: NodeListOf<HTMLAnchorElement>): string {
   for (const link of links) {
-    const href = safeYandexUrl(link.href || link.getAttribute('href') || '');
+    const raw = (link.getAttribute('href') || '').trim();
+    if (!raw || raw.startsWith('#')) continue;
+    const href = safeYandexUrl(link.href || raw);
     if (href) return href;
   }
   return '';
@@ -116,6 +131,7 @@ function safeYandexUrl(value: string): string {
   try {
     const url = new URL(value, document.baseURI);
     if (!/^https?:$/.test(url.protocol)) return '';
+    if (/^yabs\.yandex\./i.test(url.hostname)) return '';
     for (const key of ['url', 'u']) {
       const redirected = url.searchParams.get(key);
       if (!redirected) continue;
@@ -123,8 +139,11 @@ function safeYandexUrl(value: string): string {
         const destination = new URL(redirected);
         if (/^https?:$/.test(destination.protocol)) return destination.href;
       } catch {
-        // Keep Yandex result URL when redirect target is malformed.
+        // Ignore malformed redirect parameter.
       }
+    }
+    if (/(?:^|\.)(?:yandex\.[^/]+|ya\.ru)$/i.test(url.hostname)) {
+      if (/^\/search(?:\/(?:touch|pad))?\/?$/i.test(url.pathname)) return '';
     }
     return url.href;
   } catch {

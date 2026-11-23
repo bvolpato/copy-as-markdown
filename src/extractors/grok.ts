@@ -16,9 +16,11 @@ register({
     '*://grok.com/*',
     '*://www.grok.com/*',
     '*://x.com/i/grok*',
+    '*://mobile.x.com/i/grok*',
     '*://twitter.com/i/grok*',
+    '*://mobile.twitter.com/i/grok*',
   ],
-  pathnameRegex: /^\/(?:c|chat|conversation|share|imagine)(?:\/|$)|^\/i\/grok(?:\/|$)|^\/$/,
+  pathnameRegex: /^\/(?:c|chat|conversation|share|imagine|project)(?:\/|$)|^\/i\/grok(?:\/|$)|^\/$/,
 
   async extract() {
     const title = cleanTitle(Utils.getPageTitle()) || 'Grok Conversation';
@@ -102,6 +104,7 @@ function collectTurns(): Turn[] {
     '[data-testid="conversation-turn"]',
     '[data-testid="message-row"]',
     '[data-testid="message-bubble"]',
+    '.message-bubble',
     '[data-message-id]',
     'article[data-role]',
     '.conversation-turn',
@@ -125,11 +128,12 @@ function collectTurns(): Turn[] {
         '[data-testid="grok-message"]',
         '[data-message-author-role="assistant"]',
         '[data-role="assistant"]',
+        '.response-content-markdown',
       ]);
       if (user) result.push({ role: 'user', element: messageContent(user) || user, container: root });
-      if (assistant) result.push({ role: 'assistant', element: messageContent(assistant) || assistant, container: root });
+      if (assistant && assistant !== user) result.push({ role: 'assistant', element: messageContent(assistant) || assistant, container: root });
     }
-    return dedupeTurns(result);
+    if (result.length) return dedupeTurns(result);
   }
 
   const standalone = Array.from(document.querySelectorAll([
@@ -140,6 +144,7 @@ function collectTurns(): Turn[] {
     '[data-testid="grok-message"]',
     '[data-message-author-role="assistant"]',
     '[data-role="assistant"]',
+    '.response-content-markdown',
   ].join(',')));
   standalone.sort(compareDomOrder);
   for (const element of standalone) {
@@ -157,17 +162,20 @@ function roleFor(element: Element): Role | null {
     element.getAttribute('data-author'),
     element.getAttribute('aria-label'),
     element.getAttribute('data-testid'),
+    typeof element.className === 'string' ? element.className : '',
   ].filter(Boolean).join(' ').toLowerCase();
-  if (/user|human|you/.test(value)) return 'user';
-  if (/assistant|grok|model/.test(value)) return 'assistant';
+  if (/(?:^|[\s_-])(user|human|you|prompt|query)(?:$|[\s_-])/.test(value)) return 'user';
+  if (/(?:^|[\s_-])(assistant|grok|model|response|answer)(?:$|[\s_-])/.test(value)) return 'assistant';
   return null;
 }
 
 function messageContent(element: Element): Element | null {
   return queryFirst(element, [
+    '.response-content-markdown',
     '[data-testid="message-content"]',
     '[data-testid="markdown-content"]',
     '[data-testid="response-content"]',
+    '.message-bubble',
     '.markdown',
     '.prose',
   ]);
@@ -175,12 +183,13 @@ function messageContent(element: Element): Element | null {
 
 function dedupeTurns(turns: Turn[]): Turn[] {
   const seenElements = new Set<Element>();
-  return turns.filter((turn) => {
+  const unique = turns.filter((turn) => {
     if (seenElements.has(turn.element)) return false;
     seenElements.add(turn.element);
-    return !turns.some((other) => other.role === turn.role
-      && other.element !== turn.element && other.element.contains(turn.element));
+    return true;
   });
+  return unique.filter((turn) => !unique.some((other) => other.role === turn.role
+    && other.element !== turn.element && other.element.contains(turn.element)));
 }
 
 function extractCitations(container: Element): Array<{ label: string; href: string }> {
@@ -206,11 +215,16 @@ function extractCitations(container: Element): Array<{ label: string; href: stri
 }
 
 function standaloneImages(container: Element, content: Element): string[] {
-  const existing = new Set(Array.from(content.querySelectorAll<HTMLImageElement>('img[src]')).map(imageSource));
+  const existing = new Set(
+    Array.from(content.querySelectorAll<HTMLImageElement>('img[src]'))
+      .map((image) => safeImageUrl(imageSource(image)))
+      .filter(Boolean),
+  );
   const result: string[] = [];
   for (const image of container.querySelectorAll<HTMLImageElement>('img[src]')) {
-    const source = imageSource(image);
-    if (!source || existing.has(source) || image.getAttribute('aria-hidden') === 'true') continue;
+    if (content.contains(image) || image.getAttribute('aria-hidden') === 'true') continue;
+    const source = safeImageUrl(imageSource(image));
+    if (!source || existing.has(source)) continue;
     const alt = image.getAttribute('alt') || '';
     const meaningful = Boolean(image.closest('figure, [data-testid*="image"], [class*="generated"]'))
       || /generated|uploaded|image/i.test(alt)
@@ -226,7 +240,8 @@ function clean(element: Element): Element {
   return Utils.removeNoise(element, [
     ...Utils.NOISE_SELECTORS,
     'button', '[data-testid*="actions"]', '[data-testid*="feedback"]',
-    '[class*="toolbar"]', 'textarea',
+    '[class*="toolbar"]:not(.code-toolbar)', '[class*="avatar"]',
+    'textarea', 'input', '[contenteditable="true"]',
   ]);
 }
 
@@ -247,7 +262,7 @@ function queryFirst(root: Element, selectors: string[]): Element | null {
 }
 
 function closestTurn(element: Element): Element {
-  return element.closest('[data-testid="conversation-turn"], [data-testid="message-row"], [data-message-id], article') || element;
+  return element.closest('[data-testid="conversation-turn"], [data-testid="message-row"], .message-bubble, [data-message-id], article') || element;
 }
 
 function compareDomOrder(left: Element, right: Element): number {
@@ -263,6 +278,7 @@ function hasUnrenderedHistory(): boolean {
 
 function conversationRoute(path: string): string {
   if (/\/(?:share|shared)\//.test(path) || /\/i\/grok\/share\//.test(path)) return 'shared';
+  if (/^\/project(?:\/|$)/.test(path)) return 'project';
   if (/^\/(?:c|chat)\//.test(path)) return 'authenticated';
   return 'conversation';
 }
@@ -271,10 +287,28 @@ function imageSource(image: HTMLImageElement): string {
   return image.currentSrc || image.src || image.getAttribute('src') || '';
 }
 
+function escapeMarkdownDestination(value: string): string {
+  return value.replace(/\(/g, '%28').replace(/\)/g, '%29');
+}
+
 function safeHttpUrl(value: string): string {
   try {
     const url = new URL(value, document.baseURI);
-    return /^https?:$/.test(url.protocol) ? url.href : '';
+    return /^https?:$/.test(url.protocol) ? escapeMarkdownDestination(url.href) : '';
+  } catch {
+    return '';
+  }
+}
+
+function safeImageUrl(value: string): string {
+  const trimmed = value.trim();
+  if (!trimmed) return '';
+  if (/^data:image\/(?:avif|gif|jpe?g|png|webp);base64,/i.test(trimmed)) {
+    return escapeMarkdownDestination(trimmed);
+  }
+  try {
+    const url = new URL(trimmed, document.baseURI);
+    return /^(?:https?|blob):$/.test(url.protocol) ? escapeMarkdownDestination(url.href) : '';
   } catch {
     return '';
   }

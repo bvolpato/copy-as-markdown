@@ -7,40 +7,30 @@ import { register } from '../core/registry';
 import * as Markdown from '../core/markdown';
 import * as Utils from '../core/utils';
 
+type JsonRecord = Record<string, unknown>;
+
+const AMAZON_TLDS = [
+  'com', 'co.uk', 'de', 'fr', 'ca', 'com.br', 'com.au', 'co.jp',
+  'in', 'es', 'it', 'nl', 'com.mx', 'se', 'pl', 'sg', 'ae', 'sa',
+  'com.tr', 'com.be', 'eg', 'ie',
+];
+
+const AMAZON_MATCHES = AMAZON_TLDS.flatMap((tld) => [
+  `*://*.amazon.${tld}/*/dp/*`,
+  `*://*.amazon.${tld}/dp/*`,
+  `*://*.amazon.${tld}/gp/product/*`,
+  `*://*.amazon.${tld}/gp/aw/d/*`,
+]);
+
 register({
   name: 'Amazon',
-  matches: [
-    '*://www.amazon.com/*/dp/*',
-    '*://www.amazon.com/dp/*',
-    '*://www.amazon.com/gp/product/*',
-    '*://www.amazon.co.uk/*/dp/*',
-    '*://www.amazon.co.uk/dp/*',
-    '*://www.amazon.co.uk/gp/product/*',
-    '*://www.amazon.de/*/dp/*',
-    '*://www.amazon.de/dp/*',
-    '*://www.amazon.de/gp/product/*',
-    '*://www.amazon.fr/*/dp/*',
-    '*://www.amazon.fr/dp/*',
-    '*://www.amazon.fr/gp/product/*',
-    '*://www.amazon.ca/*/dp/*',
-    '*://www.amazon.ca/dp/*',
-    '*://www.amazon.ca/gp/product/*',
-    '*://www.amazon.com.br/*/dp/*',
-    '*://www.amazon.com.br/dp/*',
-    '*://www.amazon.com.br/gp/product/*',
-    '*://www.amazon.com.au/*/dp/*',
-    '*://www.amazon.com.au/dp/*',
-    '*://www.amazon.com.au/gp/product/*',
-    '*://www.amazon.co.jp/*/dp/*',
-    '*://www.amazon.co.jp/dp/*',
-    '*://www.amazon.co.jp/gp/product/*',
-  ],
+  matches: AMAZON_MATCHES,
   buttonPlacement: 'anchor',
   anchor: {
     selector: [
       '#title',                               // product title container
-      '#titleSection',                         // alt title section
-      '#productTitle',                         // product title element
+      '#titleSection',                        // alt title section
+      '#productTitle',                        // product title element
     ].join(', '),
     position: 'after',
     style: 'icon',
@@ -49,13 +39,18 @@ register({
 
   async extract() {
     const url = Utils.getCanonicalUrl();
+    const productLd = findProductSchema();
 
     const titleEl = document.getElementById('productTitle');
-    const title = titleEl?.textContent?.trim() || Utils.getPageTitle();
+    const title = titleEl?.textContent?.trim()
+      || stringValue(productLd?.name)
+      || Utils.getPageTitle();
 
     // ASIN from URL
-    const asinMatch = url.match(/\/dp\/([A-Z0-9]{10})/i) || url.match(/\/product\/([A-Z0-9]{10})/i);
-    const asin = asinMatch ? asinMatch[1] : '';
+    const asinMatch = url.match(/\/dp\/([A-Z0-9]{10})/i)
+      || url.match(/\/product\/([A-Z0-9]{10})/i)
+      || url.match(/\/gp\/aw\/d\/([A-Z0-9]{10})/i);
+    const asin = asinMatch ? asinMatch[1] : stringValue(productLd?.sku);
 
     const metadata: Record<string, string> = {
       source: 'Amazon',
@@ -68,19 +63,30 @@ register({
 
     // Brand
     const brandEl = document.querySelector('#bylineInfo, .po-brand .a-span9 .a-size-base');
-    const brand = brandEl?.textContent?.trim() || '';
+    const brand = brandEl?.textContent?.trim()
+      || stringValue(asRecord(productLd?.brand)?.name)
+      || stringValue(productLd?.brand);
     if (brand) parts.push(`**Brand:** ${brand}`);
 
-    // Price
-    const priceEl = document.querySelector('.a-price .a-offscreen, #priceblock_dealprice, #priceblock_ourprice, .a-price-whole');
-    const price = priceEl?.textContent?.trim() || '';
+    // Price: scope to the primary product price container before falling back to any .a-price on the page.
+    const priceScope = document.querySelector(
+      '#corePrice_feature_div, #corePriceDisplay_desktop_feature_div, #apex_desktop, #buybox',
+    );
+    const priceSelectors = '.a-price .a-offscreen, #priceblock_dealprice, #priceblock_ourprice, .a-price-whole';
+    const priceEl = priceScope?.querySelector(priceSelectors) || document.querySelector(priceSelectors);
+    const ldOffer = asRecord(Array.isArray(productLd?.offers) ? productLd?.offers[0] : productLd?.offers);
+    const ldPrice = stringValue(ldOffer?.price);
+    const ldCurrency = stringValue(ldOffer?.priceCurrency);
+    const price = priceEl?.textContent?.trim()
+      || (ldPrice ? (ldCurrency ? `${ldCurrency} ${ldPrice}` : ldPrice) : '');
     if (price) parts.push(`**Price:** ${price}`);
 
     // Rating
     const ratingEl = document.querySelector('#acrPopover .a-icon-alt, [data-hook="rating-out-of-text"]');
-    const rating = ratingEl?.textContent?.trim() || '';
+    const ldRating = asRecord(productLd?.aggregateRating);
+    const rating = ratingEl?.textContent?.trim() || stringValue(ldRating?.ratingValue);
     const reviewCountEl = document.querySelector('#acrCustomerReviewText');
-    const reviewCount = reviewCountEl?.textContent?.trim() || '';
+    const reviewCount = reviewCountEl?.textContent?.trim() || stringValue(ldRating?.reviewCount);
     if (rating) parts.push(`**Rating:** ${rating}${reviewCount ? ` (${reviewCount})` : ''}`);
 
     // Availability
@@ -90,26 +96,31 @@ register({
 
     parts.push('');
 
-    // Feature bullets
-    const featureBullets = document.querySelectorAll('#feature-bullets li span.a-list-item, #feature-bullets ul li');
-    if (featureBullets.length > 0) {
+    // Feature bullets: prefer span.a-list-item without also selecting its parent <li>.
+    const bulletSpans = document.querySelectorAll('#feature-bullets li span.a-list-item');
+    const featureBullets = bulletSpans.length > 0
+      ? bulletSpans
+      : document.querySelectorAll('#feature-bullets ul li');
+    const seenBullets = new Set<string>();
+    const bullets: string[] = [];
+    featureBullets.forEach((bullet) => {
+      const text = bullet.textContent?.replace(/\s+/g, ' ').trim() || '';
+      if (text.length > 5 && !seenBullets.has(text)) {
+        seenBullets.add(text);
+        bullets.push(text);
+      }
+    });
+    if (bullets.length > 0) {
       parts.push('## Key Features\n');
-      featureBullets.forEach((bullet) => {
-        const text = bullet.textContent?.trim();
-        if (text && text.length > 5) parts.push(`- ${text}`);
-      });
+      bullets.forEach((text) => parts.push(`- ${text}`));
       parts.push('');
     }
 
-    // Product details / tech specs table
-    const detailRows = document.querySelectorAll('#productDetails_techSpec_section_1 tr, #detailBullets_feature_div li, .a-keyvalue tr');
-    if (detailRows.length > 0) {
+    // Product details / tech specs / overview
+    const detailPairs = collectProductDetails();
+    if (detailPairs.length > 0) {
       parts.push('## Product Details\n');
-      detailRows.forEach((row) => {
-        const label = row.querySelector('th, .a-text-bold, .prodDetAttrName')?.textContent?.trim() || '';
-        const value = row.querySelector('td, .prodDetAttrValue, span:not(.a-text-bold)')?.textContent?.trim() || '';
-        if (label && value) parts.push(`- **${label}:** ${value}`);
-      });
+      detailPairs.forEach(([label, value]) => parts.push(`- **${label}:** ${value}`));
       parts.push('');
     }
 
@@ -121,6 +132,11 @@ register({
         parts.push('## Description\n');
         parts.push(descText);
         parts.push('');
+      }
+    } else {
+      const ldDesc = stringValue(productLd?.description);
+      if (ldDesc.length > 20) {
+        parts.push('## Description\n', ldDesc, '');
       }
     }
 
@@ -148,7 +164,7 @@ register({
         const reviewDate = review.querySelector('[data-hook="review-date"]')?.textContent?.trim() || '';
         const reviewBody = review.querySelector('[data-hook="review-body"] span, .review-text-content span')?.textContent?.trim() || '';
 
-        parts.push(`### ${stars ? stars + ' — ' : ''}${reviewTitle}\n`);
+        parts.push(`### ${stars ? `${stars} - ` : ''}${reviewTitle}\n`);
         parts.push(`*By ${reviewer}${reviewDate ? ` · ${reviewDate}` : ''}*\n`);
         if (reviewBody) parts.push(`${reviewBody}\n`);
       });
@@ -157,3 +173,82 @@ register({
     return Markdown.buildPageMarkdown(metadata, parts.join('\n'));
   },
 });
+
+function cleanDetailLabel(value: string): string {
+  return value.replace(/[\u200e\u200f]/g, '').replace(/\s+/g, ' ').replace(/:\s*$/, '').trim();
+}
+
+function cleanDetailValue(value: string): string {
+  return value.replace(/[\u200e\u200f]/g, '').replace(/\s+/g, ' ').trim();
+}
+
+function collectProductDetails(): Array<[string, string]> {
+  const seen = new Set<string>();
+  const pairs: Array<[string, string]> = [];
+  const addPair = (rawLabel: string, rawValue: string) => {
+    const label = cleanDetailLabel(rawLabel);
+    const value = cleanDetailValue(rawValue);
+    if (!label || !value) return;
+    const key = label.toLowerCase();
+    if (seen.has(key)) return;
+    seen.add(key);
+    pairs.push([label, value]);
+  };
+
+  document.querySelectorAll('#productOverview_feature_div tr').forEach((row) => {
+    const cells = row.querySelectorAll('td, th');
+    if (cells.length >= 2) {
+      addPair(cells[0].textContent || '', cells[1].textContent || '');
+    }
+  });
+
+  document.querySelectorAll(
+    '#productDetails_techSpec_section_1 tr, #productDetails_techSpec_section_2 tr, #productDetails_detailBullets_sections1 tr, .a-keyvalue tr',
+  ).forEach((row) => {
+    const label = row.querySelector('th, .prodDetAttrName')?.textContent || '';
+    const value = row.querySelector('td, .prodDetAttrValue')?.textContent || '';
+    addPair(label, value);
+  });
+
+  document.querySelectorAll('#detailBullets_feature_div li').forEach((row) => {
+    const bold = row.querySelector('.a-text-bold');
+    if (!bold) return;
+    const label = bold.textContent || '';
+    const valueEl = bold.nextElementSibling;
+    const value = valueEl?.textContent || '';
+    addPair(label, value);
+  });
+
+  return pairs;
+}
+
+function findProductSchema(): JsonRecord | null {
+  for (const script of document.querySelectorAll<HTMLScriptElement>('script[type="application/ld+json"]')) {
+    const raw = script.textContent || '';
+    if (!raw || !/Product/i.test(raw)) continue;
+    try {
+      const parsed: unknown = JSON.parse(raw);
+      const records = flattenRecords(parsed);
+      const found = records.find((record) => /Product/i.test(stringValue(record['@type'])));
+      if (found) return found;
+    } catch { /* ignore malformed JSON-LD */ }
+  }
+  return null;
+}
+
+function flattenRecords(value: unknown): JsonRecord[] {
+  if (Array.isArray(value)) return value.flatMap(flattenRecords);
+  const record = asRecord(value);
+  if (!record) return [];
+  const graph = Array.isArray(record['@graph']) ? record['@graph'].flatMap(flattenRecords) : [];
+  return [record, ...graph];
+}
+
+function asRecord(value: unknown): JsonRecord | null {
+  return value && typeof value === 'object' && !Array.isArray(value) ? value as JsonRecord : null;
+}
+
+function stringValue(value: unknown): string {
+  if (Array.isArray(value)) return value.map(stringValue).filter(Boolean).join(', ');
+  return typeof value === 'string' || typeof value === 'number' ? String(value).trim() : '';
+}

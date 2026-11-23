@@ -93,25 +93,56 @@ function getMlflowRoute(contextDocument: Document = document): MlflowRoute | nul
   if (!isMlflowPage(contextDocument)) return null;
   const href = contextDocument.location?.href || contextDocument.baseURI;
   if (!href) return null;
-  const url = new URL(href);
-  const hash = url.hash.replace(/^#!?\/?/, '/');
-  const queryIndex = hash.indexOf('?');
-  const hashPath = queryIndex === -1 ? hash : hash.slice(0, queryIndex);
-  const hashSearch = new URLSearchParams(queryIndex === -1 ? '' : hash.slice(queryIndex + 1));
-  const prefix = url.pathname.replace(/\/+$/, '');
-  const hashRunRoute = parseRunPath(hashPath);
-  if (hashRunRoute) return { kind: 'run', ...hashRunRoute, prefix };
+  let url: URL;
+  try {
+    url = new URL(href);
+  } catch {
+    return null;
+  }
+  const urlPrefix = url.pathname.replace(/\/+$/, '');
 
-  const comparisonRoute = parseComparisonPath(hashPath, hashSearch, contextDocument);
-  if (comparisonRoute) return { kind: 'comparison', ...comparisonRoute, prefix };
+  if (url.hash) {
+    const hash = url.hash.replace(/^#!?\/?/, '/');
+    const queryIndex = hash.indexOf('?');
+    const hashPath = queryIndex === -1 ? hash : hash.slice(0, queryIndex);
+    const hashSearch = new URLSearchParams(queryIndex === -1 ? '' : hash.slice(queryIndex + 1));
+    const hashSplit = splitMlflowSubpath(hashPath);
+    if (hashSplit) {
+      const hashRunRoute = parseRunPath(hashSplit.subPath);
+      if (hashRunRoute) return { kind: 'run', ...hashRunRoute, prefix: urlPrefix };
 
-  const pathRunRoute = parseRunPath(url.pathname);
-  if (!pathRunRoute) return null;
-  const marker = url.pathname.match(/\/(?:experiments\/[^/]+\/)?runs\//)?.index ?? 0;
+      const comparisonRoute = parseComparisonPath(hashSplit.subPath, hashSearch, contextDocument);
+      if (comparisonRoute) return { kind: 'comparison', ...comparisonRoute, prefix: urlPrefix };
+    }
+  }
+
+  const pathSplit = splitMlflowSubpath(url.pathname);
+  if (!pathSplit) return null;
+  const pathRunRoute = parseRunPath(pathSplit.subPath);
+  if (pathRunRoute) {
+    return {
+      kind: 'run',
+      ...pathRunRoute,
+      prefix: pathSplit.prefix,
+    };
+  }
+  const pathComparisonRoute = parseComparisonPath(pathSplit.subPath, url.searchParams, contextDocument);
+  if (pathComparisonRoute) {
+    return {
+      kind: 'comparison',
+      ...pathComparisonRoute,
+      prefix: pathSplit.prefix,
+    };
+  }
+  return null;
+}
+
+function splitMlflowSubpath(rawPath: string): { prefix: string; subPath: string } | null {
+  const match = rawPath.match(/\/(?:experiments\/[^/?#]+\/runs(?:\/|$)|runs\/[^/?#]+)/);
+  if (!match || match.index === undefined) return null;
   return {
-    kind: 'run',
-    ...pathRunRoute,
-    prefix: url.pathname.slice(0, marker).replace(/\/+$/, ''),
+    prefix: rawPath.slice(0, match.index).replace(/\/+$/, ''),
+    subPath: rawPath.slice(match.index),
   };
 }
 
@@ -134,7 +165,7 @@ function isMlflowPage(contextDocument: Document): boolean {
 
 function parseRunPath(path: string): Omit<MlflowRunRoute, 'kind' | 'prefix'> | null {
   const match = path.match(
-    /^\/(?:experiments\/([^/?#]+)\/)?runs\/([^/?#]+)(?:\/(?:overview|metrics|artifacts|traces))?\/?$/,
+    /^\/(?:experiments\/([^/?#]+)\/)?runs\/([^/?#]+)(?:\/(?:overview|metrics|model-metrics|system-metrics|parameters|tags|inputs-outputs|images|traces|artifacts(?:\/.*)?))?\/?$/,
   );
   if (!match) return null;
   try {
@@ -171,8 +202,15 @@ async function fetchRun(route: MlflowRunRoute): Promise<{ run: MlflowRun; apiBas
   return fetchRunById(route.prefix, route.runId);
 }
 
-async function fetchRunById(prefix: string, runId: string): Promise<{ run: MlflowRun; apiBase: string }> {
-  const apiBases = getApiBases(prefix);
+async function fetchRunById(
+  prefix: string,
+  runId: string,
+  preferredApiBase?: string,
+): Promise<{ run: MlflowRun; apiBase: string }> {
+  const allBases = getApiBases(prefix);
+  const apiBases = preferredApiBase
+    ? [preferredApiBase, ...allBases.filter((base) => base !== preferredApiBase)]
+    : allBases;
   let lastError: unknown;
   for (const apiBase of apiBases) {
     for (const idParameter of ['run_id', 'run_uuid']) {
@@ -254,9 +292,11 @@ async function buildRunMarkdown(
 async function buildComparisonMarkdown(route: MlflowComparisonRoute): Promise<string> {
   const allRunRefs = getVisibleComparisonRuns(route);
   const selectedRunRefs = allRunRefs.slice(0, MAX_COMPARISON_RUNS);
-  const runs = await mapWithConcurrency(selectedRunRefs, 4, async (reference): Promise<ComparisonRun> => {
+  let cachedApiBase: string | undefined;
+  const loadComparisonRun = async (reference: ComparisonRun): Promise<ComparisonRun> => {
     try {
-      const result = await fetchRunById(route.prefix, reference.runId);
+      const result = await fetchRunById(route.prefix, reference.runId, cachedApiBase);
+      if (!cachedApiBase) cachedApiBase = result.apiBase;
       return {
         ...reference,
         name: result.run.info?.run_name || reference.name,
@@ -266,7 +306,14 @@ async function buildComparisonMarkdown(route: MlflowComparisonRoute): Promise<st
     } catch {
       return reference;
     }
-  });
+  };
+  const runs: ComparisonRun[] = [];
+  if (selectedRunRefs.length > 0) {
+    runs.push(await loadComparisonRun(selectedRunRefs[0]));
+    if (selectedRunRefs.length > 1) {
+      runs.push(...await mapWithConcurrency(selectedRunRefs.slice(1), 4, loadComparisonRun));
+    }
+  }
   const displayedMetricKeys = getDisplayedMetricKeys();
   const availableMetricKeys = getAvailableMetricKeys(runs);
   const metricLimit = Math.max(
@@ -350,14 +397,34 @@ function getVisibleComparisonRuns(route: MlflowComparisonRoute): ComparisonRun[]
   });
   if (runs.length > 0) return runs;
 
-  const quotedValues = route.searchFilter.matchAll(/['"]([^'"]+)['"]/g);
-  for (const match of quotedValues) {
-    const runId = match[1].trim();
-    if (!runId || seen.has(runId)) continue;
+  for (const runId of extractRunIdsFromSearchFilter(route.searchFilter)) {
+    if (seen.has(runId)) continue;
     seen.add(runId);
     runs.push({ runId, name: runId });
   }
   return runs;
+}
+
+function extractRunIdsFromSearchFilter(searchFilter: string): string[] {
+  if (!searchFilter) return [];
+  const ids: string[] = [];
+  const seen = new Set<string>();
+  const add = (value: string) => {
+    const trimmed = value.trim();
+    if (!trimmed || seen.has(trimmed)) return;
+    seen.add(trimmed);
+    ids.push(trimmed);
+  };
+
+  for (const match of searchFilter.matchAll(/\b(?:attributes\.)?run_id\s*=\s*['"]([^'"]+)['"]/gi)) {
+    add(match[1]);
+  }
+  for (const match of searchFilter.matchAll(/\b(?:attributes\.)?run_id\s+in\s*\(([^)]+)\)/gi)) {
+    for (const quoted of match[1].matchAll(/['"]([^'"]+)['"]/g)) {
+      add(quoted[1]);
+    }
+  }
+  return ids;
 }
 
 function getDisplayedMetricKeys(): string[] {
@@ -452,7 +519,7 @@ async function fetchMetricHistory(
 }
 
 async function fetchJson(url: string): Promise<Record<string, any>> {
-  const response = await fetch(url, {
+  const response = await Utils.fetchWithTimeout(url, {
     credentials: 'include',
     headers: { Accept: 'application/json' },
   });

@@ -8,10 +8,13 @@ export const geminiNotebookExtractor = registerAiConversationExtractor({
   assistantLabel: 'Gemini Notebook',
   matches: [
     '*://notebook.google.com/notebook/*',
+    '*://notebook.google.com/u/*/notebook/*',
     '*://notebooklm.google.com/notebook/*',
-    '*://notebooklm.cloud.google.com/notebook/*',
+    '*://notebooklm.google.com/u/*/notebook/*',
+    '*://*.notebooklm.cloud.google.com/notebook/*',
+    '*://*.notebooklm.cloud.google.com/u/*/notebook/*',
   ],
-  pathnameRegex: /^\/notebook\/[^/]+(?:\/|$)/i,
+  pathnameRegex: /^(?:\/u\/\d+)?\/notebook\/[^/]+(?:\/|$)/i,
   route() {
     return window.location.hostname === 'notebook.google.com'
       ? 'gemini_notebook'
@@ -32,7 +35,6 @@ export const geminiNotebookExtractor = registerAiConversationExtractor({
     '[data-testid*="chat-message"]',
     '.chat-message',
     '[data-message-id]',
-    '[role="listitem"]',
   ],
   userSelectors: [
     '[data-testid="user-message"]',
@@ -71,8 +73,8 @@ export const geminiNotebookExtractor = registerAiConversationExtractor({
     'main',
   ],
   workspaceSelectors: [
-    { selector: '[data-testid="notebook-title"]' },
-    { selector: '[data-testid*="notebook-title"]' },
+    { selector: '[data-testid="workspace-name"]' },
+    { selector: '[data-testid="project-name"]' },
   ],
   citationSelectors: [
     'a[aria-label*="source" i][href]',
@@ -99,12 +101,13 @@ export const geminiNotebookExtractor = registerAiConversationExtractor({
     '[class*="chat-history"] [class*="virtual"]',
   ],
   resolveRole(element) {
-    if (element.matches('.from-user-container') || element.querySelector('.from-user-container')) {
-      return 'user';
-    }
-    if (element.matches('.to-user-container') || element.querySelector('.to-user-container')) {
-      return 'assistant';
-    }
+    if (element.matches('.from-user-container')) return 'user';
+    if (element.matches('.to-user-container')) return 'assistant';
+    const hasUser = Boolean(element.querySelector('.from-user-container'));
+    const hasAssistant = Boolean(element.querySelector('.to-user-container'));
+    if (hasUser && hasAssistant) return null;
+    if (hasUser) return 'user';
+    if (hasAssistant) return 'assistant';
     return null;
   },
 });

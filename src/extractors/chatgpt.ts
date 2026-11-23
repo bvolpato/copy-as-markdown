@@ -19,16 +19,15 @@ type Turn = { role: Role; element: Element; container: Element };
 register({
   name: 'ChatGPT',
   matches: [
-    '*://chatgpt.com/share/*',
-    '*://chatgpt.com/c/*',
-    '*://chat.openai.com/share/*',
-    '*://chat.openai.com/c/*',
+    '*://chatgpt.com/*',
+    '*://www.chatgpt.com/*',
+    '*://chat.openai.com/*',
   ],
-  pathnameRegex: /^\/(?:share|c)\//,
+  pathnameRegex: /^(?:\/$|\/(?:share|c)\/|\/g\/[^/]+\/c\/)/,
 
   buttonPlacement: 'anchor',
   anchor: {
-    selector: '#conversation-header-actions',
+    selector: '#conversation-header-actions, [data-testid="conversation-header-actions"], header[data-app-shell-titlebar], main header',
     position: 'overlay',
     style: 'icon',
     css: {
@@ -49,11 +48,7 @@ register({
       route: conversationRoute(window.location.pathname),
     };
 
-    const model = document.querySelector('[data-message-model-slug], [data-model], [data-model-name]')
-      ?.getAttribute('data-message-model-slug')
-      || document.querySelector('[data-model]')?.getAttribute('data-model')
-      || document.querySelector('[data-model-name]')?.getAttribute('data-model-name')
-      || '';
+    const model = extractModel();
     if (model) metadata.model = model;
 
     const turns = limitCollection(collectTurns(), MAX_TURNS);
@@ -172,6 +167,22 @@ function collectTurns(): Turn[] {
   return dedupeTurns(result.sort((left, right) => compareDomOrder(left.element, right.element)));
 }
 
+function extractModel(): string {
+  const slug = document.querySelector('[data-message-model-slug]')?.getAttribute('data-message-model-slug')?.trim();
+  if (slug) return slug;
+  const dataModel = document.querySelector('[data-model]')?.getAttribute('data-model')?.trim();
+  if (dataModel) return dataModel;
+  const dataModelName = document.querySelector('[data-model-name]')?.getAttribute('data-model-name')?.trim();
+  if (dataModelName) return dataModelName;
+  const isVisible = Utils.createVisibilityChecker();
+  for (const button of document.querySelectorAll('[data-testid="model-switcher-dropdown-button"]')) {
+    if (!isVisible(button)) continue;
+    const text = normalize(button.textContent || '');
+    if (text && text.length <= 100) return text;
+  }
+  return '';
+}
+
 function roleFor(element: Element): Role | null {
   if (element.matches(CURRENT_USER)) return 'user';
   if (element.matches(CURRENT_ASSISTANT)) return 'assistant';
@@ -181,10 +192,10 @@ function roleFor(element: Element): Role | null {
     element.getAttribute('data-role'),
     element.getAttribute('aria-label'),
     element.getAttribute('data-testid'),
-    element.className,
+    typeof element.className === 'string' ? element.className : '',
   ].filter(Boolean).join(' ').toLowerCase();
-  if (/user|human|you|prompt/.test(value)) return 'user';
-  if (/assistant|chatgpt|model|response|answer/.test(value)) return 'assistant';
+  if (/(?:^|[\s_-])(user|human|you|prompt|query)(?:$|[\s_-])/.test(value)) return 'user';
+  if (/(?:^|[\s_-])(assistant|chatgpt|model|response|answer)(?:$|[\s_-])/.test(value)) return 'assistant';
   return null;
 }
 
@@ -204,11 +215,16 @@ function messageContent(element: Element): Element | null {
 
 function dedupeTurns(turns: Turn[]): Turn[] {
   const seenElements = new Set<Element>();
-  return turns.filter((turn) => {
+  const unique = turns.filter((turn) => {
     if (seenElements.has(turn.element)) return false;
     seenElements.add(turn.element);
     return true;
   });
+  return unique.filter((turn) => !unique.some((other) => (
+    other.role === turn.role
+    && other.element !== turn.element
+    && other.element.contains(turn.element)
+  )));
 }
 
 function extractCitations(container: Element): Array<{ label: string; href: string }> {
@@ -236,13 +252,13 @@ function extractCitations(container: Element): Array<{ label: string; href: stri
 function standaloneImages(container: Element, content: Element): string[] {
   const seenSources = new Set(
     Array.from(content.querySelectorAll<HTMLImageElement>('img[src]'))
-      .map(imageSource)
+      .map((image) => safeImageUrl(imageSource(image)))
       .filter(Boolean),
   );
   const images: string[] = [];
   container.querySelectorAll<HTMLImageElement>('img[src]').forEach((image) => {
     if (content.contains(image) || image.getAttribute('aria-hidden') === 'true') return;
-    const source = imageSource(image);
+    const source = safeImageUrl(imageSource(image));
     if (!source || seenSources.has(source)) return;
     const rect = image.getBoundingClientRect();
     const width = Math.max(image.naturalWidth, image.width, rect.width);
@@ -263,7 +279,7 @@ function clean(element: Element): Element {
   const clone = Utils.removeNoise(element, [
     ...Utils.NOISE_SELECTORS,
     'button', '[data-testid*="actions"]', '[data-testid*="feedback"]',
-    '[class*="toolbar"]', 'textarea',
+    '[class*="toolbar"]:not(.code-toolbar)', 'textarea',
     '[data-testid="writing-block-header-sticky-container"]',
     '[class*="avatar"]', '[class*="profile"]',
     '[data-markdown-copy="exclude"]', '[data-d-component="favicon"]',
@@ -332,17 +348,38 @@ function conversationTitle(): string {
 }
 
 function conversationRoute(path: string): string {
-  return /^\/share\//.test(path) ? 'shared' : 'authenticated';
+  if (/^\/share\//.test(path)) return 'shared';
+  if (/^\/g\/[^/]+\/c\//.test(path)) return 'project';
+  if (path === '/') return 'temporary';
+  return 'authenticated';
 }
 
 function imageSource(image: HTMLImageElement): string {
   return image.currentSrc || image.src || image.getAttribute('src') || '';
 }
 
+function escapeMarkdownDestination(value: string): string {
+  return value.replace(/\(/g, '%28').replace(/\)/g, '%29');
+}
+
 function safeHttpUrl(value: string): string {
   try {
     const url = new URL(value, document.baseURI);
-    return /^https?:$/.test(url.protocol) ? url.href : '';
+    return /^https?:$/.test(url.protocol) ? escapeMarkdownDestination(url.href) : '';
+  } catch {
+    return '';
+  }
+}
+
+function safeImageUrl(value: string): string {
+  const trimmed = value.trim();
+  if (!trimmed) return '';
+  if (/^data:image\/(?:avif|gif|jpe?g|png|webp);base64,/i.test(trimmed)) {
+    return escapeMarkdownDestination(trimmed);
+  }
+  try {
+    const url = new URL(trimmed, document.baseURI);
+    return /^(?:https?|blob):$/.test(url.protocol) ? escapeMarkdownDestination(url.href) : '';
   } catch {
     return '';
   }

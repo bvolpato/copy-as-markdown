@@ -40,8 +40,12 @@ register({
     '*://reddit.com/*',
     '*://old.reddit.com/*',
     '*://new.reddit.com/*',
+    '*://sh.reddit.com/*',
+    '*://np.reddit.com/*',
+    '*://m.reddit.com/*',
+    '*://i.reddit.com/*',
   ],
-  pathnameRegex: /^\/(?:r\/[^/]+(?:\/|$)|comments\/[^/]+(?:\/|$)|user\/[^/]+(?:\/|$)|search(?:\/|$))/,
+  pathnameRegex: /^\/(?:r\/[^/]+(?:\/|$)|comments\/[^/]+(?:\/|$)|gallery\/[^/]+(?:\/|$)|poll\/[^/]+(?:\/|$)|(?:user|u)\/[^/]+(?:\/|$)|search(?:\/|$))/,
   buttonPlacement: 'anchor',
   anchor: {
     selector: [
@@ -120,7 +124,7 @@ register({
 
 function parseRoute(): { id: string; kind: 'post' | 'feed' | 'search' } {
   const path = window.location.pathname;
-  const match = path.match(/(?:^|\/)comments\/([^/]+)/) || path.match(/^\/comments\/([^/]+)/);
+  const match = path.match(/(?:^|\/)(?:comments|gallery|poll)\/([^/]+)/);
   if (match) return { id: match[1], kind: 'post' };
   if (/^\/search(?:\/|$)/.test(path)) return { id: '', kind: 'search' };
   return { id: '', kind: 'feed' };
@@ -130,13 +134,36 @@ function emptyPost(id = ''): RedditPost {
   return { id, title: '', subreddit: '', author: '', body: '', timestamp: '', score: '', comments: '', media: [] };
 }
 
+function queryShadow(scope: ParentNode, selector: string): Element | null {
+  const light = scope.querySelector(selector);
+  if (light) return light;
+  if (scope instanceof Element && scope.shadowRoot) {
+    return scope.shadowRoot.querySelector(selector);
+  }
+  return null;
+}
+
+function queryAllShadow<T extends Element = Element>(scope: ParentNode, selector: string): T[] {
+  const result = Array.from(scope.querySelectorAll<T>(selector));
+  if (scope instanceof Element && scope.shadowRoot) {
+    for (const el of scope.shadowRoot.querySelectorAll<T>(selector)) {
+      if (!result.includes(el)) result.push(el);
+    }
+  }
+  return result;
+}
+
 function findPostRoot(id: string): Element | null {
   const candidates = Array.from(document.querySelectorAll<HTMLElement>(POST_SELECTOR));
   if (!id) return null;
   return candidates.find((candidate) => {
-    const ids = [candidate.id, candidate.getAttribute('data-post-id') || '', candidate.getAttribute('data-fullname') || ''];
+    const ids = [
+      candidate.id,
+      candidate.getAttribute('data-post-id') || '',
+      candidate.getAttribute('data-fullname') || '',
+    ];
     return ids.some((value) => value === id || value.endsWith(`_${id}`) || value.includes(`t3_${id}`))
-      || Array.from(candidate.querySelectorAll<HTMLAnchorElement>('a[href]'))
+      || queryAllShadow<HTMLAnchorElement>(candidate, 'a[href]')
         .some((link) => link.href.includes(`/comments/${id}`));
   }) || (candidates.length === 1 ? candidates[0] : null);
 }
@@ -185,16 +212,30 @@ function extractDomPost(root: Element | null, id: string): RedditPost {
   post.comments = root.getAttribute('comment-count') || text(root, [
     '[data-testid="comment-count"]', '[data-testid="post-comment-count"]', '.comments',
   ]) || count(root, /comment/i);
-  post.timestamp = attr(root, ['time[datetime]'], 'datetime') || text(root, ['time', '[data-testid="post_timestamp"]']);
-  const bodyEl = root.querySelector(
+  post.timestamp = root.getAttribute('created-timestamp')?.trim()
+    || attr(root, ['time[datetime]'], 'datetime')
+    || text(root, ['time', '[data-testid="post_timestamp"]']);
+  const bodyEl = queryShadow(
+    root,
     '[slot="text-body"], [data-testid="post-content"], [data-testid="post-selftext"], .RichTextJSON-root, .expando .md, .usertext-body',
   );
   if (bodyEl) {
     const cleaned = Utils.removeNoise(bodyEl, ['script', 'style', 'button', 'svg', '[aria-hidden="true"]']);
     post.body = Markdown.elementToMarkdown(cleaned).trim();
   }
-  if (!post.body) post.body = clean(Utils.getMeta('description'));
   post.media = extractMedia(root);
+
+  const postType = (root.getAttribute('post-type') || '').toLowerCase();
+  const isLinkOrMediaPost = /^(?:link|image|video|gallery|crosspost)$/.test(postType)
+    || Boolean(root.getAttribute('content-href'))
+    || post.media.length > 0
+    || Boolean(queryShadow(root, 'a[slot="full-post-link"], a[data-testid="outbound-link"]'));
+  if (!post.body && !isLinkOrMediaPost) {
+    const metaDesc = clean(Utils.getMeta('description'));
+    if (metaDesc && !/^(?:Posted in r\/|\d[\d,.]*\s*(?:votes?|points?|comments?))/i.test(metaDesc)) {
+      post.body = metaDesc;
+    }
+  }
   return post;
 }
 
@@ -221,7 +262,8 @@ function extractComments(scope: ParentNode, postRoot: Element | null): RedditCom
     comments.push({
       author: author || 'Anonymous',
       body,
-      timestamp: commentElement(node, 'time[datetime]')?.getAttribute('datetime')
+      timestamp: node.getAttribute('created-timestamp')?.trim()
+        || commentElement(node, 'time[datetime]')?.getAttribute('datetime')
         || clean(commentElement(node, 'time')?.textContent || ''),
       score,
       depth: commentDepth(node),
@@ -231,8 +273,13 @@ function extractComments(scope: ParentNode, postRoot: Element | null): RedditCom
 }
 
 function commentElement(node: Element, selector: string): Element | undefined {
-  return Array.from(node.querySelectorAll(selector))
+  const lightMatch = Array.from(node.querySelectorAll(selector))
     .find((element) => element.closest(COMMENT_SELECTOR) === node);
+  if (lightMatch) return lightMatch;
+  if (node.shadowRoot) {
+    return node.shadowRoot.querySelector(selector) || undefined;
+  }
+  return undefined;
 }
 
 function commentDepth(node: Element): number {
@@ -243,7 +290,7 @@ function commentDepth(node: Element): number {
       depth++;
     }
   }
-  return Math.max(0, Math.min(depth, 3));
+  return Math.max(0, depth);
 }
 
 function appendComment(parts: string[], comment: RedditComment): void {
@@ -257,16 +304,22 @@ function appendComment(parts: string[], comment: RedditComment): void {
 
 function extractMedia(scope: ParentNode): string[] {
   const media: string[] = [];
-  scope.querySelectorAll<HTMLImageElement>('img[src], img[data-src]').forEach((image) => {
+  const seenMedia = new Set<string>();
+  queryAllShadow<HTMLImageElement>(scope, 'img[src], img[data-src]').forEach((image) => {
     const alt = clean(image.alt) || 'Reddit image';
     if (/avatar|profile|icon|emoji|logo/i.test(alt)) return;
     const src = safeHttpUrl(image.currentSrc || image.src || image.getAttribute('data-src') || '');
-    const value = src ? `[${escapeLabel(alt)}](${src})` : alt;
-    if (!media.includes(value)) media.push(value);
+    const key = src || alt;
+    if (seenMedia.has(key)) return;
+    seenMedia.add(key);
+    media.push(src ? `[${escapeLabel(alt)}](${src})` : alt);
   });
-  scope.querySelectorAll<HTMLVideoElement>('video[src], video[poster]').forEach((video) => {
+  queryAllShadow<HTMLVideoElement>(scope, 'video[src], video[poster]').forEach((video) => {
     const src = safeHttpUrl(video.currentSrc || video.src || video.poster || '');
-    if (src && !media.includes(src)) media.push(`[Reddit video](${src})`);
+    if (src && !seenMedia.has(src)) {
+      seenMedia.add(src);
+      media.push(`[Reddit video](${src})`);
+    }
   });
   return media;
 }
@@ -277,13 +330,18 @@ function findEmbeddedPost(id: string): RedditPost | null {
     'script[type="application/json"], script[type="application/ld+json"]',
   )) {
     const raw = script.textContent || '';
-    if (!raw || raw.length > 8_000_000) continue;
+    if (!raw || raw.length > 8_000_000 || !raw.includes(id)) continue;
     try { payloads.push(JSON.parse(raw)); } catch { /* non-JSON script */ }
   }
   for (const payload of payloads) {
     const record = findObject(payload, (candidate) => {
       const candidateId = stringValue(candidate.id || candidate.postId || candidate.name);
-      return candidateId === id || candidateId.includes(`t3_${id}`);
+      const matchesId = candidateId === id || candidateId.includes(`t3_${id}`);
+      if (!matchesId) return false;
+      return Boolean(
+        candidate.title || candidate.selftext || candidate.subreddit
+        || candidate.subredditName || candidate.communityName || candidate.author || candidate.authorName,
+      );
     });
     if (record) return mapEmbeddedPost(record, id);
     const ld = findObject(payload, (candidate) =>
@@ -300,7 +358,7 @@ function mapEmbeddedPost(record: Record<string, unknown>, id: string): RedditPos
   const author = isRecord(record.author) ? record.author : {};
   post.title = stringValue(record.title || record.name || record.headline);
   post.subreddit = stringValue(record.subreddit || record.communityName || record.subredditName);
-  post.author = stringValue(author.name || author.username || record.authorName);
+  post.author = stringValue(author.name || author.username || record.authorName || (typeof record.author === 'string' ? record.author : ''));
   post.body = stringValue(record.selftext || record.body || record.text || record.description);
   post.timestamp = formatTimestamp(record.created_utc || record.created || record.datePublished);
   post.score = nestedCount(record, ['score'], ['ups'], ['likes']);
@@ -342,7 +400,7 @@ function mergePosts(primary: RedditPost | null, fallback: RedditPost): RedditPos
 }
 
 function count(scope: ParentNode, label: RegExp): string {
-  for (const node of scope.querySelectorAll<HTMLElement>('[aria-label], button, a, span')) {
+  for (const node of queryAllShadow<HTMLElement>(scope, '[aria-label], button, a, span')) {
     const combined = `${node.getAttribute('aria-label') || ''} ${clean(node.textContent || '')}`;
     if (!label.test(combined)) continue;
     const match = combined.match(/[\d,.]+\s*[kmb]?/i);
@@ -353,7 +411,7 @@ function count(scope: ParentNode, label: RegExp): string {
 
 function text(scope: ParentNode, selectors: string[]): string {
   for (const selector of selectors) {
-    const value = clean(scope.querySelector(selector)?.textContent || '');
+    const value = clean(queryShadow(scope, selector)?.textContent || '');
     if (value) return value;
   }
   return '';
@@ -361,7 +419,7 @@ function text(scope: ParentNode, selectors: string[]): string {
 
 function attr(scope: ParentNode, selectors: string[], name: string): string {
   for (const selector of selectors) {
-    const value = scope.querySelector(selector)?.getAttribute(name)?.trim() || '';
+    const value = queryShadow(scope, selector)?.getAttribute(name)?.trim() || '';
     if (value) return value;
   }
   return '';

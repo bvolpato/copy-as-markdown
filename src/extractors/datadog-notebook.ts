@@ -18,6 +18,8 @@ import {
 } from '../core/datadog-api';
 import { getDatadogCanvasSeries } from '../core/datadog-visualization';
 
+type VisibilityCheck = (element: Element | null) => boolean;
+
 register({
   name: 'Datadog Notebook',
   matches: [
@@ -29,7 +31,12 @@ register({
   buttonPlacement: 'anchor',
   extensionPageButton: true,
   anchor: {
-    selector: '.NotebooksShareButton',
+    selector: [
+      '.NotebooksShareButton',
+      '[data-testid="notebook-share-button"]',
+      '.notebook-toolbar',
+      '.NotebookActionBar',
+    ].join(', '),
     position: 'before',
     style: 'link',
     label: 'Copy as Markdown',
@@ -49,6 +56,7 @@ register({
   },
 
   async extract() {
+    const isVisible = Utils.createVisibilityChecker();
     const title = textOf(document.querySelector('h1.NotebookTitle__text')) ||
       Utils.getPageTitle().replace(/\s*\|\s*Datadog\s*$/, '').trim();
     const metadata: Record<string, string | number> = {
@@ -60,7 +68,7 @@ register({
     const notebookId = getNotebookId();
     if (notebookId) metadata.notebook_id = notebookId;
     const seriesCandidates = notebookId
-      ? await getNotebookSeriesCandidates(notebookId)
+      ? await getNotebookSeriesCandidates(notebookId, isVisible)
       : new Map<string, DatadogSeriesCandidate[]>();
     addMetadata(metadata, 'author', getAuthor());
     addMetadata(metadata, 'notebook_type', textOf(
@@ -77,10 +85,21 @@ register({
     ));
 
     const parts = [`# ${title}`];
-    const editor = document.querySelector('.dd-rich-text-editor__content .tiptap.ProseMirror');
+    const editorSelectors = [
+      '.dd-rich-text-editor__content .tiptap.ProseMirror',
+      '.NotebookRichText__editor .ProseMirror',
+      '.ProseMirror[contenteditable]',
+      '[data-testid="notebook-cells"]',
+      '.NotebookRichText__editor',
+    ];
+    let editor: Element | null = null;
+    for (const selector of editorSelectors) {
+      editor = document.querySelector(selector);
+      if (editor) break;
+    }
     if (editor) {
       for (const child of Array.from(editor.children)) {
-        const cellMarkdown = extractNotebookChild(child, seriesCandidates);
+        const cellMarkdown = extractNotebookChild(child, seriesCandidates, isVisible);
         if (cellMarkdown) parts.push(cellMarkdown);
       }
     }
@@ -118,9 +137,10 @@ function addMetadata(
 function extractNotebookChild(
   child: Element,
   seriesCandidates: Map<string, DatadogSeriesCandidate[]>,
+  isVisible: VisibilityCheck,
 ): string {
   if (child.matches('.react-renderer.node-widget') || child.querySelector('[data-qa="cell"]')) {
-    return summarizeNotebookCell(child, seriesCandidates);
+    return summarizeNotebookCell(child, seriesCandidates, isVisible);
   }
 
   if (
@@ -137,23 +157,51 @@ function extractNotebookChild(
 function summarizeNotebookCell(
   container: Element,
   seriesCandidates: Map<string, DatadogSeriesCandidate[]>,
+  isVisible: VisibilityCheck,
 ): string {
-  const cell = container.querySelector<HTMLElement>('[data-qa="cell"][data-cell]');
+  const cell = container.querySelector<HTMLElement>('[data-qa="cell"][data-cell]')
+    || container.querySelector<HTMLElement>('[data-qa="cell"]');
   if (!cell) return '';
 
   const typedCell = cell.querySelector<HTMLElement>('[data-cell-id][data-test-cell-type]');
-  const type = typedCell?.dataset.testCellType || 'visualization';
-  const titleElement = cell.querySelector<HTMLElement>('[data-toc-graph-title]');
-  const title = titleElement?.dataset.tocGraphTitle || textOf(titleElement);
-  if (!title) return '';
+  const type = typedCell?.dataset.testCellType || detectCellType(cell) || 'visualization';
+  const titleElement = cell.querySelector<HTMLElement>(
+    '[data-toc-graph-title], [data-testid="widget-title"], .widget__title-text',
+  );
+  const title = titleElement?.dataset.tocGraphTitle || textOf(titleElement) || formatType(type);
 
   const details = [`Type: ${formatType(type)}`];
+  const appendices: string[] = [];
   const state = cell.querySelector('[data-response-state]')?.getAttribute('data-response-state');
   if (state === 'no-response') {
     details.push('Snapshot: No data');
   } else {
+    const queryValue = getQueryValue(cell);
+    if (queryValue) {
+      details.push(`Value: ${queryValue}`);
+    }
+
+    const topList = getTopList(cell);
+    if (topList.length > 0) {
+      const unit = textOf(cell.querySelector('.stacked-toplist__unit-label'));
+      details.push(`Entries: ${topList.length}${unit ? ` (${unit})` : ''}`);
+      appendices.push([
+        '| Name | Value |',
+        '| --- | --- |',
+        ...topList.map(([label, value]) =>
+          `| ${Markdown.escapeMarkdownTableCell(label)} | ${Markdown.escapeMarkdownTableCell(value)} |`,
+        ),
+      ].join('\n'));
+    }
+
+    const dataTable = getDataTable(cell, isVisible);
+    if (dataTable) {
+      appendices.push(dataTable);
+    }
+
     const annotations = uniqueVisibleTexts(
       cell.querySelectorAll('.dataviz-annotations-renderer [role="note"]'),
+      isVisible,
     );
     if (annotations.length > 0) details.push(`Snapshot: ${annotations.join('; ')}`);
     const candidates = seriesCandidates.get(typedCell?.dataset.cellId || '') || [];
@@ -164,14 +212,88 @@ function summarizeNotebookCell(
     });
   }
 
-  return `### ${title}\n\n${details.map((detail) => `- ${detail}`).join('\n')}`;
+  const sections = [`### ${title}`, details.map((detail) => `- ${detail}`).join('\n'), ...appendices];
+  return sections.join('\n\n');
+}
+
+function detectCellType(cell: Element): string {
+  if (cell.querySelector('.query-value__value, .query-value__container--no-data')) return 'query_value';
+  if (cell.querySelector('.stacked-toplist__item')) return 'toplist';
+  if (cell.querySelector('table, [role="table"], [role="grid"]')) return 'query_table';
+  if (cell.querySelector('canvas')) return 'timeseries';
+  return '';
+}
+
+function getQueryValue(cell: Element): string {
+  const noData = cell.querySelector('.query-value__container--no-data');
+  if (noData) return textOf(noData).replace(/[()]/g, '').trim() || 'No data';
+
+  const value = textOf(cell.querySelector('.query-value__value'));
+  if (!value) return '';
+
+  const unit = textOf(
+    cell.querySelector(
+      '.query-value__unit, .query-value__unit-container, [class*="query-value__unit"]',
+    ),
+  );
+  if (!unit || value.endsWith(unit)) return value;
+  return `${value} ${unit}`.replace(/\s+([/%$])/g, ' $1').trim();
+}
+
+function getTopList(cell: Element): Array<[string, string]> {
+  const rows: Array<[string, string]> = [];
+  cell.querySelectorAll('.stacked-toplist__item').forEach((item) => {
+    const value = textOf(
+      item.querySelector('.stacked-toplist__value-label, [class*="value-label"]'),
+    );
+    const labelElement = item.querySelector(
+      '[data-synthetics-toplist-label], [data-testid*="toplist-label"], '
+        + '[class*="label"]:not([class*="value-label"]):not([class*="unit-label"])',
+    );
+    const label = labelElement?.getAttribute('data-synthetics-toplist-label')?.trim()
+      || labelElement?.getAttribute('aria-label')?.trim()
+      || textOf(labelElement);
+    if (!label && !value) return;
+    rows.push([label || 'Value', value || 'No value']);
+  });
+  return rows;
+}
+
+function getDataTable(cell: Element, isVisible: VisibilityCheck): string {
+  const nativeTable = Array.from(cell.querySelectorAll('table')).find((el) => isVisible(el));
+  if (nativeTable) return Markdown.tableToMarkdown(nativeTable);
+
+  const roleTable = Array.from(cell.querySelectorAll('[role="table"], [role="grid"]'))
+    .find((el) => isVisible(el));
+  if (!roleTable) return '';
+
+  const rows = Array.from(roleTable.querySelectorAll('[role="row"]'))
+    .filter((el) => isVisible(el))
+    .map((row) => Array.from(
+      row.querySelectorAll(':scope > [role="columnheader"], :scope > [role="rowheader"], :scope > [role="cell"], :scope > [role="gridcell"]'),
+    ).filter((el) => isVisible(el)).map(textOf))
+    .filter((row) => row.some(Boolean));
+  if (rows.length === 0) return '';
+
+  const width = Utils.safeMax(rows.map((row) => row.length));
+  const normalized = rows.map((row) => {
+    const padded = [...row];
+    while (padded.length < width) padded.push('');
+    return padded.map((value) => Markdown.escapeMarkdownTableCell(value));
+  });
+  return [
+    `| ${normalized[0].join(' | ')} |`,
+    `| ${normalized[0].map(() => '---').join(' | ')} |`,
+    ...normalized.slice(1).map((row) => `| ${row.join(' | ')} |`),
+  ].join('\n');
 }
 
 async function getNotebookSeriesCandidates(
   notebookId: number,
+  isVisible: VisibilityCheck,
 ): Promise<Map<string, DatadogSeriesCandidate[]>> {
   try {
-    const response = await fetch(
+    const response = await Utils.fetchWithTimeout(
       `/api/v1/notebooks/${encodeURIComponent(String(notebookId))}`,
       { credentials: 'include', headers: { Accept: 'application/json' } },
     );
@@ -180,7 +302,7 @@ async function getNotebookSeriesCandidates(
     const attributes = payload.data?.attributes;
     if (!attributes) return new Map();
 
-    const variables = getNotebookVariables(attributes.template_variables || []);
+    const variables = getNotebookVariables(attributes.template_variables || [], isVisible);
     const cells = (attributes.cells || []).filter((cell) =>
       !!cell.id && isRecord(cell.attributes?.definition),
     );
@@ -191,7 +313,8 @@ async function getNotebookSeriesCandidates(
         alias,
       }));
       const [fromMs, toMs] = getNotebookTimeRange(
-        cell.attributes?.time || attributes.time,
+        cell.attributes?.time,
+        attributes.time,
       );
       return [
         cell.id!,
@@ -224,6 +347,7 @@ type NotebookCell = {
 
 function getNotebookVariables(
   definitions: Array<Record<string, unknown>>,
+  isVisible: VisibilityCheck,
 ): Map<string, { prefix: string; value: string }> {
   const selected = new Map<string, string>();
   document.querySelectorAll('fieldset.templateVariableSelect').forEach((field) => {
@@ -236,25 +360,50 @@ function getNotebookVariables(
   const variables = new Map<string, { prefix: string; value: string }>();
   definitions.forEach((definition) => {
     if (typeof definition.name !== 'string') return;
+    const defaultsArr = Array.isArray(definition.defaults)
+      ? definition.defaults.filter((v): v is string => typeof v === 'string' && v.trim().length > 0)
+      : [];
+    const fallback = defaultsArr.length > 0
+      ? defaultsArr.join(',')
+      : (typeof definition.default === 'string' && definition.default.trim() ? definition.default : '*');
     variables.set(definition.name, {
       prefix: typeof definition.prefix === 'string'
         ? definition.prefix
         : definition.name,
-      value: selected.get(definition.name)
-        || (typeof definition.default === 'string' ? definition.default : '*'),
+      value: selected.get(definition.name) || fallback,
     });
   });
   return variables;
 }
 
 function getNotebookTimeRange(
-  time: Record<string, unknown> | null | undefined,
+  cellTime: Record<string, unknown> | null | undefined,
+  notebookTime: Record<string, unknown> | null | undefined,
 ): [number, number] {
+  // Respect per-cell time overrides before falling back to URL query or notebook global time.
+  if (cellTime && hasExplicitTimeRange(cellTime)) {
+    return resolveTimeObject(cellTime);
+  }
+
   const params = new URLSearchParams(window.location.search);
   const queryTo = Number(params.get('to_ts'));
   const queryFrom = Number(params.get('from_ts'));
   if (queryFrom && queryTo) return [queryFrom, queryTo];
 
+  return resolveTimeObject(notebookTime);
+}
+
+function hasExplicitTimeRange(time: Record<string, unknown>): boolean {
+  return Boolean(
+    numberOrDate(time.from)
+    || numberOrDate(time.start)
+    || numberOrDate(time.to)
+    || numberOrDate(time.end)
+    || (typeof time.live_span === 'string' && time.live_span.trim()),
+  );
+}
+
+function resolveTimeObject(time: Record<string, unknown> | null | undefined): [number, number] {
   const toMs = numberOrDate(time?.to) || numberOrDate(time?.end) || Date.now();
   const fromMs = numberOrDate(time?.from)
     || numberOrDate(time?.start)
@@ -282,7 +431,10 @@ function formatType(value: string): string {
     .replace(/\b\w/g, (character) => character.toUpperCase());
 }
 
-function uniqueVisibleTexts(elements: NodeListOf<Element>): string[] {
+function uniqueVisibleTexts(
+  elements: NodeListOf<Element>,
+  isVisible: VisibilityCheck,
+): string[] {
   const values = new Set<string>();
   elements.forEach((element) => {
     if (!isVisible(element)) return;
@@ -290,17 +442,6 @@ function uniqueVisibleTexts(elements: NodeListOf<Element>): string[] {
     if (text) values.add(text);
   });
   return [...values];
-}
-
-function isVisible(element: Element): boolean {
-  if (element.closest('[hidden], [aria-hidden="true"]')) return false;
-  let current: Element | null = element;
-  while (current) {
-    const style = getComputedStyle(current);
-    if (style.display === 'none' || style.visibility === 'hidden') return false;
-    current = current.parentElement;
-  }
-  return true;
 }
 
 function textOf(element: Element | null): string {

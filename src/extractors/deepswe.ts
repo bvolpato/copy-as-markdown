@@ -94,14 +94,15 @@ function activeBenchmarkVersion(): string {
 async function fetchLeaderboardArtifact(version: string): Promise<LeaderboardArtifact | null> {
   const safeVersion = /^v\d+(?:\.\d+)*$/i.test(version) ? version : 'v1.1';
   const path = `/artifacts/${safeVersion}/leaderboard-live.json`;
-  const controller = new AbortController();
-  const timeout = window.setTimeout(() => controller.abort(), 5_000);
   try {
-    const response = await fetch(path, {
-      credentials: 'same-origin',
-      headers: { Accept: 'application/json' },
-      signal: controller.signal,
-    });
+    const response = await Utils.fetchWithTimeout(
+      path,
+      {
+        credentials: 'same-origin',
+        headers: { Accept: 'application/json' },
+      },
+      5_000,
+    );
     if (!response.ok) return null;
     const data = asRecord(await response.json());
     const rows = recordArray(data?.rows);
@@ -109,8 +110,6 @@ async function fetchLeaderboardArtifact(version: string): Promise<LeaderboardArt
     return { version: safeVersion, path, data, rows };
   } catch {
     return null;
-  } finally {
-    window.clearTimeout(timeout);
   }
 }
 
@@ -211,7 +210,11 @@ function appendLeaderboard(
 function appendBenchmarkDescription(parts: string[]): void {
   const section = document.querySelector('main section.article-prose');
   if (!section) return;
-  const markdown = Markdown.elementToMarkdown(section);
+  const cleaned = Utils.removeNoise(section, [
+    ...Utils.NOISE_SELECTORS,
+    'svg', 'form', 'button',
+  ]);
+  const markdown = Markdown.elementToMarkdown(cleaned);
   if (markdown) parts.push(`## About the Benchmark\n\n${markdown}`);
 }
 
@@ -305,7 +308,7 @@ function hasDefinitionDetails(row: JsonRecord): boolean {
 }
 
 function displayModel(row: JsonRecord): string {
-  return stringValue(row.model).replace(/-(\d)/g, '-$1').replace(/_/g, '-');
+  return stringValue(row.model).replace(/_/g, '-');
 }
 
 function pushMetadataRow(rows: string[][], field: string, value: unknown): void {

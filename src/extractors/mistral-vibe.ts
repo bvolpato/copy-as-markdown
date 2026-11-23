@@ -50,6 +50,7 @@ export const mistralVibeExtractor = registerAiConversationExtractor({
     '[data-message-part-type="answer"][data-testid="text-message-part"]',
     '[data-testid="message-content"]',
     '[data-testid*="message-content"]',
+    '[data-message-part-type="thinking"]',
     '[data-testid*="markdown"]',
     '.markdown',
     '.prose',
@@ -83,4 +84,13 @@ export const mistralVibeExtractor = registerAiConversationExtractor({
     '[data-testid*="load-previous"]',
     '[data-testid*="history-loader"]',
   ],
+  resolveContent(element, role) {
+    if (role === 'assistant') {
+      const parts = element.querySelectorAll(
+        '[data-message-part-type="answer"], [data-message-part-type="thinking"], [data-testid="text-message-part"]',
+      );
+      if (parts.length > 1) return element;
+    }
+    return null;
+  },
 });

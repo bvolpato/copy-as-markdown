@@ -11,10 +11,11 @@ register({
   name: 'Wikipedia',
   matches: [
     '*://*.wikipedia.org/wiki/*',
+    '*://*.wikipedia.org/w/index.php?*title=*',
   ],
   buttonPlacement: 'anchor',
   anchor: {
-    selector: '#p-views ul, .mw-portlet-views ul',
+    selector: '#p-views ul, .mw-portlet-views ul, #page-actions',
     position: 'append',
     style: 'tab',
     wrapperTag: 'li',
@@ -38,23 +39,24 @@ register({
       Utils.getPageTitle();
     const url = Utils.getCanonicalUrl();
 
-    const metadata = {
+    const metadata: Record<string, string> = {
       source: 'Wikipedia',
       title,
       url,
     };
 
-    const lastMod = document.getElementById('footer-info-lastmod');
+    const lastMod =
+      document.getElementById('footer-info-lastmod')
+      || document.querySelector('.last-modified-bar');
     if (lastMod) {
-      (metadata as any).last_modified = lastMod.textContent!
-        .replace('This page was last edited on ', '')
-        .replace(/,.*$/, '')
-        .trim();
+      const formatted = extractLastModified(lastMod);
+      if (formatted) metadata.last_modified = formatted;
     }
 
     const content = document.getElementById('mw-content-text');
-    if (!content)
+    if (!content) {
       return Markdown.buildPageMarkdown(metadata, '*No content found.*');
+    }
 
     const cleaned = Utils.removeNoise(content, [
       '.mw-editsection',
@@ -63,6 +65,8 @@ register({
       '.sidebar', '.hatnote', '.portalbox',
       '.toc', '#toc',
       '.ambox', '.tmbox', '.ombox', '.cmbox', '.fmbox',
+      '.mwe-math-mathml-inline', '.mwe-math-mathml-display',
+      '.mw-cite-backlink', '.mw-indicators', '.catlinks', '.printfooter',
       'style', 'script',
     ]);
 
@@ -70,3 +74,26 @@ register({
     return Markdown.buildPageMarkdown(metadata, `# ${title}\n\n${body}`);
   },
 });
+
+function extractLastModified(element: Element): string {
+  const timestamp = element.getAttribute('data-timestamp')
+    || element.querySelector('time[datetime]')?.getAttribute('datetime');
+  if (timestamp) {
+    const trimmed = timestamp.trim();
+    if (/^\d{10,13}$/.test(trimmed)) {
+      const ms = trimmed.length === 10 ? Number(trimmed) * 1000 : Number(trimmed);
+      return Utils.formatDate(new Date(ms).toISOString());
+    }
+    return Utils.formatDate(trimmed);
+  }
+
+  const raw = (element.textContent || '').replace(/\s+/g, ' ').trim();
+  if (!raw) return '';
+  if (/^This page was last edited on\s+/i.test(raw)) {
+    return raw
+      .replace(/^This page was last edited on\s+/i, '')
+      .replace(/,.*$/, '')
+      .trim();
+  }
+  return raw;
+}

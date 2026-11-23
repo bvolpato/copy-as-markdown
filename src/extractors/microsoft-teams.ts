@@ -115,6 +115,8 @@ const MESSAGE_LIST_CONTAINER_SELECTOR = [
   '[role="list"][aria-label*="messages" i]',
 ].join(', ');
 
+let isVisible: (element: Element | null) => boolean = Utils.createVisibilityChecker();
+
 export const microsoftTeamsExtractor = register({
   name: 'Microsoft Teams',
   matches: [
@@ -125,11 +127,25 @@ export const microsoftTeamsExtractor = register({
     '*://teams.microsoft.com/l/team/*',
     '*://teams.microsoft.com/_#/conversations/*',
     '*://teams.cloud.microsoft/v2/*',
+    '*://teams.cloud.microsoft/l/chat/*',
+    '*://teams.cloud.microsoft/l/channel/*',
+    '*://teams.cloud.microsoft/l/message/*',
+    '*://teams.cloud.microsoft/l/team/*',
     '*://teams.live.com/v2/*',
+    '*://teams.live.com/l/chat/*',
+    '*://teams.live.com/l/channel/*',
+    '*://teams.live.com/l/message/*',
+    '*://teams.live.com/l/team/*',
+    '*://teams.microsoft.us/v2/*',
+    '*://teams.microsoft.us/l/chat/*',
+    '*://teams.microsoft.us/l/channel/*',
+    '*://teams.microsoft.us/l/message/*',
+    '*://teams.microsoft.us/l/team/*',
   ],
   pathnameRegex: /^\/(?:v2(?:\/|$)|l\/(?:chat|channel|message|team)(?:\/|$)|_)/,
 
   async extract() {
+    isVisible = Utils.createVisibilityChecker();
     const threadRoot = findThreadRoot();
     const context = detectContext(threadRoot);
     const scope = threadRoot || findConversationRoot(context) || document;
@@ -225,12 +241,38 @@ function canonicalMessageElements(scope: ParentNode): HTMLElement[] {
 }
 
 function closestMessageRoot(element: Element): HTMLElement | null {
-  return element.closest<HTMLElement>(CHAT_PANE_ITEM_SELECTOR)
+  const outer = element.closest<HTMLElement>(CHAT_PANE_ITEM_SELECTOR)
     || element.closest<HTMLElement>(OUTER_MESSAGE_ROOT_SELECTORS.join(', '))
-    || element.closest<HTMLElement>(GENERIC_MESSAGE_ROOT_SELECTOR)
-    || element.closest<HTMLElement>(MESSAGE_GROUP_ROOT_SELECTOR)
-    || element.closest<HTMLElement>(MESSAGE_WRAPPER_ROOT_SELECTOR)
+    || element.closest<HTMLElement>(GENERIC_MESSAGE_ROOT_SELECTOR);
+  if (outer) return outer;
+
+  const group = element.closest<HTMLElement>(MESSAGE_GROUP_ROOT_SELECTOR);
+  if (group) {
+    if (groupHasMultipleMessages(group)) {
+      const inner = element.closest<HTMLElement>(MESSAGE_WRAPPER_ROOT_SELECTOR)
+        || element.closest<HTMLElement>(LABELLED_BODY_ROOT_SELECTOR)
+        || element.closest<HTMLElement>(BODY_SELECTOR);
+      if (inner && inner !== group) return inner;
+    }
+    return group;
+  }
+
+  return element.closest<HTMLElement>(MESSAGE_WRAPPER_ROOT_SELECTOR)
     || element.closest<HTMLElement>(LABELLED_BODY_ROOT_SELECTOR);
+}
+
+function groupHasMultipleMessages(group: HTMLElement): boolean {
+  const wrappers = Array.from(group.querySelectorAll<HTMLElement>(MESSAGE_WRAPPER_ROOT_SELECTOR))
+    .filter((el) => !el.closest(REPLY_CONTEXT_SELECTOR) && el.closest(MESSAGE_GROUP_ROOT_SELECTOR) === group);
+  if (wrappers.length > 1) return true;
+
+  const bodies = Array.from(group.querySelectorAll<HTMLElement>(BODY_SELECTOR))
+    .filter((el) =>
+      !el.closest(REPLY_CONTEXT_SELECTOR)
+      && el.closest(MESSAGE_GROUP_ROOT_SELECTOR) === group
+      && !el.parentElement?.closest(BODY_SELECTOR),
+    );
+  return bodies.length > 1;
 }
 
 function scopeContains(scope: ParentNode, element: Element): boolean {
@@ -527,8 +569,11 @@ function findThreadRoot(): HTMLElement | null {
 
 function detectContext(threadRoot: HTMLElement | null): TeamsContext {
   if (threadRoot) return 'thread';
+  const hasVisibleChannelMarker = Array.from(document.querySelectorAll<HTMLElement>(
+    '[data-tid="channel-header-title"], [data-tid="channel-pane"], [data-tid="channel-pane-message"]',
+  )).some((element) => isVisible(element));
   if (
-    document.querySelector('[data-tid="channel-header-title"], [data-tid="channel-pane"], [data-tid="channel-pane-message"]')
+    hasVisibleChannelMarker
     || /\/l\/(?:channel|message|team)\//i.test(window.location.pathname)
   ) return 'channel';
   return 'chat';
@@ -671,17 +716,6 @@ function isExcluded(root: Element): boolean {
     '[data-tid="quoted-message"]',
     '[aria-hidden="true"]',
   ].join(', ')));
-}
-
-function isVisible(element: HTMLElement): boolean {
-  let current: HTMLElement | null = element;
-  while (current) {
-    if (current.hidden || current.getAttribute('aria-hidden') === 'true') return false;
-    const style = getComputedStyle(current);
-    if (style.display === 'none' || style.visibility === 'hidden') return false;
-    current = current.parentElement;
-  }
-  return true;
 }
 
 function safeHttpUrl(value: string): string {

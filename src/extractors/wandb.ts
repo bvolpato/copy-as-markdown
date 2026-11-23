@@ -81,7 +81,12 @@ function getWandbRunRoute(): WandbRoute | null {
 function isWandbRunPage(contextDocument: Document = document): boolean {
   const href = contextDocument.location?.href || contextDocument.baseURI;
   if (!href) return false;
-  const url = new URL(href);
+  let url: URL;
+  try {
+    url = new URL(href);
+  } catch {
+    return false;
+  }
   if (!/^\/[^/]+\/[^/]+\/runs\/[^/?#]+(?:\/.*)?$/.test(url.pathname)) return false;
   if (/(?:^|\.)wandb\.ai$/i.test(url.hostname)) return true;
   const marker = [
@@ -164,7 +169,7 @@ async function fetchGraphql(
   query: string,
   variables: Record<string, unknown>,
 ): Promise<Record<string, unknown>> {
-  const response = await fetch(`${apiHost}/graphql`, {
+  const response = await Utils.fetchWithTimeout(`${apiHost}/graphql`, {
     method: 'POST',
     credentials: 'include',
     headers: { Accept: 'application/json', 'Content-Type': 'application/json' },

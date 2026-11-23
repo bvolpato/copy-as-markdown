@@ -1,8 +1,8 @@
 /**
  * Polymarket extractor.
  *
- * Polymarket is a Next.js SPA — most structured data lives in JSON-LD
- * script tags and Open Graph meta tags rather than stable DOM selectors.
+ * Polymarket is a Next.js SPA - most structured data lives in JSON-LD
+ * script tags, __NEXT_DATA__, and Open Graph meta tags rather than stable DOM selectors.
  * This extractor mines those sources for a rich, complete output.
  */
 
@@ -10,15 +10,25 @@ import { register } from '../core/registry';
 import * as Markdown from '../core/markdown';
 import * as Utils from '../core/utils';
 
+type JsonRecord = Record<string, unknown>;
+
 register({
   name: 'Polymarket',
   matches: [
     '*://polymarket.com/event/*',
     '*://www.polymarket.com/event/*',
+    '*://polymarket.com/market/*',
+    '*://www.polymarket.com/market/*',
+    '*://polymarket.com/sports/*',
+    '*://www.polymarket.com/sports/*',
   ],
   buttonPlacement: 'anchor',
   anchor: {
-    selector: 'div.flex.items-center:has(.bookmarkButton)',
+    selector: [
+      'div.flex.items-center:has(.bookmarkButton)',
+      'main h1',
+      'h1',
+    ].join(', '),
     position: 'overlay',
     style: 'icon',
     css: {
@@ -39,22 +49,27 @@ register({
   async extract() {
     const url = Utils.getCanonicalUrl();
 
-    // ---------- 1. Parse JSON-LD blocks ----------
+    // ---------- 1. Parse JSON-LD blocks (supporting arrays and @graph) ----------
     const jsonLdScripts = document.querySelectorAll('script[type="application/ld+json"]');
-    let eventData: any = null;
-    let discussionData: any = null;
-    let faqData: any = null;
-    let breadcrumbData: any = null;
+    let eventData: JsonRecord | null = null;
+    let discussionData: JsonRecord | null = null;
+    let faqData: JsonRecord | null = null;
+    let breadcrumbData: JsonRecord | null = null;
 
-    jsonLdScripts.forEach((script) => {
+    for (const script of jsonLdScripts) {
       try {
-        const data = JSON.parse(script.textContent || '');
-        if (data['@type'] === 'Event') eventData = data;
-        else if (data['@type'] === 'DiscussionForumPosting') discussionData = data;
-        else if (data['@type'] === 'FAQPage') faqData = data;
-        else if (data['@type'] === 'BreadcrumbList') breadcrumbData = data;
+        const parsed: unknown = JSON.parse(script.textContent || '');
+        for (const node of flattenJsonLd(parsed)) {
+          const types = nodeTypes(node['@type']);
+          if (types.includes('Event')) eventData = node;
+          else if (types.includes('DiscussionForumPosting')) discussionData = node;
+          else if (types.includes('FAQPage')) faqData = node;
+          else if (types.includes('BreadcrumbList')) breadcrumbData = node;
+        }
       } catch { /* ignore */ }
-    });
+    }
+
+    const nextMarket = readNextDataMarket();
 
     // ---------- 2. Extract from Open Graph / meta ----------
     const getMeta = (name: string): string =>
@@ -69,12 +84,15 @@ register({
     const status = getMeta('og:temporal:status');
 
     // ---------- 3. Derive title ----------
-    const title = eventData?.name
+    const title = stringValue(eventData?.name)
+      || stringValue(nextMarket?.title || nextMarket?.question)
       || ogTitle
       || document.querySelector('h1')?.textContent?.trim()
       || Utils.getPageTitle();
 
     // ---------- 4. Metadata ----------
+    const startDateRaw = stringValue(eventData?.startDate || nextMarket?.startDate);
+    const endDateRaw = stringValue(eventData?.endDate || nextMarket?.endDate);
     const metadata: Record<string, string> = {
       source: 'Polymarket',
       title,
@@ -83,24 +101,30 @@ register({
     if (category) metadata.category = category;
     if (subcategory) metadata.subcategory = subcategory;
     if (status) metadata.status = status;
-    if (eventData?.startDate) metadata.start_date = eventData.startDate;
-    if (eventData?.endDate) metadata.end_date = eventData.endDate;
+    if (startDateRaw) metadata.start_date = startDateRaw;
+    if (endDateRaw) metadata.end_date = endDateRaw;
 
     // ---------- 5. Build Markdown ----------
     const parts: string[] = [`# ${title}\n`];
 
     // Category breadcrumb
-    if (breadcrumbData?.itemListElement?.length) {
-      const crumbs = breadcrumbData.itemListElement
-        .map((item: any) => item.name)
+    const breadcrumbItems = Array.isArray(breadcrumbData?.itemListElement)
+      ? breadcrumbData.itemListElement
+      : [];
+    if (breadcrumbItems.length) {
+      const crumbs = breadcrumbItems
+        .map((item) => stringValue(asRecord(item)?.name))
+        .filter(Boolean)
         .join(' → ');
-      parts.push(`**Category:** ${crumbs}`);
+      if (crumbs) parts.push(`**Category:** ${crumbs}`);
     } else if (category) {
       parts.push(`**Category:** ${category}${subcategory ? ` → ${subcategory}` : ''}`);
     }
     if (status) parts.push(`**Status:** ${status}`);
-    if (eventData?.startDate) parts.push(`**Started:** ${new Date(eventData.startDate).toLocaleDateString()}`);
-    if (eventData?.endDate) parts.push(`**Resolves:** ${new Date(eventData.endDate).toLocaleDateString()}`);
+    const formattedStart = formatValidDate(startDateRaw);
+    const formattedEnd = formatValidDate(endDateRaw);
+    if (formattedStart) parts.push(`**Started:** ${formattedStart}`);
+    if (formattedEnd) parts.push(`**Resolves:** ${formattedEnd}`);
     parts.push('');
 
     // Volume (from og:description which often contains "$14.9M traded")
@@ -109,66 +133,72 @@ register({
       parts.push(`**Volume:** $${volumeMatch[1].trim()}\n`);
     }
 
-    // ---------- 6. Outcomes from FAQ (most reliable source) ----------
-    if (faqData?.mainEntity?.length) {
-      // The FAQ usually contains a question like "What are the current odds..."
-      // with all outcomes and probabilities in the answer text
-      const oddsQuestion = faqData.mainEntity.find(
-        (q: any) => q.name?.toLowerCase().includes('current odds') ||
-                     q.name?.toLowerCase().includes('price of')
-      );
+    // ---------- 6. Outcomes from FAQ, __NEXT_DATA__, or DOM ----------
+    let emittedOdds = false;
+    const faqEntities = Array.isArray(faqData?.mainEntity)
+      ? faqData.mainEntity.map(asRecord).filter((entry): entry is JsonRecord => Boolean(entry))
+      : [];
 
-      if (oddsQuestion?.acceptedAnswer?.text) {
-        const answerText = oddsQuestion.acceptedAnswer.text;
-        // Extract outcomes like '"Outcome" at XX%'
-        const outcomeMatches = answerText.matchAll(/"([^"]+)"\s+(?:at|is)\s+(\d+%)/gi);
-        const outcomes: [string, string][] = [...outcomeMatches].map((m) => [m[1], m[2]]);
+    if (faqEntities.length) {
+      const oddsQuestion = faqEntities.find((q) => {
+        const name = stringValue(q.name).toLowerCase();
+        return name.includes('current odds') || name.includes('price of');
+      });
 
+      const answerText = stringValue(asRecord(oddsQuestion?.acceptedAnswer)?.text);
+      if (answerText) {
+        const outcomeMatches = answerText.matchAll(/"([^"]+)"\s+(?:at|is)\s+((?:<\s*)?\d+(?:\.\d+)?%)/gi);
+        const outcomes: Array<[string, string]> = [...outcomeMatches].map((m) => [m[1], m[2]]);
         if (outcomes.length > 0) {
-          parts.push('## Current Odds\n');
-          parts.push('| Outcome | Probability |');
-          parts.push('| --- | --- |');
-          outcomes.forEach(([name, prob]) => parts.push(`| ${name} | ${prob} |`));
-          parts.push('');
+          appendOddsTable(parts, outcomes);
+          emittedOdds = true;
         }
       }
     }
 
-    // Fallback: extract outcomes from the DOM if FAQ didn't yield results
-    if (!parts.some((p) => p.includes('Current Odds'))) {
-      // Try to find outcome elements in the page
-      const outcomeEls = document.querySelectorAll(
-        '[class*="outcome"], [class*="market-option"], [class*="option-row"]'
-      );
-      if (outcomeEls.length > 0) {
-        parts.push('## Current Odds\n');
-        parts.push('| Outcome | Probability |');
-        parts.push('| --- | --- |');
-        outcomeEls.forEach((el) => {
-          const txt = el.textContent?.trim() || '';
-          const match = txt.match(/(.*?)(\d+(?:\.\d+)?[%¢])/);
-          if (match) parts.push(`| ${match[1].trim()} | ${match[2]} |`);
-        });
-        parts.push('');
+    if (!emittedOdds && nextMarket) {
+      const nextOutcomes = extractNextDataOutcomes(nextMarket);
+      if (nextOutcomes.length > 0) {
+        appendOddsTable(parts, nextOutcomes);
+        emittedOdds = true;
       }
+    }
 
-      // Fallback: just scan body text for percentages near outcome names
-      if (!parts.some((p) => p.includes('Current Odds'))) {
-        const bodyText = document.body.innerText;
-        // Look for patterns like ">$600M72%"  or "Yes 63¢"
-        const yesNo = bodyText.match(/(?:Yes|No)\s*\d+(?:\.\d+)?[%¢]/g);
-        if (yesNo) {
-          parts.push('## Current Odds\n');
-          yesNo.forEach((m) => parts.push(`- ${m}`));
-          parts.push('');
+    if (!emittedOdds) {
+      const outcomeEls = document.querySelectorAll(
+        '[class*="outcome"], [class*="market-option"], [class*="option-row"]',
+      );
+      const domOutcomes: Array<[string, string]> = [];
+      outcomeEls.forEach((el) => {
+        const txt = el.textContent?.replace(/\s+/g, ' ').trim() || '';
+        const match = txt.match(/^(.*?)\s*((?:<\s*)?\d+(?:\.\d+)?[%¢])$/);
+        if (match && match[1].trim()) {
+          domOutcomes.push([match[1].trim(), match[2].trim()]);
         }
+      });
+      if (domOutcomes.length > 0) {
+        appendOddsTable(parts, domOutcomes);
+        emittedOdds = true;
+      }
+    }
+
+    if (!emittedOdds) {
+      const bodyText = document.body.innerText || '';
+      const yesNo = bodyText.match(/(?:Yes|No)\s*(?:<\s*)?\d+(?:\.\d+)?[%¢]/g);
+      if (yesNo && yesNo.length > 0) {
+        parts.push('## Current Odds\n');
+        yesNo.forEach((m) => parts.push(`- ${m}`));
+        parts.push('');
       }
     }
 
     // ---------- 7. Description ----------
-    const description = eventData?.description || ogDesc || twitterDesc || '';
+    const description = stringValue(eventData?.description)
+      || stringValue(nextMarket?.description)
+      || ogDesc
+      || twitterDesc
+      || '';
     if (description) {
-      // Clean up known Polymarket boilerplate from the description
       const cleaned = description
         .replace(/View real-time odds.*?Prediction Market™?/i, '')
         .replace(/\$[\d,.]+[KMB]?\s+has traded on.*?as of.*?\./i, '')
@@ -180,86 +210,77 @@ register({
       }
     }
 
-    // ---------- 8. Resolution rules from FAQ ----------
-    if (faqData?.mainEntity?.length) {
-      const rulesQ = faqData.mainEntity.find(
-        (q: any) => q.name?.toLowerCase().includes('resolved') ||
-                     q.name?.toLowerCase().includes('resolution')
-      );
-      if (rulesQ?.acceptedAnswer?.text) {
-        parts.push('## Resolution Rules\n');
-        parts.push(rulesQ.acceptedAnswer.text);
-        parts.push('');
+    // ---------- 8. Resolution rules & timeline from FAQ ----------
+    if (faqEntities.length) {
+      const rulesQ = faqEntities.find((q) => {
+        const name = stringValue(q.name).toLowerCase();
+        return name.includes('resolved') || name.includes('resolution');
+      });
+      const rulesText = stringValue(asRecord(rulesQ?.acceptedAnswer)?.text);
+      if (rulesText) {
+        parts.push('## Resolution Rules\n', rulesText, '');
       }
 
-      // When does it close?
-      const closeQ = faqData.mainEntity.find(
-        (q: any) => q.name?.toLowerCase().includes('close') ||
-                     q.name?.toLowerCase().includes('when does')
-      );
-      if (closeQ?.acceptedAnswer?.text) {
-        parts.push('## Timeline\n');
-        parts.push(closeQ.acceptedAnswer.text);
-        parts.push('');
-      }
-    }
-
-    // ---------- 9. Key stats from FAQ answers ----------
-    if (faqData?.mainEntity?.length) {
-      const tradingQ = faqData.mainEntity.find(
-        (q: any) => q.name?.toLowerCase().includes('trading activity') ||
-                     q.name?.toLowerCase().includes('how much')
-      );
-      if (tradingQ?.acceptedAnswer?.text) {
-        parts.push('## Trading Activity\n');
-        parts.push(tradingQ.acceptedAnswer.text);
-        parts.push('');
+      const closeQ = faqEntities.find((q) => {
+        const name = stringValue(q.name).toLowerCase();
+        return name.includes('close') || name.includes('when does');
+      });
+      const closeText = stringValue(asRecord(closeQ?.acceptedAnswer)?.text);
+      if (closeText) {
+        parts.push('## Timeline\n', closeText, '');
       }
 
-      // Reliability / accuracy
-      const reliabilityQ = faqData.mainEntity.find(
-        (q: any) => q.name?.toLowerCase().includes('reliable') ||
-                     q.name?.toLowerCase().includes('accuracy')
-      );
-      if (reliabilityQ?.acceptedAnswer?.text) {
-        parts.push('## Market Reliability\n');
-        parts.push(reliabilityQ.acceptedAnswer.text);
-        parts.push('');
+      const tradingQ = faqEntities.find((q) => {
+        const name = stringValue(q.name).toLowerCase();
+        return name.includes('trading activity') || name.includes('how much');
+      });
+      const tradingText = stringValue(asRecord(tradingQ?.acceptedAnswer)?.text);
+      if (tradingText) {
+        parts.push('## Trading Activity\n', tradingText, '');
+      }
+
+      const reliabilityQ = faqEntities.find((q) => {
+        const name = stringValue(q.name).toLowerCase();
+        return name.includes('reliable') || name.includes('accuracy');
+      });
+      const reliabilityText = stringValue(asRecord(reliabilityQ?.acceptedAnswer)?.text);
+      if (reliabilityText) {
+        parts.push('## Market Reliability\n', reliabilityText, '');
       }
     }
 
-    // ---------- 10. Comments from JSON-LD ----------
-    if (discussionData?.comment?.length) {
-      const commentCount = discussionData.commentCount || discussionData.comment.length;
+    // ---------- 9. Comments from JSON-LD ----------
+    const rawComments = Array.isArray(discussionData?.comment)
+      ? discussionData.comment.map(asRecord).filter((entry): entry is JsonRecord => Boolean(entry))
+      : [];
+    if (rawComments.length) {
+      const commentCount = stringValue(discussionData?.commentCount) || String(rawComments.length);
       parts.push(`## Comments (${commentCount})\n`);
 
-      const comments: any[] = discussionData.comment;
-      comments.forEach((c: any) => {
-        const author = c.author?.name || 'Anonymous';
-        const date = c.datePublished
-          ? new Date(c.datePublished).toLocaleDateString()
-          : '';
-        const text = c.text || '';
+      rawComments.forEach((c) => {
+        const author = stringValue(asRecord(c.author)?.name) || 'Anonymous';
+        const date = formatValidDate(stringValue(c.datePublished));
+        const text = stringValue(c.text);
         if (text) {
           parts.push(`**${author}**${date ? ` (${date})` : ''}:`);
-          parts.push(`> ${text}\n`);
+          parts.push(...text.split(/\r?\n/).map((line) => `> ${line}`), '');
 
-          // Nested replies
-          if (c.comment?.length) {
-            c.comment.forEach((reply: any) => {
-              const rAuthor = reply.author?.name || 'Anonymous';
-              const rText = reply.text || '';
-              if (rText) {
-                parts.push(`  **${rAuthor}** (reply):`);
-                parts.push(`  > ${rText}\n`);
-              }
-            });
-          }
+          const nestedReplies = Array.isArray(c.comment)
+            ? c.comment.map(asRecord).filter((entry): entry is JsonRecord => Boolean(entry))
+            : [];
+          nestedReplies.forEach((reply) => {
+            const rAuthor = stringValue(asRecord(reply.author)?.name) || 'Anonymous';
+            const rText = stringValue(reply.text);
+            if (rText) {
+              parts.push(`  **${rAuthor}** (reply):`);
+              parts.push(...rText.split(/\r?\n/).map((line) => `  > ${line}`), '');
+            }
+          });
         }
       });
     }
 
-    // ---------- 11. Fallback broad sweep ----------
+    // ---------- 10. Fallback broad sweep ----------
     if (parts.length < 5) {
       const mainEl = document.querySelector('main, [role="main"]');
       if (mainEl) {
@@ -275,3 +296,122 @@ register({
     return Markdown.buildPageMarkdown(metadata, parts.join('\n'));
   },
 });
+
+function appendOddsTable(parts: string[], outcomes: Array<[string, string]>): void {
+  parts.push('## Current Odds\n');
+  parts.push('| Outcome | Probability |');
+  parts.push('| --- | --- |');
+  outcomes.forEach(([name, prob]) => {
+    parts.push(`| ${Markdown.escapeMarkdownTableCell(name)} | ${Markdown.escapeMarkdownTableCell(prob)} |`);
+  });
+  parts.push('');
+}
+
+function flattenJsonLd(value: unknown): JsonRecord[] {
+  if (Array.isArray(value)) return value.flatMap(flattenJsonLd);
+  const record = asRecord(value);
+  if (!record) return [];
+  const graph = Array.isArray(record['@graph']) ? record['@graph'].flatMap(flattenJsonLd) : [];
+  return [record, ...graph];
+}
+
+function nodeTypes(value: unknown): string[] {
+  if (Array.isArray(value)) return value.filter((item): item is string => typeof item === 'string');
+  return typeof value === 'string' ? [value] : [];
+}
+
+function readNextDataMarket(): JsonRecord | null {
+  const script = document.getElementById('__NEXT_DATA__');
+  const raw = script?.textContent || '';
+  if (!raw || raw.length > 8_000_000) return null;
+  if (!/(?:"outcomes"|"outcomePrices"|"markets"|"question")/.test(raw)) return null;
+  try {
+    const parsed: unknown = JSON.parse(raw);
+    return findMarketObject(parsed);
+  } catch {
+    return null;
+  }
+}
+
+function findMarketObject(root: unknown, depth = 0): JsonRecord | null {
+  if (depth > 8 || root === null || root === undefined) return null;
+  if (Array.isArray(root)) {
+    for (const item of root) {
+      const found = findMarketObject(item, depth + 1);
+      if (found) return found;
+    }
+    return null;
+  }
+  const record = asRecord(root);
+  if (!record) return null;
+  if (
+    (Array.isArray(record.markets) && record.markets.length > 0 && (record.title || record.slug))
+    || (record.outcomes && record.outcomePrices && (record.question || record.title))
+  ) {
+    return record;
+  }
+  for (const child of Object.values(record)) {
+    const found = findMarketObject(child, depth + 1);
+    if (found) return found;
+  }
+  return null;
+}
+
+function extractNextDataOutcomes(market: JsonRecord): Array<[string, string]> {
+  const results: Array<[string, string]> = [];
+  const parseList = (value: unknown): string[] => {
+    if (Array.isArray(value)) return value.map(stringValue).filter(Boolean);
+    if (typeof value === 'string') {
+      try {
+        const parsed: unknown = JSON.parse(value);
+        if (Array.isArray(parsed)) return parsed.map(stringValue).filter(Boolean);
+      } catch { /* ignore */ }
+    }
+    return [];
+  };
+
+  if (Array.isArray(market.markets) && market.markets.length > 0) {
+    for (const entry of market.markets) {
+      const sub = asRecord(entry);
+      if (!sub) continue;
+      const label = stringValue(sub.groupItemTitle || sub.question || sub.title);
+      const prices = parseList(sub.outcomePrices);
+      if (label && prices[0]) {
+        const pct = formatProbability(prices[0]);
+        if (pct) results.push([label, pct]);
+      }
+    }
+    return results;
+  }
+
+  const outcomes = parseList(market.outcomes);
+  const prices = parseList(market.outcomePrices);
+  for (let i = 0; i < Math.min(outcomes.length, prices.length); i++) {
+    const pct = formatProbability(prices[i]);
+    if (outcomes[i] && pct) results.push([outcomes[i], pct]);
+  }
+  return results;
+}
+
+function formatProbability(raw: string): string {
+  const num = Number(raw);
+  if (!Number.isFinite(num)) return '';
+  const pct = num <= 1 ? num * 100 : num;
+  if (pct > 0 && pct < 1) return '<1%';
+  return `${Math.round(pct * 10) / 10}%`;
+}
+
+function formatValidDate(value: string): string {
+  if (!value) return '';
+  const parsed = new Date(value);
+  return Number.isNaN(parsed.getTime()) ? '' : parsed.toLocaleDateString();
+}
+
+function asRecord(value: unknown): JsonRecord | null {
+  return value && typeof value === 'object' && !Array.isArray(value) ? value as JsonRecord : null;
+}
+
+function stringValue(value: unknown): string {
+  if (Array.isArray(value)) return value.map(stringValue).filter(Boolean).join(', ');
+  return typeof value === 'string' || typeof value === 'number' ? String(value).trim() : '';
+}

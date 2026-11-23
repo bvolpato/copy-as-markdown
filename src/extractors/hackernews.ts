@@ -13,22 +13,28 @@ register({
   matches: [
     '*://news.ycombinator.com/item*',
   ],
-  // No anchor — HN uses table-based layout; the default bottom-right floating button is cleanest
+  // No anchor: HN uses table-based layout; the default bottom-right floating button is cleanest
 
   async extract() {
     const url = Utils.getCanonicalUrl();
 
+    // Scope post metadata to .fatitem (or the post table) so navbar #me and comment authors do not leak
+    const postScope = document.querySelector('table.fatitem')
+      || document.querySelector('.athing')?.closest('table')
+      || document.querySelector('.fatitem');
+
     // Post title
-    const titleEl = document.querySelector('.titleline > a, .athing .titleline a');
+    const titleEl = queryPostMeta(postScope, '.titleline > a, .athing .titleline a')
+      || document.querySelector('.titleline > a, .athing .titleline a');
     const title = titleEl?.textContent?.trim() || Utils.getPageTitle();
     const postUrl = (titleEl as HTMLAnchorElement)?.href || '';
 
     // Post metadata
-    const scoreEl = document.querySelector('.score');
+    const scoreEl = queryPostMeta(postScope, '.score');
     const score = scoreEl?.textContent?.trim() || '';
-    const authorEl = document.querySelector('.hnuser');
+    const authorEl = queryPostMeta(postScope, '.hnuser');
     const author = authorEl?.textContent?.trim() || '';
-    const ageEl = document.querySelector('.age a');
+    const ageEl = queryPostMeta(postScope, '.age a');
     const age = ageEl?.textContent?.trim() || '';
 
     const metadata: Record<string, string> = {
@@ -48,40 +54,70 @@ register({
 
     // Post text (for Ask HN, Show HN, etc.)
     const postTextEl = document.querySelector('.fatitem .toptext, .fatitem .commtext');
-    if (postTextEl) {
+    const postText = postTextEl ? Markdown.elementToMarkdown(postTextEl).trim() : '';
+    if (postText) {
       parts.push('## Post\n');
-      parts.push(Markdown.elementToMarkdown(postTextEl));
+      parts.push(postText);
       parts.push('');
     }
 
     // Comments
     const commentEls = document.querySelectorAll('.comtr');
-    if (commentEls.length > 0) {
-      parts.push(`## Comments (${commentEls.length})\n`);
+    const renderedComments: string[][] = [];
+    commentEls.forEach((comment) => {
+      const textEl = comment.querySelector('.commtext');
+      const text = textEl ? Markdown.elementToMarkdown(textEl).trim() : '';
+      if (!text) return;
 
-      commentEls.forEach((comment) => {
-        const indent = comment.querySelector('.ind img') as HTMLImageElement | null;
-        const depth = indent ? Math.floor((parseInt(indent.getAttribute('width') || '0', 10)) / 40) : 0;
-        const prefix = '  '.repeat(depth);
+      const depth = getCommentDepth(comment);
+      const prefix = '  '.repeat(depth);
 
-        const commentAuthor = comment.querySelector('.hnuser')?.textContent?.trim() || '';
-        const commentAge = comment.querySelector('.age a')?.textContent?.trim() || '';
+      const commentAuthor = comment.querySelector('.hnuser')?.textContent?.trim() || '';
+      const commentAge = comment.querySelector('.age a')?.textContent?.trim() || '';
+      const header = formatCommentHeader(prefix, commentAuthor, commentAge);
 
-        const textEl = comment.querySelector('.commtext');
-        const text = textEl ? Markdown.elementToMarkdown(textEl) : '';
-
-        if (text) {
-          parts.push(`${prefix}- **${commentAuthor}** (${commentAge}):`);
-          // Indent the comment text
-          const lines = text.split('\n');
-          lines.forEach((line) => {
-            parts.push(`${prefix}  ${line}`);
-          });
-          parts.push('');
-        }
+      const block: string[] = [header];
+      text.split('\n').forEach((line) => {
+        block.push(`${prefix}  ${line}`);
       });
+      block.push('');
+      renderedComments.push(block);
+    });
+
+    if (renderedComments.length > 0) {
+      parts.push(`## Comments (${renderedComments.length})\n`);
+      for (const block of renderedComments) {
+        parts.push(...block);
+      }
     }
 
     return Markdown.buildPageMarkdown(metadata, parts.join('\n'));
   },
 });
+
+function queryPostMeta(scope: ParentNode | null, selector: string): Element | null {
+  if (!scope) return null;
+  for (const el of scope.querySelectorAll(selector)) {
+    if (!el.closest('.comtr') && el.id !== 'me') {
+      return el;
+    }
+  }
+  return null;
+}
+
+function getCommentDepth(comment: Element): number {
+  const indCell = comment.querySelector('td.ind, .ind');
+  const indentAttr = indCell?.getAttribute('indent');
+  if (indentAttr !== null && indentAttr !== undefined && /^\d+$/.test(indentAttr.trim())) {
+    return parseInt(indentAttr.trim(), 10);
+  }
+  const indentImg = comment.querySelector('.ind img') as HTMLImageElement | null;
+  return indentImg ? Math.floor((parseInt(indentImg.getAttribute('width') || '0', 10)) / 40) : 0;
+}
+
+function formatCommentHeader(prefix: string, author: string, age: string): string {
+  if (author && age) return `${prefix}- **${author}** (${age}):`;
+  if (author) return `${prefix}- **${author}**:`;
+  if (age) return `${prefix}- (${age}):`;
+  return `${prefix}- Comment:`;
+}

@@ -34,17 +34,25 @@ register({
     '*://office.com/launch/word*',
     '*://office.com/launch/excel*',
     '*://office.com/launch/powerpoint*',
-    '*://word-edit.officeapps.live.com/we/*',
-    '*://word-view.officeapps.live.com/we/*',
-    '*://excel.officeapps.live.com/x/*',
-    '*://powerpoint.officeapps.live.com/p/*',
+    '*://m365.cloud.microsoft/*',
+    '*://www.microsoft365.com/*',
+    '*://word.cloud.microsoft/*',
+    '*://excel.cloud.microsoft/*',
+    '*://powerpoint.cloud.microsoft/*',
+    '*://*.officeapps.live.com/we/*',
+    '*://*.officeapps.live.com/x/*',
+    '*://*.officeapps.live.com/p/*',
     '*://view.officeapps.live.com/op/view.aspx*',
-    '*://onedrive.live.com/edit.aspx*',
+    '*://onedrive.live.com/edit*',
     '*://onedrive.live.com/view.aspx*',
     '*://*.sharepoint.com/*/_layouts/15/Doc.aspx*',
     '*://*.sharepoint.com/*/_layouts/15/WopiFrame.aspx*',
+    '*://*.sharepoint.com/*/_layouts/15/WopiFrame2.aspx*',
+    '*://*.sharepoint.com/*/_layouts/15/DocIdRedir.aspx*',
     '*://*.sharepoint.com/_layouts/15/Doc.aspx*',
     '*://*.sharepoint.com/_layouts/15/WopiFrame.aspx*',
+    '*://*.sharepoint.com/_layouts/15/WopiFrame2.aspx*',
+    '*://*.sharepoint.com/_layouts/15/DocIdRedir.aspx*',
     '*://*.sharepoint.com/*:w:/*',
     '*://*.sharepoint.com/*:x:/*',
     '*://*.sharepoint.com/*:p:/*',
@@ -130,11 +138,13 @@ function extractSemanticDocument(app: OfficeApp, title: string): ExtractionResul
 }
 
 function extractExcelGrid(title: string): ExtractionResult | null {
-  const grids = Array.from(document.querySelectorAll<HTMLElement>('[role="grid"], [role="table"], table'))
+  const scoredGrids = Array.from(document.querySelectorAll<HTMLElement>('[role="grid"], [role="table"], table'))
     .filter(isContentCandidate)
-    .sort((a, b) => gridScore(b) - gridScore(a));
-  const grid = grids[0];
-  if (!grid || gridScore(grid) < 2) return null;
+    .map((element) => ({ element, score: gridScore(element) }))
+    .sort((a, b) => b.score - a.score);
+  const top = scoredGrids[0];
+  const grid = top?.element;
+  if (!grid || top.score < 2) return null;
 
   if (grid.tagName === 'TABLE') {
     const rows = Array.from(grid.querySelectorAll('tr'));
@@ -267,10 +277,11 @@ function extractVisibleLiveContent(app: OfficeApp, title: string): ExtractionRes
 }
 
 function bestContentCandidate(selectors: string[], requireVisible: boolean): HTMLElement | null {
-  const candidates = Array.from(document.querySelectorAll<HTMLElement>(selectors.join(', ')))
-    .filter((element) => isContentCandidate(element) && (!requireVisible || isVisible(element)));
-  candidates.sort((a, b) => contentScore(b) - contentScore(a));
-  return candidates.find((element) => contentScore(element) > 20) || null;
+  const scored = Array.from(document.querySelectorAll<HTMLElement>(selectors.join(', ')))
+    .filter((element) => isContentCandidate(element) && (!requireVisible || isVisible(element)))
+    .map((element) => ({ element, score: contentScore(element) }))
+    .sort((a, b) => b.score - a.score);
+  return scored.find((entry) => entry.score > 20)?.element || null;
 }
 
 function isContentCandidate(element: HTMLElement): boolean {
@@ -319,13 +330,25 @@ function removeOfficeNoise(root: Element): void {
 }
 
 function detectApp(): OfficeApp {
-  const signal = `${window.location.hostname} ${window.location.pathname} ${window.location.search} ${document.title}`;
-  if (/word|\.docx?\b|\/:w:\//i.test(signal)) return 'Word';
-  if (/excel|\.xlsx?\b|\/:x:\//i.test(signal)) return 'Excel';
-  if (/powerpoint|\.pptx?\b|\/:p:\//i.test(signal)) return 'PowerPoint';
+  const host = window.location.hostname.toLowerCase();
+  const pathAndSearch = `${window.location.pathname} ${window.location.search}`;
+  const fileSignal = `${getFileName()} ${pathAndSearch} ${document.title}`;
+
+  if (/\.xlsx?\b|\/:x:\//i.test(fileSignal)) return 'Excel';
+  if (/\.pptx?\b|\/:p:\//i.test(fileSignal)) return 'PowerPoint';
+  if (/\.docx?\b|\/:w:\//i.test(fileSignal)) return 'Word';
+
+  if (/(?:^|[.-])excel\./i.test(host) || /\/(?:launch\/excel|x\/)/i.test(window.location.pathname)) return 'Excel';
+  if (/(?:^|[.-])powerpoint\./i.test(host) || /\/(?:launch\/powerpoint|p\/)/i.test(window.location.pathname)) return 'PowerPoint';
+  if (/(?:^|[.-])word(?:-edit|-view)?\./i.test(host) || /\/(?:launch\/word|we\/)/i.test(window.location.pathname)) return 'Word';
+
   if (document.querySelector('[aria-label*="worksheet" i], [role="grid"][aria-rowcount]')) return 'Excel';
   if (document.querySelector('[aria-label*="slide" i]')) return 'PowerPoint';
   if (document.querySelector('[role="document"], [aria-label*="document canvas" i]')) return 'Word';
+
+  if (/\bexcel\b/i.test(document.title)) return 'Excel';
+  if (/\bpowerpoint\b/i.test(document.title)) return 'PowerPoint';
+  if (/\bword\b/i.test(document.title)) return 'Word';
   return 'Microsoft 365';
 }
 
@@ -376,13 +399,14 @@ function isVirtualized(element: Element): boolean {
 }
 
 function deduplicateSlides(candidates: HTMLElement[]): HTMLElement[] {
-  const byNumber = new Map<number, HTMLElement>();
+  const byNumber = new Map<number, { element: HTMLElement; score: number }>();
   candidates.forEach((slide, index) => {
     const number = slideNumber(slide.getAttribute('aria-label') || '') || index + 1;
+    const score = contentScore(slide);
     const existing = byNumber.get(number);
-    if (!existing || contentScore(slide) > contentScore(existing)) byNumber.set(number, slide);
+    if (!existing || score > existing.score) byNumber.set(number, { element: slide, score });
   });
-  return Array.from(byNumber.entries()).sort(([a], [b]) => a - b).map(([, slide]) => slide);
+  return Array.from(byNumber.entries()).sort(([a], [b]) => a - b).map(([, entry]) => entry.element);
 }
 
 function firstHeading(element: Element): string {
@@ -428,7 +452,7 @@ function normalize(value: string): string {
 }
 
 function metadataValue(value: string): string {
-  return JSON.stringify(normalize(value));
+  return normalize(value);
 }
 
 function escapeTableCell(value: string): string {

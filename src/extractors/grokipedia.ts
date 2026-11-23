@@ -43,15 +43,13 @@ register({
       document.querySelector('[role="main"]') ||
       document.querySelector('main');
 
-    if (!articleEl) {
-      const cleaned = Utils.removeNoise(document.body, Utils.NOISE_SELECTORS);
-      const body = Markdown.elementToMarkdown(cleaned);
-      return Markdown.buildPageMarkdown(metadata, `# ${title}\n\n${body}`);
-    }
-
-    const cleaned = Utils.removeNoise(articleEl, [
+    const root = articleEl || document.body;
+    const cleaned = Utils.removeNoise(root, [
       ...Utils.NOISE_SELECTORS,
-      '.share-buttons', '.social',
+      'h1',
+      'button',
+      '.share-buttons',
+      '.social',
     ]);
 
     const body = Markdown.elementToMarkdown(cleaned);

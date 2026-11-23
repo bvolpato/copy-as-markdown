@@ -2,14 +2,16 @@
  * Datadog dashboard extractor.
  *
  * Dashboard charts are mostly canvas-rendered. Extract stable semantic DOM:
- * dashboard context, template variables, groups, point values, top lists, and
- * visible chart annotations. Skip axes, controls, watermarks, and resize UI.
+ * dashboard context, template variables, groups, point values, top lists,
+ * notes/free text, tables, and visible chart annotations. Skip axes, controls,
+ * watermarks, and resize UI.
  */
 
 import { register } from '../core/registry';
 import * as Markdown from '../core/markdown';
 import * as Utils from '../core/utils';
 import {
+  datadogLiveSpanToMs,
   fetchDatadogSeriesCandidates,
   getMetricQueries,
   mapWithConcurrency,
@@ -24,6 +26,8 @@ type WidgetSummary = {
   appendix?: string;
 };
 
+type VisibilityCheck = (element: Element | null) => boolean;
+
 register({
   name: 'Datadog Dashboard',
   matches: [
@@ -35,7 +39,12 @@ register({
   buttonPlacement: 'anchor',
   extensionPageButton: true,
   anchor: {
-    selector: '.dashboard_header__toolbar .actions_trigger',
+    selector: [
+      '.dashboard_header__toolbar .actions_trigger',
+      '[data-testid="dashboard-header-actions"]',
+      '.dashboard_header__toolbar',
+      '.new-dashboard-header__board_title',
+    ].join(', '),
     position: 'before',
     style: 'link',
     label: 'Copy as Markdown',
@@ -55,6 +64,7 @@ register({
   },
 
   async extract() {
+    const isVisible = Utils.createVisibilityChecker();
     const title = getDashboardTitle();
     const metadata: Record<string, string> = {
       source: 'Datadog Dashboard',
@@ -72,11 +82,11 @@ register({
     if (timezone) metadata.timezone = timezone;
 
     const parts: string[] = [`# ${title}`];
-    const filters = getTemplateVariables();
+    const filters = getTemplateVariables(isVisible);
     if (filters.length > 0) {
       metadata.filters = JSON.stringify(Object.fromEntries(filters));
     }
-    const seriesCandidates = await getDashboardSeriesCandidates(filters);
+    const seriesCandidates = await getDashboardSeriesCandidates(filters, timeRange);
 
     let emittedWidgetCount = 0;
     const groupedWidgets = new Set<Element>();
@@ -84,18 +94,18 @@ register({
     for (const group of groups) {
       const groupTitle = getGroupTitle(group);
       const widgets = Array.from(group.querySelectorAll('.dashboard_widget'));
+      if (widgets.length === 0) continue;
       widgets.forEach((widget) => groupedWidgets.add(widget));
 
-      if (!groupTitle || widgets.length === 0) continue;
-      parts.push(`## ${groupTitle}`);
-      emittedWidgetCount += await appendWidgetTable(parts, widgets, seriesCandidates);
+      parts.push(`## ${groupTitle || 'Untitled group'}`);
+      emittedWidgetCount += await appendWidgetTable(parts, widgets, seriesCandidates, isVisible);
     }
 
     const ungrouped = Array.from(document.querySelectorAll('.dashboard_widget'))
       .filter((widget) => !groupedWidgets.has(widget));
     if (ungrouped.length > 0) {
       parts.push('## Other widgets');
-      emittedWidgetCount += await appendWidgetTable(parts, ungrouped, seriesCandidates);
+      emittedWidgetCount += await appendWidgetTable(parts, ungrouped, seriesCandidates, isVisible);
     }
 
     if (emittedWidgetCount === 0) {
@@ -114,7 +124,7 @@ function getDashboardTitle(): string {
   ) || Utils.getPageTitle().replace(/\s*\|\s*Datadog\s*$/, '').trim();
 }
 
-function getTemplateVariables(): Array<[string, string]> {
+function getTemplateVariables(isVisible: VisibilityCheck): Array<[string, string]> {
   const visibleRow =
     document.querySelector('.dashboard_header__bottom-row .template-variable-list') ||
     document.querySelector('.dashboard_header__template-var-row .template-variable-list');
@@ -136,7 +146,7 @@ function getTemplateVariables(): Array<[string, string]> {
 function getDashboardGroups(): Element[] {
   return Array.from(
     document.querySelectorAll('.multi-size-layout__group[data-testid^="group-"]'),
-  ).filter((group) => !!group.querySelector('.group-header__title'));
+  );
 }
 
 function getGroupTitle(group: Element): string {
@@ -149,9 +159,10 @@ async function appendWidgetTable(
   parts: string[],
   widgets: Element[],
   seriesCandidates: Map<string, DatadogSeriesCandidate[]>,
+  isVisible: VisibilityCheck,
 ): Promise<number> {
   const summaries = (await Promise.all(widgets.map((widget) =>
-    summarizeWidget(widget, seriesCandidates.get(getWidgetId(widget)) || []),
+    summarizeWidget(widget, seriesCandidates.get(getWidgetId(widget)) || [], isVisible),
   )))
     .filter((summary): summary is WidgetSummary => summary !== null);
   if (summaries.length === 0) return 0;
@@ -172,6 +183,7 @@ async function appendWidgetTable(
 async function summarizeWidget(
   widget: Element,
   candidates: DatadogSeriesCandidate[],
+  isVisible: VisibilityCheck,
 ): Promise<WidgetSummary | null> {
   const accessibleTitle = widget.querySelector(
     ':scope > [role="group"] > button[aria-label]',
@@ -179,6 +191,12 @@ async function summarizeWidget(
   const title = textOf(
     widget.querySelector('[data-testid="widget-title"], .widget__title-text'),
   ) || accessibleTitle?.getAttribute('aria-label')?.trim() || '';
+
+  const noteText = getNoteText(widget);
+  if (noteText) {
+    return { title: title || 'Note', detail: noteText };
+  }
+
   if (!title) return null;
 
   const queryValue = getQueryValue(widget);
@@ -194,7 +212,7 @@ async function summarizeWidget(
     };
   }
 
-  const dataTable = getDataTable(widget);
+  const dataTable = getDataTable(widget, isVisible);
   if (dataTable) {
     return {
       title,
@@ -207,6 +225,7 @@ async function summarizeWidget(
     widget.querySelectorAll(
       '.dataviz-annotations-renderer [role="note"], [role="note"]',
     ),
+    isVisible,
   );
 
   if (widget.querySelector('.widget.timeseries')) {
@@ -232,8 +251,23 @@ async function summarizeWidget(
   return { title, detail: getWidgetType(widget) };
 }
 
+function getNoteText(widget: Element): string {
+  const noteEl = widget.querySelector(
+    '.note-widget__content, .widget.note .druids_typography_markdown, .widget.note .markdown, .widget.free_text, .free-text-widget, [data-testid="note-widget"]',
+  ) || (widget.querySelector('.widget.note') ? widget.querySelector('.widget.note') : null);
+  if (!noteEl) return '';
+  const cleaned = Utils.removeNoise(noteEl, [
+    ...Utils.NOISE_SELECTORS,
+    'button',
+    '.widget__header',
+    '[data-testid="widget-title"]',
+  ]);
+  return Markdown.elementToMarkdown(cleaned).replace(/\s+/g, ' ').trim();
+}
+
 async function getDashboardSeriesCandidates(
   filters: Array<[string, string]>,
+  timeRangeLabel: string,
 ): Promise<Map<string, DatadogSeriesCandidate[]>> {
   const dashboardId = window.location.pathname.match(
     /^\/dashboard\/([a-z0-9]{3}-[a-z0-9]{3}-[a-z0-9]{3})/i,
@@ -241,7 +275,7 @@ async function getDashboardSeriesCandidates(
   if (!dashboardId) return new Map();
 
   try {
-    const response = await fetch(
+    const response = await Utils.fetchWithTimeout(
       `/api/v1/dashboard/${encodeURIComponent(dashboardId)}`,
       { credentials: 'include', headers: { Accept: 'application/json' } },
     );
@@ -249,7 +283,7 @@ async function getDashboardSeriesCandidates(
     const dashboard = await response.json() as DashboardDefinition;
     const definitions = flattenWidgetDefinitions(dashboard.widgets || []);
     const variables = getDashboardVariables(dashboard.template_variables || [], filters);
-    const [fromMs, toMs] = getDashboardTimeRange();
+    const [fromMs, toMs] = getDashboardTimeRange(timeRangeLabel);
     const entries = [...definitions.entries()].filter(([, definition]) =>
       definition.type === 'timeseries',
     );
@@ -303,7 +337,12 @@ function getDashboardVariables(
     const prefix = typeof definition.prefix === 'string'
       ? definition.prefix
       : definition.name;
-    const fallback = typeof definition.default === 'string' ? definition.default : '*';
+    const defaultsArr = Array.isArray(definition.defaults)
+      ? definition.defaults.filter((v): v is string => typeof v === 'string' && v.trim().length > 0)
+      : [];
+    const fallback = defaultsArr.length > 0
+      ? defaultsArr.join(',')
+      : (typeof definition.default === 'string' && definition.default.trim() ? definition.default : '*');
     variables.set(definition.name, {
       prefix,
       value: selected.get(definition.name) || fallback,
@@ -312,11 +351,34 @@ function getDashboardVariables(
   return variables;
 }
 
-function getDashboardTimeRange(): [number, number] {
+function getDashboardTimeRange(timeRangeLabel: string): [number, number] {
   const params = new URLSearchParams(window.location.search);
   const toMs = Number(params.get('to_ts')) || Date.now();
-  const fromMs = Number(params.get('from_ts')) || toMs - 3_600_000;
-  return [fromMs, toMs];
+  const explicitFrom = Number(params.get('from_ts'));
+  if (explicitFrom) return [explicitFrom, toMs];
+
+  const liveSpanParam = params.get('live_span') || parseTimeRangePickerSpan(timeRangeLabel);
+  const spanMs = datadogLiveSpanToMs(liveSpanParam || undefined, 3_600_000);
+  return [toMs - spanMs, toMs];
+}
+
+function parseTimeRangePickerSpan(label: string): string {
+  const trimmed = label.trim();
+  if (!trimmed) return '';
+  if (/^\d+(?:\.\d+)?\s*(?:mo|[smhdwy])$/i.test(trimmed)) return trimmed;
+  const match = trimmed.match(/(?:past|last)\s+(\d+(?:\.\d+)?)\s+(second|minute|hour|day|week|month|year)s?/i);
+  if (!match) return '';
+  const unitMap: Record<string, string> = {
+    second: 's',
+    minute: 'm',
+    hour: 'h',
+    day: 'd',
+    week: 'w',
+    month: 'mo',
+    year: 'y',
+  };
+  const unit = unitMap[match[2].toLowerCase()];
+  return unit ? `${match[1]}${unit}` : '';
 }
 
 function getWidgetId(widget: Element): string {
@@ -360,23 +422,23 @@ function getTopList(widget: Element): Array<[string, string]> {
   return rows;
 }
 
-function getDataTable(widget: Element): string {
-  const nativeTable = Array.from(widget.querySelectorAll('table')).find(isVisible);
+function getDataTable(widget: Element, isVisible: VisibilityCheck): string {
+  const nativeTable = Array.from(widget.querySelectorAll('table')).find((el) => isVisible(el));
   if (nativeTable) return Markdown.tableToMarkdown(nativeTable);
 
   const roleTable = Array.from(widget.querySelectorAll('[role="table"], [role="grid"]'))
-    .find(isVisible);
+    .find((el) => isVisible(el));
   if (!roleTable) return '';
 
   const rows = Array.from(roleTable.querySelectorAll('[role="row"]'))
-    .filter(isVisible)
+    .filter((el) => isVisible(el))
     .map((row) => Array.from(
       row.querySelectorAll(':scope > [role="columnheader"], :scope > [role="rowheader"], :scope > [role="cell"], :scope > [role="gridcell"]'),
-    ).filter(isVisible).map(textOf))
+    ).filter((el) => isVisible(el)).map(textOf))
     .filter((row) => row.some(Boolean));
   if (rows.length === 0) return '';
 
-  const width = Math.max(...rows.map((row) => row.length));
+  const width = Utils.safeMax(rows.map((row) => row.length));
   rows.forEach((row) => {
     while (row.length < width) row.push('');
   });
@@ -415,11 +477,11 @@ function getWidgetType(widget: Element): string {
   if (root.classList.contains('query_table')) return 'Table';
   if (root.classList.contains('heatmap')) return 'Heatmap';
   if (root.classList.contains('distribution')) return 'Distribution chart';
-  if (root.classList.contains('note')) return 'Note';
+  if (root.classList.contains('note') || root.classList.contains('free_text')) return 'Note';
   return 'Widget';
 }
 
-function uniqueTexts(elements: NodeListOf<Element>): string[] {
+function uniqueTexts(elements: NodeListOf<Element>, isVisible: VisibilityCheck): string[] {
   const values = new Set<string>();
   elements.forEach((element) => {
     if (!isVisible(element)) return;
@@ -427,24 +489,6 @@ function uniqueTexts(elements: NodeListOf<Element>): string[] {
     if (text) values.add(text);
   });
   return [...values];
-}
-
-function isVisible(element: Element): boolean {
-  if (
-    element.closest('[hidden], [aria-hidden="true"]') ||
-    getComputedStyle(element).display === 'none' ||
-    getComputedStyle(element).visibility === 'hidden'
-  ) {
-    return false;
-  }
-
-  let parent = element.parentElement;
-  while (parent) {
-    const style = getComputedStyle(parent);
-    if (style.display === 'none' || style.visibility === 'hidden') return false;
-    parent = parent.parentElement;
-  }
-  return true;
 }
 
 function textOf(element: Element | null): string {
