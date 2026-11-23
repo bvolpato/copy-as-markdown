@@ -1,5 +1,6 @@
 type CopyResponse = {
   success: boolean;
+  copied?: boolean;
   error?: string;
 };
 
@@ -114,6 +115,11 @@ async function copyFromTab(tabId: number): Promise<void> {
 
     if (!response.success) {
       throw new Error(response.error || 'Copy failed');
+    }
+
+    if (response.copied === false) {
+      setFeedback(tabId, '', '#2563eb', 'Copy as Markdown');
+      return;
     }
 
     setFeedback(tabId, '✓', '#16a34a', 'Copy as Markdown: copied', 2500);

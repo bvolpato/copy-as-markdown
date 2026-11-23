@@ -1,14 +1,15 @@
 /** Shared conversion helpers for Atlassian REST payloads. */
 
 import * as Markdown from './markdown';
+import * as Utils from './utils';
 
 type JsonObject = Record<string, unknown>;
 
 export async function fetchAtlassianJson(url: string): Promise<JsonObject> {
-  const response = await fetch(url, {
+  const response = await Utils.fetchWithTimeout(url, {
     credentials: 'same-origin',
     headers: { Accept: 'application/json' },
-  });
+  }, 8000);
   if (!response.ok) throw new Error(`Atlassian request returned ${response.status}`);
 
   const value: unknown = await response.json();
@@ -19,7 +20,7 @@ export async function fetchAtlassianJson(url: string): Promise<JsonObject> {
 
 export function htmlToMarkdown(html: string): string {
   if (!html.trim()) return '';
-  const parsed = new DOMParser().parseFromString(html, 'text/html');
+  const parsed = Markdown.parseHtmlDocument(html);
   parsed.querySelectorAll('script, style, noscript, template').forEach((element) => element.remove());
   return Markdown.elementToMarkdown(parsed.body).trim();
 }
@@ -58,7 +59,10 @@ function renderNode(node: JsonObject, depth: number): string {
       return content.map((child) => renderNode(child, depth)).filter(Boolean).join('\n');
     case 'taskItem': {
       const checked = attrs.state === 'DONE' ? 'x' : ' ';
-      return `- [${checked}] ${content.map((child) => renderNode(child, depth + 1)).join('\n')}`;
+      const indent = '  '.repeat(depth);
+      const inner = content.map((child) => renderNode(child, depth + 1)).filter(Boolean).join('\n');
+      const lines = inner.split('\n');
+      return `${indent}- [${checked}] ${lines[0] || ''}${lines.slice(1).map((line) => `\n${indent}  ${line}`).join('')}`;
     }
     case 'codeBlock': {
       const code = content.map((child) => stringValue(child.text)).join('');
@@ -67,7 +71,10 @@ function renderNode(node: JsonObject, depth: number): string {
     case 'blockquote':
     case 'panel': {
       const inner = content.map((child) => renderNode(child, depth)).filter(Boolean).join('\n\n');
-      return inner.split('\n').map((line) => `> ${line}`).join('\n');
+      if (!inner) return '';
+      const panelType = type === 'panel' ? stringValue(attrs.panelType).toUpperCase() : '';
+      const prefix = panelType ? `> **[${panelType}]**\n` : '';
+      return prefix + inner.split('\n').map((line) => `> ${line}`).join('\n');
     }
     case 'rule':
       return '---';
@@ -96,15 +103,21 @@ function renderNode(node: JsonObject, depth: number): string {
       const url = safeUrl(stringValue(attrs.url));
       return url ? `[${escapeLinkLabel(label)}](${url})` : escapeMarkdown(label);
     }
+    case 'expand':
+    case 'nestedExpand': {
+      const title = stringValue(attrs.title).trim();
+      const body = content.map((child) => renderNode(child, depth)).filter(Boolean).join('\n\n');
+      return title && body ? `**${escapeMarkdown(title)}**\n\n${body}` : (body || (title ? `**${escapeMarkdown(title)}**` : ''));
+    }
     case 'mediaSingle':
     case 'mediaGroup':
-    case 'expand':
-    case 'nestedExpand':
     case 'decisionList':
     case 'decisionItem':
+    case 'layoutSection':
+    case 'layoutColumn':
       return content.map((child) => renderNode(child, depth)).filter(Boolean).join('\n\n');
     default:
-      return content.map((child) => renderNode(child, depth)).filter(Boolean).join('');
+      return content.map((child) => renderNode(child, depth)).filter(Boolean).join('\n');
   }
 }
 
@@ -135,13 +148,29 @@ function renderText(value: string, marks: JsonObject[]): string {
 function renderList(items: JsonObject[], ordered: boolean, start: number, depth: number): string {
   return items.map((item, index) => {
     const blocks = objectArray(item.content);
-    const rendered = blocks.map((child) => renderNode(child, depth + 1)).filter(Boolean).join('\n');
     const marker = ordered ? `${start + index}.` : '-';
     const indent = '  '.repeat(depth);
-    const lines = rendered.split('\n');
-    return `${indent}${marker} ${lines[0] || ''}${lines.slice(1)
-      .map((line) => `\n${indent}  ${line}`)
-      .join('')}`;
+    const renderedBlocks = blocks.map((child) => {
+      const childType = stringValue(child.type);
+      const isNestedList = childType === 'bulletList' || childType === 'orderedList' || childType === 'taskList';
+      return { text: renderNode(child, isNestedList ? depth + 1 : 0), isNestedList };
+    }).filter(({ text }) => Boolean(text));
+
+    if (renderedBlocks.length === 0) return `${indent}${marker}`;
+
+    const parts: string[] = [];
+    renderedBlocks.forEach((block, blockIndex) => {
+      const lines = block.text.split('\n');
+      if (blockIndex === 0 && !block.isNestedList) {
+        parts.push(`${indent}${marker} ${lines[0]}${lines.slice(1).map((line) => `\n${indent}  ${line}`).join('')}`);
+      } else if (block.isNestedList) {
+        if (blockIndex === 0) parts.push(`${indent}${marker}`);
+        parts.push(block.text);
+      } else {
+        parts.push(lines.map((line) => `${indent}  ${line}`).join('\n'));
+      }
+    });
+    return parts.join('\n');
   }).join('\n');
 }
 
@@ -158,7 +187,8 @@ function renderTable(rows: JsonObject[]): string {
       .trim();
   }));
   if (values.length === 0) return '';
-  const width = Math.max(...values.map((row) => row.length));
+  const width = Utils.safeMax(values.map((row) => row.length));
+  if (width <= 0) return '';
   const normalized = values.map((row) => [...row, ...Array(width - row.length).fill('')]);
   return [
     `| ${normalized[0].join(' | ')} |`,
@@ -179,16 +209,21 @@ function safeUrl(value: string): string {
   if (!value) return '';
   try {
     const url = new URL(value, document.baseURI);
-    return /^(?:https?|mailto):$/.test(url.protocol) ? url.href : '';
+    return /^(?:https?|mailto):$/.test(url.protocol)
+      ? url.href.replace(/\(/g, '%28').replace(/\)/g, '%29')
+      : '';
   } catch {
     return '';
   }
 }
 
 function formatDate(timestamp: string): string {
-  const numeric = Number(timestamp);
-  if (!Number.isFinite(numeric)) return timestamp;
-  return new Date(numeric).toISOString().slice(0, 10);
+  const trimmed = timestamp.trim();
+  if (!trimmed) return '';
+  const numeric = Number(trimmed);
+  if (!Number.isFinite(numeric)) return trimmed;
+  const date = new Date(numeric);
+  return Number.isNaN(date.getTime()) ? trimmed : date.toISOString().slice(0, 10);
 }
 
 function asObject(value: unknown): JsonObject | null {

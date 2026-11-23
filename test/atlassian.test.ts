@@ -72,6 +72,42 @@ test('ADF table cells preserve child Markdown and escape only table delimiters',
   );
 });
 
+test('ADF nested lists indent by 2 spaces per level and empty dates stay empty', () => {
+  const md = adfToMarkdown({
+    type: 'doc',
+    content: [
+      {
+        type: 'bulletList',
+        content: [
+          {
+            type: 'listItem',
+            content: [
+              paragraph('Top item'),
+              {
+                type: 'bulletList',
+                content: [
+                  {
+                    type: 'listItem',
+                    content: [
+                      paragraph('Level 1'),
+                      {
+                        type: 'bulletList',
+                        content: [{ type: 'listItem', content: [paragraph('Level 2')] }],
+                      },
+                    ],
+                  },
+                ],
+              },
+            ],
+          },
+        ],
+      },
+      { type: 'paragraph', content: [{ type: 'date', attrs: { timestamp: '' } }] },
+    ],
+  });
+  assert.equal(md, '- Top item\n  - Level 1\n    - Level 2');
+});
+
 test('ADF tables process long whitespace runs within a bounded child deadline', () => {
   const result = spawnSync(process.execPath, ['--import', 'tsx', '--input-type=module', '-e', `
     import assert from 'node:assert/strict';

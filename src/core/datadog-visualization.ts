@@ -1,4 +1,5 @@
 import type { DatadogSeriesCandidate } from './datadog-api';
+import { safeMax, safeMin } from './utils';
 
 export type DatadogCanvasSeries = {
   label?: string;
@@ -187,6 +188,7 @@ function labelCanvasSeries(
   const matchedSeries = new Map<number, number>();
   matches.sort((first, second) => second.score - first.score);
   for (const match of matches) {
+    if (match.score < 0.2) break;
     if (
       !availableSeries.has(match.seriesIndex)
       || !availableCandidates.has(match.candidateIndex)
@@ -236,8 +238,8 @@ function summarizeExactStats(values: number[]): string {
   const average = values.reduce((sum, value) => sum + value, 0) / values.length;
   const stats: Array<[string, number]> = [
     ['first', values[0]],
-    ['min', Math.min(...values)],
-    ['max', Math.max(...values)],
+    ['min', safeMin(values)],
+    ['max', safeMax(values)],
     ['avg', average],
     ['last', values[values.length - 1]],
   ];
@@ -245,26 +247,38 @@ function summarizeExactStats(values: number[]): string {
 }
 
 function resample(values: number[], width: number): number[] {
-  if (values.length <= width) return [...values];
+  if (values.length === 0 || width <= 0) return [];
+  if (values.length === width) return [...values];
+  if (values.length === 1) return Array.from({ length: width }, () => values[0]);
+  if (values.length < width) {
+    return Array.from({ length: width }, (_, index) => {
+      const position = (index * (values.length - 1)) / Math.max(1, width - 1);
+      const low = Math.floor(position);
+      const high = Math.min(values.length - 1, Math.ceil(position));
+      const weight = position - low;
+      return values[low] * (1 - weight) + values[high] * weight;
+    });
+  }
   return Array.from({ length: width }, (_, bucket) => {
     const start = Math.floor(bucket * values.length / width);
     const end = Math.max(start + 1, Math.floor((bucket + 1) * values.length / width));
-    const slice = values.slice(start, end);
-    return slice.reduce((sum, value) => sum + value, 0) / slice.length;
+    let sum = 0;
+    for (let i = start; i < end; i += 1) sum += values[i];
+    return sum / (end - start);
   });
 }
 
 function normalizeShape(values: number[]): number[] {
-  const minimum = Math.min(...values);
-  const maximum = Math.max(...values);
+  const minimum = safeMin(values);
+  const maximum = safeMax(values);
   if (maximum === minimum) return values.map(() => 0);
   return values.map((value) => (value - minimum) / (maximum - minimum));
 }
 
 function shapeSimilarity(first: number[], second: number[]): number {
   if (first.length !== second.length || first.length === 0) return -1;
-  const firstRange = Math.max(...first) - Math.min(...first);
-  const secondRange = Math.max(...second) - Math.min(...second);
+  const firstRange = safeMax(first) - safeMin(first);
+  const secondRange = safeMax(second) - safeMin(second);
   if (firstRange === 0 || secondRange === 0) {
     return firstRange === secondRange ? 1 : -1;
   }
@@ -281,7 +295,10 @@ function shapeSimilarity(first: number[], second: number[]): number {
     firstVariance += firstDelta ** 2;
     secondVariance += secondDelta ** 2;
   }
-  return numerator / Math.sqrt(firstVariance * secondVariance);
+  const denominator = Math.sqrt(firstVariance * secondVariance);
+  if (!Number.isFinite(denominator) || denominator === 0) return -1;
+  const score = numerator / denominator;
+  return Number.isFinite(score) ? score : -1;
 }
 
 function getAxisScale(container: Element, canvas: HTMLCanvasElement): AxisScale | null {
@@ -313,16 +330,25 @@ function getAxisScale(container: Element, canvas: HTMLCanvasElement): AxisScale 
 }
 
 function parseAxisNumber(value: string): number | null {
-  const match = value.replace(/[$,%]/g, '').replace(/,/g, '').trim()
-    .match(/^([-+]?(?:\d+(?:\.\d+)?|\.\d+))\s*([kKmMgGtT])?$/);
+  const cleaned = value.replace(/[$,%]/g, '').replace(/,/g, '').trim();
+  const match = cleaned.match(/^([-+]?(?:\d+(?:\.\d+)?|\.\d+))\s*(k|m|g|t|kb|mb|gb|tb|kib|mib|gib|tib|b|ms|s|us|ns|req\/s)?$/i);
   if (!match) return null;
+  const unit = (match[2] || '').toLowerCase();
   const multipliers: Record<string, number> = {
     k: 1e3,
     m: 1e6,
     g: 1e9,
     t: 1e12,
+    kb: 1e3,
+    mb: 1e6,
+    gb: 1e9,
+    tb: 1e12,
+    kib: 1024,
+    mib: 1024 ** 2,
+    gib: 1024 ** 3,
+    tib: 1024 ** 4,
   };
-  return Number(match[1]) * (match[2] ? multipliers[match[2].toLowerCase()] : 1);
+  return Number(match[1]) * (multipliers[unit] || 1);
 }
 
 function getAxisUnit(axis: Element): string {

@@ -40,6 +40,9 @@ export interface AiConversationConfig {
   unrenderedHistorySelectors?: string[];
   resolveRole?: (element: Element) => Role | null;
   resolveContent?: (element: Element, role: Role) => Element | null;
+  regex?: RegExp;
+  detect?: ExtractorConfig['detect'];
+  extensionPageButton?: boolean;
   buttonPlacement?: ExtractorConfig['buttonPlacement'];
   anchor?: ExtractorConfig['anchor'];
 }
@@ -74,11 +77,26 @@ export function registerAiConversationExtractor(config: AiConversationConfig): E
   return register({
     name: config.name,
     matches: config.matches,
+    regex: config.regex,
     pathnameRegex: config.pathnameRegex,
+    detect: config.detect,
+    extensionPageButton: config.extensionPageButton,
     buttonPlacement: config.buttonPlacement,
     anchor: config.anchor,
 
     async extract() {
+      const prevCache = activeExtractionCache;
+      activeExtractionCache = createExtractionCache();
+      try {
+        return await extractConversation(config);
+      } finally {
+        activeExtractionCache = prevCache;
+      }
+    },
+  });
+}
+
+async function extractConversation(config: AiConversationConfig): Promise<string> {
       const title = conversationTitle(config);
       const metadata: PageMetadata = {
         source: config.source,
@@ -201,8 +219,23 @@ export function registerAiConversationExtractor(config: AiConversationConfig): E
         complete: false,
       });
       return Markdown.buildPageMarkdown(metadata, output.markdown);
-    },
-  });
+}
+
+type ExtractionCache = {
+  elementOrder: Map<Element, number> | null;
+  visibility: (element: Element) => boolean;
+  scopes: WeakMap<ParentNode, ParentNode[]>;
+};
+
+let activeExtractionCache: ExtractionCache | null = null;
+
+function createExtractionCache(): ExtractionCache {
+  const checkVisibility = Utils.createVisibilityChecker();
+  return {
+    elementOrder: null,
+    visibility: (element: Element) => checkVisibility(element),
+    scopes: new WeakMap<ParentNode, ParentNode[]>(),
+  };
 }
 
 function collectTurns(config: AiConversationConfig): Turn[] {
@@ -472,19 +505,20 @@ function editableValue(element: Element): string {
 }
 
 function clean(element: Element, keepEditable = false): Element {
-  const visibleClone = cloneVisibleRenderedElement(element);
-  const clone = Utils.removeNoise(visibleClone, [
+  const clone = cloneVisibleRenderedElement(element);
+  const noiseSelectors = [
     ...Utils.NOISE_SELECTORS,
     'button',
     '[data-testid*="actions"]',
     '[data-testid*="feedback"]',
-    '[class*="toolbar"]',
+    '[class*="toolbar"]:not(.code-toolbar)',
     '[class*="avatar"]',
     '[class*="profile"]',
-    'textarea',
-    'input',
-    ...(keepEditable ? [] : ['[contenteditable="true"]']),
-  ]);
+    ...(keepEditable ? [] : ['textarea', 'input', '[contenteditable="true"]']),
+  ];
+  for (const selector of noiseSelectors) {
+    clone.querySelectorAll(selector).forEach((el) => el.remove());
+  }
   matchingElements<HTMLAnchorElement>(clone, 'a[href]').forEach((link) => {
     const href = safeLinkUrl(link.getAttribute('href') || '');
     if (href) link.setAttribute('href', href);
@@ -604,20 +638,14 @@ function queryFirst(root: ParentNode, selectors: string[]): Element | null {
   return null;
 }
 
-function queryAll<T extends Element = Element>(root: ParentNode, selectors: string[]): T[] {
-  const result: T[] = [];
-  const seen = new Set<Element>();
+function collectScopes(root: ParentNode): ParentNode[] {
+  const cached = activeExtractionCache?.scopes.get(root);
+  if (cached) return cached;
+
   const scopes: ParentNode[] = [root];
   const seenScopes = new Set<ParentNode>(scopes);
   for (let index = 0; index < scopes.length; index += 1) {
     const scope = scopes[index];
-    for (const selector of selectors) {
-      for (const element of scope.querySelectorAll<T>(selector)) {
-        if (seen.has(element)) continue;
-        seen.add(element);
-        result.push(element);
-      }
-    }
     const hosts = scope instanceof Element
       ? [scope, ...scope.querySelectorAll('*')]
       : Array.from(scope.querySelectorAll('*'));
@@ -625,6 +653,24 @@ function queryAll<T extends Element = Element>(root: ParentNode, selectors: stri
       if (!host.shadowRoot || seenScopes.has(host.shadowRoot)) continue;
       seenScopes.add(host.shadowRoot);
       scopes.push(host.shadowRoot);
+    }
+  }
+  activeExtractionCache?.scopes.set(root, scopes);
+  return scopes;
+}
+
+function queryAll<T extends Element = Element>(root: ParentNode, selectors: string[]): T[] {
+  if (selectors.length === 0) return [];
+  const result: T[] = [];
+  const seen = new Set<Element>();
+  const scopes = collectScopes(root);
+  for (const scope of scopes) {
+    for (const selector of selectors) {
+      for (const element of scope.querySelectorAll<T>(selector)) {
+        if (seen.has(element)) continue;
+        seen.add(element);
+        result.push(element);
+      }
     }
   }
   return result;
@@ -666,6 +712,7 @@ function sortTurns(turns: Turn[]): Turn[] {
 }
 
 function composedElementOrder(): Map<Element, number> {
+  if (activeExtractionCache?.elementOrder) return activeExtractionCache.elementOrder;
   const order = new Map<Element, number>();
   const seen = new Set<Element>();
   let position = 0;
@@ -689,6 +736,7 @@ function composedElementOrder(): Map<Element, number> {
     children.forEach(visitElement);
   };
   Array.from(document.children).forEach(visitElement);
+  if (activeExtractionCache) activeExtractionCache.elementOrder = order;
   return order;
 }
 
@@ -709,6 +757,7 @@ function composedContains(container: Element, element: Element): boolean {
 }
 
 function isComputedVisible(element: Element): boolean {
+  if (activeExtractionCache) return activeExtractionCache.visibility(element);
   let current: Element | null = element;
   while (current) {
     if (current.getAttribute('aria-hidden') === 'true' || current.hasAttribute('hidden')) {

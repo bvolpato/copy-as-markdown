@@ -207,8 +207,36 @@ function testAutomaticContentScripts() {
   }
 }
 
+async function testCancelledOptionFlow() {
+  const toolbar = createAction();
+  const runtime = { lastError: undefined };
+
+  const chrome = {
+    action: toolbar.action,
+    runtime,
+    tabs: {
+      sendMessage(_tabId, _message, callback) {
+        callback({ success: true, copied: false });
+      },
+    },
+  };
+
+  runBackground(chrome);
+  toolbar.click({ id: 23 });
+
+  await waitFor(
+    () => toolbar.calls.some(([kind, details]) => kind === 'badge' && details.text === ''),
+    'cancelled copy did not clear toolbar badge',
+  );
+  assert.ok(
+    !toolbar.calls.some(([kind, details]) => kind === 'badge' && details.text === '✓'),
+    'cancelled copy must not show success checkmark',
+  );
+}
+
 await testFirefoxCallbackFlow();
 await testChromePromiseInjectionFlow();
 await testRestrictedPageFeedback();
+await testCancelledOptionFlow();
 testAutomaticContentScripts();
 console.log('✅ Background click, injection, and toolbar feedback checks passed');
