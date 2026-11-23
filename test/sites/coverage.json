@@ -1,9 +1,9 @@
 {
   "version": 1,
-  "auditedAt": "2026-09-20T05:25:21.428Z",
+  "auditedAt": "2026-11-23T02:46:20.989Z",
   "scope": "Catalog-wide code and contract review. Public probes record observed results at their timestamps; capturedCases link to independently verified, anonymized real-page fixtures and source provenance. Failed probes may precede fixes documented by later captures. These checks do not establish live coverage of every route or authenticated application.",
-  "registeredExtractorCount": 76,
-  "urlPatternCount": 302,
+  "registeredExtractorCount": 98,
+  "urlPatternCount": 660,
   "extractors": [
     {
       "id": "amazon",
@@ -42,7 +42,8 @@
       "name": "arXiv",
       "registeredConfigurations": 1,
       "capturedCases": [
-        "arxiv/attention"
+        "arxiv/attention",
+        "arxiv/paper-html"
       ],
       "publicProbes": [
         {
@@ -109,6 +110,13 @@
       ]
     },
     {
+      "id": "bluesky",
+      "name": "Bluesky",
+      "registeredConfigurations": 1,
+      "capturedCases": [],
+      "publicProbes": []
+    },
+    {
       "id": "booking",
       "name": "Booking.com",
       "registeredConfigurations": 1,
@@ -160,6 +168,15 @@
       "publicProbes": []
     },
     {
+      "id": "crates-io",
+      "name": "crates.io",
+      "registeredConfigurations": 1,
+      "capturedCases": [
+        "crates-io/serde"
+      ],
+      "publicProbes": []
+    },
+    {
       "id": "datadog-dashboard",
       "name": "Datadog Dashboard",
       "registeredConfigurations": 1,
@@ -191,6 +208,13 @@
       "publicProbes": []
     },
     {
+      "id": "deepseek",
+      "name": "DeepSeek",
+      "registeredConfigurations": 1,
+      "capturedCases": [],
+      "publicProbes": []
+    },
+    {
       "id": "deepswe",
       "name": "DeepSWE",
       "registeredConfigurations": 1,
@@ -206,13 +230,6 @@
           "markdownChars": 23836
         }
       ]
-    },
-    {
-      "id": "deepseek",
-      "name": "DeepSeek",
-      "registeredConfigurations": 1,
-      "capturedCases": [],
-      "publicProbes": []
     },
     {
       "id": "devto",
@@ -239,11 +256,32 @@
       "publicProbes": []
     },
     {
+      "id": "discourse",
+      "name": "Discourse",
+      "registeredConfigurations": 1,
+      "capturedCases": [
+        "discourse/welcome"
+      ],
+      "publicProbes": []
+    },
+    {
+      "id": "docker-hub",
+      "name": "Docker Hub",
+      "registeredConfigurations": 1,
+      "capturedCases": [],
+      "publicProbes": []
+    },
+    {
       "id": "documentation",
       "name": "Sphinx / Read the Docs",
       "registeredConfigurations": 1,
       "capturedCases": [
-        "documentation/requests"
+        "documentation/requests",
+        "documentation/docusaurus",
+        "documentation/mkdocs",
+        "documentation/vitepress",
+        "documentation/starlight",
+        "documentation/mdbook"
       ],
       "publicProbes": [
         {
@@ -259,7 +297,9 @@
       "id": "duckduckgo",
       "name": "DuckDuckGo Search",
       "registeredConfigurations": 1,
-      "capturedCases": [],
+      "capturedCases": [
+        "duckduckgo/html-markdown"
+      ],
       "publicProbes": [
         {
           "url": "https://duckduckgo.com/?q=markdown",
@@ -329,11 +369,30 @@
       ]
     },
     {
+      "id": "ghost",
+      "name": "Ghost / Obsidian Publish",
+      "registeredConfigurations": 1,
+      "capturedCases": [
+        "ghost/shipping-addresses"
+      ],
+      "publicProbes": []
+    },
+    {
+      "id": "gitea",
+      "name": "Codeberg / Gitea",
+      "registeredConfigurations": 1,
+      "capturedCases": [
+        "gitea/forgejo"
+      ],
+      "publicProbes": []
+    },
+    {
       "id": "github",
       "name": "GitHub",
       "registeredConfigurations": 1,
       "capturedCases": [
-        "github/repository"
+        "github/repository",
+        "github/pull-request"
       ],
       "publicProbes": [
         {
@@ -342,47 +401,6 @@
           "httpStatus": 200,
           "result": "passed",
           "markdownChars": 30989
-        }
-      ]
-    },
-    {
-      "id": "hugging-face",
-      "name": "Hugging Face",
-      "registeredConfigurations": 1,
-      "capturedCases": [
-        "hugging-face/splash-model",
-        "hugging-face/imdb-dataset",
-        "hugging-face/model-files",
-        "hugging-face/space-files"
-      ],
-      "publicProbes": [
-        {
-          "url": "https://huggingface.co/incoai/Qwen3.8-27B-Splash",
-          "checkedAt": "2026-09-20T04:55:32.335Z",
-          "httpStatus": 200,
-          "result": "passed",
-          "markdownChars": 7275
-        },
-        {
-          "url": "https://huggingface.co/datasets/stanfordnlp/imdb",
-          "checkedAt": "2026-09-20T04:55:32.588Z",
-          "httpStatus": 200,
-          "result": "passed",
-          "markdownChars": 9851
-        },
-        {
-          "url": "https://huggingface.co/spaces/gradio/hello_world",
-          "checkedAt": "2026-09-20T04:55:33.098Z",
-          "httpStatus": 200,
-          "result": "passed",
-          "markdownChars": 1008
-        },
-        {
-          "url": "https://huggingface.co/Qwen/Qwen3-8B/tree/main",
-          "checkedAt": "2026-09-20T04:55:36.537Z",
-          "httpStatus": 200,
-          "result": "passed",
-          "markdownChars": 3050
         }
       ]
     },
@@ -428,6 +446,13 @@
       "publicProbes": []
     },
     {
+      "id": "google-ai-studio",
+      "name": "Google AI Studio",
+      "registeredConfigurations": 1,
+      "capturedCases": [],
+      "publicProbes": []
+    },
+    {
       "id": "google-docs",
       "name": "Google Docs",
       "registeredConfigurations": 1,
@@ -435,8 +460,8 @@
       "publicProbes": []
     },
     {
-      "id": "google-ai-studio",
-      "name": "Google AI Studio",
+      "id": "google-scholar",
+      "name": "Google Scholar",
       "registeredConfigurations": 1,
       "capturedCases": [],
       "publicProbes": []
@@ -466,6 +491,13 @@
     {
       "id": "google-slides",
       "name": "Google Slides",
+      "registeredConfigurations": 1,
+      "capturedCases": [],
+      "publicProbes": []
+    },
+    {
+      "id": "grafana",
+      "name": "Grafana",
       "registeredConfigurations": 1,
       "capturedCases": [],
       "publicProbes": []
@@ -512,6 +544,56 @@
       ]
     },
     {
+      "id": "hugging-face",
+      "name": "Hugging Face",
+      "registeredConfigurations": 1,
+      "capturedCases": [
+        "hugging-face/splash-model",
+        "hugging-face/imdb-dataset",
+        "hugging-face/model-files",
+        "hugging-face/space-files"
+      ],
+      "publicProbes": [
+        {
+          "url": "https://huggingface.co/incoai/Qwen3.8-27B-Splash",
+          "checkedAt": "2026-09-20T04:55:32.335Z",
+          "httpStatus": 200,
+          "result": "passed",
+          "markdownChars": 7275
+        },
+        {
+          "url": "https://huggingface.co/datasets/stanfordnlp/imdb",
+          "checkedAt": "2026-09-20T04:55:32.588Z",
+          "httpStatus": 200,
+          "result": "passed",
+          "markdownChars": 9851
+        },
+        {
+          "url": "https://huggingface.co/spaces/gradio/hello_world",
+          "checkedAt": "2026-09-20T04:55:33.098Z",
+          "httpStatus": 200,
+          "result": "passed",
+          "markdownChars": 1008
+        },
+        {
+          "url": "https://huggingface.co/Qwen/Qwen3-8B/tree/main",
+          "checkedAt": "2026-09-20T04:55:36.537Z",
+          "httpStatus": 200,
+          "result": "passed",
+          "markdownChars": 3050
+        }
+      ]
+    },
+    {
+      "id": "imdb",
+      "name": "IMDb",
+      "registeredConfigurations": 1,
+      "capturedCases": [
+        "imdb/matrix"
+      ],
+      "publicProbes": []
+    },
+    {
       "id": "instagram",
       "name": "Instagram",
       "registeredConfigurations": 1,
@@ -529,6 +611,13 @@
     {
       "id": "jira",
       "name": "Jira",
+      "registeredConfigurations": 1,
+      "capturedCases": [],
+      "publicProbes": []
+    },
+    {
+      "id": "kalshi",
+      "name": "Kalshi",
       "registeredConfigurations": 1,
       "capturedCases": [],
       "publicProbes": []
@@ -573,6 +662,22 @@
       ]
     },
     {
+      "id": "lobsters",
+      "name": "Lobsters",
+      "registeredConfigurations": 1,
+      "capturedCases": [
+        "lobsters/yaml-story"
+      ],
+      "publicProbes": []
+    },
+    {
+      "id": "mastodon",
+      "name": "Mastodon",
+      "registeredConfigurations": 1,
+      "capturedCases": [],
+      "publicProbes": []
+    },
+    {
       "id": "mdn",
       "name": "MDN Web Docs",
       "registeredConfigurations": 1,
@@ -589,6 +694,15 @@
           "markdownChars": 15106
         }
       ]
+    },
+    {
+      "id": "mediawiki",
+      "name": "MediaWiki",
+      "registeredConfigurations": 1,
+      "capturedCases": [
+        "mediawiki/wiktionary-markdown"
+      ],
+      "publicProbes": []
     },
     {
       "id": "medium",
@@ -626,15 +740,15 @@
       "publicProbes": []
     },
     {
-      "id": "mlflow",
-      "name": "MLflow",
+      "id": "mistral-vibe",
+      "name": "Mistral Vibe",
       "registeredConfigurations": 1,
       "capturedCases": [],
       "publicProbes": []
     },
     {
-      "id": "mistral-vibe",
-      "name": "Mistral Vibe",
+      "id": "mlflow",
+      "name": "MLflow",
       "registeredConfigurations": 1,
       "capturedCases": [],
       "publicProbes": []
@@ -745,6 +859,20 @@
       ]
     },
     {
+      "id": "openapi-docs",
+      "name": "OpenAPI Docs",
+      "registeredConfigurations": 1,
+      "capturedCases": [],
+      "publicProbes": []
+    },
+    {
+      "id": "openreview",
+      "name": "OpenReview",
+      "registeredConfigurations": 1,
+      "capturedCases": [],
+      "publicProbes": []
+    },
+    {
       "id": "openrouter",
       "name": "OpenRouter",
       "registeredConfigurations": 1,
@@ -760,6 +888,13 @@
           "markdownChars": 12627
         }
       ]
+    },
+    {
+      "id": "outlook",
+      "name": "Outlook Web",
+      "registeredConfigurations": 1,
+      "capturedCases": [],
+      "publicProbes": []
     },
     {
       "id": "perplexity",
@@ -784,10 +919,21 @@
       ]
     },
     {
+      "id": "pkg-go",
+      "name": "pkg.go.dev",
+      "registeredConfigurations": 1,
+      "capturedCases": [
+        "pkg-go/net-http"
+      ],
+      "publicProbes": []
+    },
+    {
       "id": "polymarket",
       "name": "Polymarket",
       "registeredConfigurations": 1,
-      "capturedCases": [],
+      "capturedCases": [
+        "polymarket/uk-election"
+      ],
       "publicProbes": [
         {
           "url": "https://polymarket.com/event/trump-x-greenland-deal-signed-by-december-31",
@@ -797,6 +943,15 @@
           "markdownChars": 2422
         }
       ]
+    },
+    {
+      "id": "pubmed",
+      "name": "PubMed",
+      "registeredConfigurations": 1,
+      "capturedCases": [
+        "pubmed/alphafold"
+      ],
+      "publicProbes": []
     },
     {
       "id": "pypi",
@@ -829,6 +984,36 @@
           "reason": "Waiting for selector `shreddit-post, .thing.link` failed"
         }
       ]
+    },
+    {
+      "id": "rubygems",
+      "name": "RubyGems",
+      "registeredConfigurations": 1,
+      "capturedCases": [
+        "rubygems/rails"
+      ],
+      "publicProbes": []
+    },
+    {
+      "id": "sec-edgar",
+      "name": "SEC EDGAR",
+      "registeredConfigurations": 1,
+      "capturedCases": [],
+      "publicProbes": []
+    },
+    {
+      "id": "semantic-scholar",
+      "name": "Semantic Scholar",
+      "registeredConfigurations": 1,
+      "capturedCases": [],
+      "publicProbes": []
+    },
+    {
+      "id": "sentry",
+      "name": "Sentry",
+      "registeredConfigurations": 1,
+      "capturedCases": [],
+      "publicProbes": []
     },
     {
       "id": "slack",
@@ -1056,5 +1241,5 @@
       ]
     }
   ],
-  "fixturesUpdatedAt": "2026-10-19T23:07:20.007Z"
+  "fixturesUpdatedAt": "2026-11-23T02:46:20.989Z"
 }
