@@ -664,6 +664,163 @@ sites:
           - FIXTURE_
         forbidden:
           - Copy as Markdown
+  - id: mediawiki
+    extractor: MediaWiki
+    cases:
+      - id: wiktionary-markdown
+        url: https://en.wiktionary.org/wiki/markdown
+        readySelector: "#mw-content-text"
+        placement: anchor
+        anchorSelector: "#firstHeading"
+        anchorPosition: after
+        minChars: 200
+        maxChars: 3000000
+        contentRequired:
+          - markdown
+        required:
+          - FIXTURE_
+        forbidden:
+          - Copy as Markdown
+  - id: discourse
+    extractor: Discourse
+    cases:
+      - id: welcome
+        url: https://meta.discourse.org/t/new-to-discourse-start-here/1
+        readySelector: .topic-post .cooked
+        placement: anchor
+        anchorSelector: "#topic-title .title-wrapper"
+        anchorPosition: after
+        minChars: 200
+        maxChars: 3000000
+        contentRequired:
+          - Discourse
+        required:
+          - FIXTURE_
+        forbidden:
+          - Copy as Markdown
+  - id: gitea
+    extractor: Codeberg / Gitea
+    cases:
+      - id: forgejo
+        url: https://codeberg.org/forgejo/forgejo
+        readySelector: "#repo-files-table"
+        placement: anchor
+        anchorSelector: .repo-header .repo-buttons
+        anchorPosition: after
+        minChars: 200
+        maxChars: 3000000
+        contentRequired:
+          - "## Files"
+          - "## README"
+        required:
+          - "## Files"
+          - FIXTURE_
+        forbidden:
+          - Copy as Markdown
+  - id: pkg-go
+    extractor: pkg.go.dev
+    cases:
+      - id: net-http
+        url: https://pkg.go.dev/net/http
+        readySelector: .go-Main-article
+        placement: anchor
+        anchorSelector: .go-Main-headerTitle
+        anchorPosition: after
+        minChars: 500
+        maxChars: 3000000
+        contentRequired:
+          - http
+        required:
+          - FIXTURE_
+        forbidden:
+          - Copy as Markdown
+  - id: rubygems
+    extractor: RubyGems
+    cases:
+      - id: rails
+        url: https://rubygems.org/gems/rails
+        readySelector: h1
+        placement: anchor
+        anchorSelector: h1
+        anchorPosition: after
+        minChars: 200
+        maxChars: 3000000
+        contentRequired:
+          - rails
+        required:
+          - FIXTURE_
+        forbidden:
+          - Copy as Markdown
+  - id: lobsters
+    extractor: Lobsters
+    cases:
+      - id: yaml-story
+        url: https://lobste.rs/s/leqwqu/github_actions_accepts_invalid_yaml
+        readySelector: .story .byline
+        placement: anchor
+        anchorSelector: .story .byline
+        anchorPosition: after
+        minChars: 150
+        maxChars: 3000000
+        contentRequired:
+          - GitHub Actions
+        required:
+          - FIXTURE_
+        forbidden:
+          - Copy as Markdown
+  - id: ghost
+    extractor: Ghost / Obsidian Publish
+    cases:
+      - id: shipping-addresses
+        url: https://ghost.org/changelog/shipping-addresses/
+        readySelector: .gh-content
+        placement: anchor
+        anchorSelector: article h1
+        anchorPosition: after
+        minChars: 200
+        maxChars: 3000000
+        contentRequired:
+          - shipping
+        required:
+          - FIXTURE_
+        forbidden:
+          - Copy as Markdown
+  - id: crates-io
+    extractor: crates.io
+    cases:
+      - id: serde
+        url: https://crates.io/crates/serde
+        readySelector: main h1
+        placement: anchor
+        anchorSelector: main h1
+        anchorPosition: after
+        minChars: 200
+        maxChars: 3000000
+        contentRequired:
+          - serde
+        required:
+          - FIXTURE_
+        forbidden:
+          - Copy as Markdown
+  - id: pubmed
+    extractor: PubMed
+    cases:
+      - id: alphafold
+        url: https://pubmed.ncbi.nlm.nih.gov/34265844/
+        readySelector: "#eng-abstract"
+        placement: anchor
+        anchorSelector: h1.heading-title
+        anchorPosition: after
+        minChars: 200
+        maxChars: 3000000
+        contentRequired:
+          - AlphaFold
+          - "## Abstract"
+        required:
+          - "## Abstract"
+          - FIXTURE_
+        forbidden:
+          - Copy as Markdown
   - id: polymarket
     extractor: Polymarket
     cases:
@@ -675,6 +832,21 @@ sites:
         maxChars: 3000000
         contentRequired:
           - election
+        required:
+          - FIXTURE_
+        forbidden:
+          - Copy as Markdown
+  - id: imdb
+    extractor: IMDb
+    cases:
+      - id: matrix
+        url: https://www.imdb.com/title/tt0133093/
+        readySelector: h1
+        placement: floating
+        minChars: 150
+        maxChars: 3000000
+        contentRequired:
+          - Matrix
         required:
           - FIXTURE_
         forbidden:

@@ -69,6 +69,38 @@
       "types": "./dist/library/types/extractors/microsoft-teams.d.ts",
       "import": "./dist/library/extractors/microsoft-teams.js"
     },
+    "./extractors/discourse": {
+      "types": "./dist/library/types/extractors/discourse.d.ts",
+      "import": "./dist/library/extractors/discourse.js"
+    },
+    "./extractors/mediawiki": {
+      "types": "./dist/library/types/extractors/mediawiki.d.ts",
+      "import": "./dist/library/extractors/mediawiki.js"
+    },
+    "./extractors/openapi-docs": {
+      "types": "./dist/library/types/extractors/openapi-docs.d.ts",
+      "import": "./dist/library/extractors/openapi-docs.js"
+    },
+    "./extractors/ghost": {
+      "types": "./dist/library/types/extractors/ghost.d.ts",
+      "import": "./dist/library/extractors/ghost.js"
+    },
+    "./extractors/gitea": {
+      "types": "./dist/library/types/extractors/gitea.d.ts",
+      "import": "./dist/library/extractors/gitea.js"
+    },
+    "./extractors/grafana": {
+      "types": "./dist/library/types/extractors/grafana.d.ts",
+      "import": "./dist/library/extractors/grafana.js"
+    },
+    "./extractors/sentry": {
+      "types": "./dist/library/types/extractors/sentry.d.ts",
+      "import": "./dist/library/extractors/sentry.js"
+    },
+    "./extractors/outlook": {
+      "types": "./dist/library/types/extractors/outlook.d.ts",
+      "import": "./dist/library/extractors/outlook.js"
+    },
     "./package.json": "./package.json"
   },
   "files": [
