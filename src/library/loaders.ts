@@ -117,8 +117,10 @@ export function loadExtractor(id: ExtractorId | string): Promise<Extractor> {
   const existing = pending.get(normalized);
   if (existing) return existing;
 
+  if (!AVAILABLE_EXTRACTOR_IDS.includes(normalized)) {
+    return Promise.reject(new Error(`Unknown extractor id: ${id}`));
+  }
   const entry = EXTRACTOR_LOADERS[normalized];
-  if (!entry) throw new Error(`Unknown extractor id: ${id}`);
 
   const loading = entry.load().then(() => {
     const variants = getAll().filter(({ name }) => name === entry.name);
@@ -139,6 +141,8 @@ export function loadExtractor(id: ExtractorId | string): Promise<Extractor> {
     };
   });
   pending.set(normalized, loading);
+  // A failed chunk request must not block later attempts.
+  loading.catch(() => pending.delete(normalized));
   return loading;
 }
 

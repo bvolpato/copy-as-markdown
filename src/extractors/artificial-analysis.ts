@@ -104,13 +104,13 @@ function extractCollectionPage(): string {
   const intro = homepageIntro(titleElement);
   if (intro) parts.push(intro);
 
-  appendHomepageDatasets(parts, datasets);
+  const faq = findJsonLdObjects('FAQPage')[0];
+  const hasDatasets = appendHomepageDatasets(parts, datasets);
+  // Leaderboards publish an FAQ. Other pages, such as articles, have prose around their tables.
+  const hasTables = !hasDatasets && Boolean(faq) && appendDomTables(parts);
+  if (!hasDatasets && !hasTables) appendDomFallback(parts, title);
   appendDatasetProvenance(parts, datasets[0]);
-  appendFaq(parts, findJsonLdObjects('FAQPage')[0]);
-
-  if (parts.length <= 2) {
-    appendDomFallback(parts, title);
-  }
+  appendFaq(parts, faq);
 
   const limited = limitMarkdown(Markdown.cleanMarkdown(parts.join('\n\n')));
   return Markdown.buildPageMarkdown({
@@ -120,10 +120,27 @@ function extractCollectionPage(): string {
   }, limited.markdown);
 }
 
+/** Leaderboards render their column and model names as controls. */
+function cloneWithTableText(element: Element): Element {
+  const clone = element.cloneNode(true) as Element;
+  clone.querySelectorAll('table :is(svg, img)').forEach((node) => node.remove());
+  clone.querySelectorAll('table button').forEach((button) => button.replaceWith(...button.childNodes));
+  clone.querySelectorAll('th span').forEach((line) => line.after(' '));
+  return clone;
+}
+
+function appendDomTables(parts: string[]): boolean {
+  const tables = Array.from(document.querySelectorAll('main table'))
+    .map((element) => Markdown.tableToMarkdown(cloneWithTableText(element)))
+    .filter(Boolean);
+  if (tables.length > 0) parts.push(`## Tables\n\n${tables.join('\n\n')}`);
+  return tables.length > 0;
+}
+
 function appendDomFallback(parts: string[], title: string): void {
   const container = document.querySelector('main, article, [role="main"]');
   if (!container) return;
-  const cleaned = Utils.removeNoise(container, [
+  const cleaned = Utils.removeNoise(cloneWithTableText(container), [
     ...Utils.NOISE_SELECTORS,
     'button', 'svg', 'form', 'input', 'select', 'textarea',
     '#cam-copy-btn', '[data-cam-instance]',
@@ -203,7 +220,7 @@ function appendHomepageSections(parts: string[]): void {
   }
 }
 
-function appendHomepageDatasets(parts: string[], datasets: JsonRecord[]): void {
+function appendHomepageDatasets(parts: string[], datasets: JsonRecord[]): boolean {
   const sections: string[] = [];
   const seen = new Set<string>();
 
@@ -246,6 +263,7 @@ function appendHomepageDatasets(parts: string[], datasets: JsonRecord[]): void {
   if (sections.length > 0) {
     parts.push(`## Published Datasets\n\n${sections.join('\n\n')}`);
   }
+  return sections.length > 0;
 }
 
 function getOverview(hero: Element | null | undefined): Overview {
@@ -292,13 +310,14 @@ function appendSummary(parts: string[]): void {
     const details = metricBlock
       ? Array.from(metricBlock.children)
         .filter((child) => child !== valueRow)
+        .flatMap((child) => child.children.length > 1 ? Array.from(child.children) : [child])
         .map((child) => textWithoutNoise(child))
         .filter(Boolean)
         .join('; ')
       : '';
 
     rows.push([
-      textOf(heading),
+      textOf(heading.querySelector('a') || heading),
       textWithoutNoise(valueElement),
       textWithoutNoise(rankButton),
       description,

@@ -42,7 +42,6 @@ register({
     const streamOrVideoTitle = firstText([
       '[data-a-target="video-title"]',
       '[data-a-target="stream-title"]',
-      '[data-test-selector="title"]',
     ]);
     const channelFromDom = firstText([
       '[data-a-target="video-info-channel-name"]',
@@ -52,7 +51,10 @@ register({
       'h1.tw-title',
       'a[data-a-target="preview-card-channel-link"]',
     ]);
+    // On video and clip pages, the h1 is the channel name.
+    const pageTitle = route === 'channel' ? '' : document.title.replace(/(?:^|\s+-\s+)Twitch$/i, '').trim();
     const title = streamOrVideoTitle
+      || pageTitle
       || firstText(['h1'])
       || stringValue(payload?.streamTitle || payload?.name)
       || Utils.getMeta('title')
@@ -89,7 +91,7 @@ register({
     ]) || stringValue(payload?.description) || Utils.getMeta('description');
     const channelUrl = safeHttpUrl(document.querySelector<HTMLAnchorElement>(
       '[data-a-target="video-info-channel-name"] a, [data-a-target="channel-name"] a, a[data-a-target="preview-card-channel-link"]',
-    )?.href || stringValue(asRecord(payload?.author)?.url));
+    )?.href || document.querySelector('h1.tw-title')?.closest('a')?.href || stringValue(asRecord(payload?.author)?.url));
 
     const metadata: Record<string, string> = {
       source: 'Twitch', title, url, route, channel, channel_url: channelUrl,
@@ -194,6 +196,8 @@ function findRecord(value: unknown, depth = 0): JsonRecord | null {
   if (typeof value !== 'object') return null;
   const record = value as JsonRecord;
   const type = stringValue(record['@type']);
+  // A channel page lists recent clips and videos, which do not describe the live stream.
+  if (/ItemList/i.test(type)) return null;
   if (/VideoObject|BroadcastEvent/i.test(type)) return record;
   if (
     (record.videoId || record.streamTitle || record.channelName)
@@ -218,6 +222,7 @@ function stringValue(value: unknown): string {
 }
 
 function safeHttpUrl(value: string): string {
+  if (!value) return '';
   try {
     const url = new URL(value, document.baseURI);
     return /^https?:$/.test(url.protocol) ? url.href : '';

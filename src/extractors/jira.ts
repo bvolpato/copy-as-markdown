@@ -4,7 +4,7 @@
  */
 
 import { addExtractionMetadata, limitCollection, limitMarkdown } from '../core/context';
-import { adfToMarkdown, fetchAtlassianJson, htmlToMarkdown } from '../core/atlassian';
+import { adfToMarkdown, fetchAtlassianJson, htmlToMarkdown, prepareAtlassianContent } from '../core/atlassian';
 import * as Markdown from '../core/markdown';
 import { register } from '../core/registry';
 import { PageMetadata } from '../core/types';
@@ -12,9 +12,9 @@ import * as Utils from '../core/utils';
 
 const ISSUE_KEY_PATTERN = '[A-Z][A-Z0-9_]*-\\d+';
 const CUSTOM_JIRA_URL = new RegExp(
-  `^https?://(?:[A-Z0-9.-]*jira[A-Z0-9.-]*(?::\\d+)?/(?:(?:browse|issues)/${ISSUE_KEY_PATTERN}|(?:issues/?|secure/(?:ViewIssue\\.jspa?|RapidBoard\\.jspa))\\?[^#]*(?:key|selectedIssue)=${ISSUE_KEY_PATTERN})`
+  `^https?://(?:[A-Z0-9.-]*jira[A-Z0-9.-]*(?::\\d+)?/(?:(?:browse|(?:projects/[^/?#]+/)?issues)/${ISSUE_KEY_PATTERN}|(?:issues/?|secure/(?:ViewIssue\\.jspa?|RapidBoard\\.jspa))\\?[^#]*(?:key|selectedIssue)=${ISSUE_KEY_PATTERN})`
   + `|[A-Z0-9.-]+(?::\\d+)?/jira/(?:[^?#]*/)?(?:(?:browse|issues)/${ISSUE_KEY_PATTERN}|(?:issues/?|secure/(?:ViewIssue\\.jspa?|RapidBoard\\.jspa))\\?[^#]*(?:key|selectedIssue)=${ISSUE_KEY_PATTERN})`
-  + `|(?:[A-Z0-9-]+\\.)?atlassian\\.net(?::\\d+)?/(?:jira/[^?#]*(?:/(?:browse|issues)/${ISSUE_KEY_PATTERN}|[?&]selectedIssue=${ISSUE_KEY_PATTERN})|issues/${ISSUE_KEY_PATTERN}|issues/?\\?[^#]*selectedIssue=${ISSUE_KEY_PATTERN}|secure/(?:ViewIssue\\.jspa?|RapidBoard\\.jspa)\\?[^#]*(?:key|selectedIssue)=${ISSUE_KEY_PATTERN}))(?:[/?#&].*)?$`,
+  + `|(?:[A-Z0-9-]+\\.)?atlassian\\.net(?::\\d+)?/(?:jira/[^?#]*(?:/(?:browse|issues)/${ISSUE_KEY_PATTERN}|\\?(?:[^#]*&)?selectedIssue=${ISSUE_KEY_PATTERN})|issues/${ISSUE_KEY_PATTERN}|issues/?\\?[^#]*selectedIssue=${ISSUE_KEY_PATTERN}|secure/(?:ViewIssue\\.jspa?|RapidBoard\\.jspa)\\?[^#]*(?:key|selectedIssue)=${ISSUE_KEY_PATTERN}))(?:[/?#&].*)?$`,
   'i',
 );
 
@@ -146,7 +146,9 @@ export const jiraExtractor = register({
     if (fieldsResult.items.length > 0) {
       parts.push('## Fields');
       parts.push(fieldsResult.items
-        .map(({ name, value }) => `- **${escapeInline(name)}:** ${value.replace(/\n/g, '\n  ')}`)
+        .map(({ name, value }) => `- **${escapeInline(name)}:**${value.includes('\n')
+          ? `\n${value}`.replace(/\n(?!\n)/g, '\n  ')
+          : ` ${value}`}`)
         .join('\n'));
     }
 
@@ -201,7 +203,8 @@ const JIRA_DESCRIPTION_NOISE = [
   'button',
   '[role="toolbar"]',
   '[data-testid*="edit"]',
-  '[data-testid*="placeholder"]',
+  // Unresolved smart links render as anchors named "lazy-render-placeholder".
+  '[data-testid*="placeholder"]:not(a[href])',
   '[data-testid*="action"]',
 ];
 
@@ -236,10 +239,10 @@ function buildJiraApiUrl(issueKey: string, version: '3' | '2'): string {
 
 function getJiraContextPath(): string {
   const path = window.location.pathname;
-  if (/^\/jira\/(?:software|core|servicedesk|your-work|projects)\b/i.test(path)) {
+  if (/^\/jira\/(?:software|core|servicedesk|your-work)\b/i.test(path)) {
     return '';
   }
-  const marker = path.search(/\/(?:browse|issues|secure)\//i);
+  const marker = path.search(/\/(?:projects\/[^/]+\/issues|browse|issues|secure)\//i);
   if (marker > 0) return path.slice(0, marker).replace(/\/$/, '');
   const jiraMarker = path.toLowerCase().indexOf('/jira/');
   return jiraMarker >= 0 ? path.slice(0, jiraMarker + '/jira'.length) : '';
@@ -259,7 +262,7 @@ function parseJiraApiIssue(
   const renderedDescription = stringValue(renderedFields.description);
   const description = renderedDescription
     ? htmlToMarkdown(renderedDescription)
-    : adfToMarkdown(fields.description) || normalizeText(stringValue(fields.description));
+    : adfToMarkdown(fields.description) || plainText(fields.description);
   const comments = extractApiComments(fields.comment, renderedFields.comment);
 
   return {
@@ -297,8 +300,10 @@ function extractApiFields(
     } else if (fieldId === 'attachment') {
       value = formatJiraAttachments(rawValue);
     } else {
-      const renderedValue = renderedFields[fieldId];
-      value = formatJiraField(renderedValue) || formatJiraField(rawValue);
+      // Rendered dates are relative to the request, for example "18 minutes ago".
+      const isDate = typeof rawValue === 'string' && /^\d{4}-\d{2}-\d{2}(?:T|$)/.test(rawValue);
+      const renderedValue = isDate ? '' : renderedFields[fieldId];
+      value = formatJiraField(renderedValue, true) || formatJiraField(rawValue);
     }
     if (!value || JIRA_OPAQUE_FIELD_VALUE.test(value)) return;
     addField(values, rawName, value);
@@ -356,23 +361,29 @@ function isJiraCoreField(fieldId: string): boolean {
   return Object.prototype.hasOwnProperty.call(JIRA_CORE_FIELD_NAMES, fieldId);
 }
 
-function formatJiraField(value: unknown): string {
+// Plain text such as "Map<String, Integer>" is not markup.
+const RAW_FIELD_HTML = /<\/(?:a|b|blockquote|code|dd|del|div|dl|dt|em|font|h[1-6]|i|ins|li|ol|p|pre|s|small|span|strong|sub|sup|table|td|th|tr|tt|u|ul)>|<(?:br|hr|img|script|style|iframe)\b[^>]*>/i;
+
+function formatJiraField(value: unknown, rendered = false): string {
   if (value === null || value === undefined) return '';
   if (typeof value === 'string') {
-    const markdown = /<\/?[a-z][\s\S]*>/i.test(value) ? htmlToMarkdown(value) : normalizeText(value);
-    return markdown;
+    const markup = rendered ? /<\/?[a-z][\s\S]*>/i : RAW_FIELD_HTML;
+    return markup.test(value) ? htmlToMarkdown(value) : plainText(value);
   }
   if (typeof value === 'number' || typeof value === 'boolean') return String(value);
   if (Array.isArray(value)) {
-    return value.map(formatJiraField).filter(Boolean).join(', ');
+    return value.map((item) => formatJiraField(item, rendered)).filter(Boolean).join(', ');
   }
 
   const object = asObject(value);
   if (!object) return '';
   if (object.type === 'doc') return adfToMarkdown(object);
-  return [object.displayName, object.name, object.value, object.key]
+  const label = [object.displayName, object.name, object.value, object.key]
     .map(stringValue)
     .find(Boolean) || '';
+  // Cascading select fields nest the second level.
+  const child = label ? formatJiraField(object.child) : '';
+  return child ? `${label} - ${child}` : label;
 }
 
 function extractApiComments(
@@ -394,7 +405,7 @@ function extractApiComments(
       date: stringValue(comment.updated) || stringValue(comment.created),
       body: renderedBody
         ? htmlToMarkdown(renderedBody)
-        : adfToMarkdown(comment.body) || normalizeText(stringValue(comment.body)),
+        : adfToMarkdown(comment.body) || plainText(comment.body),
     };
   }).filter((comment) => comment.body);
 
@@ -445,11 +456,16 @@ function getIssueKey(): string {
 }
 
 function getSummary(issueKey: string): string {
-  const value = textOf(document.querySelector(
-    '[data-testid="issue.views.issue-base.foundation.summary.heading"], '
-    + '[data-test-id="issue.views.issue-base.foundation.summary.heading"], '
-    + 'h1[data-testid*="summary"], #summary-val, #issue-header h1, main h1',
-  )) || metaContent('og:title') || Utils.getPageTitle();
+  // An issue navigator renders its own heading before the selected issue.
+  const value = [
+    '[data-testid="issue.views.issue-base.foundation.summary.heading"]',
+    '[data-test-id="issue.views.issue-base.foundation.summary.heading"]',
+    'h1[data-testid*="summary"]',
+    '#summary-val',
+    '#issue-header h1',
+    'main h1',
+  ].map((selector) => textOf(document.querySelector(selector))).find(Boolean)
+    || metaContent('og:title') || Utils.getPageTitle();
   return value
     .replace(new RegExp(`^${escapeRegExp(issueKey)}\\s*[-:|]\\s*`, 'i'), '')
     .replace(/\s*[-|]\s*Jira\s*$/i, '')
@@ -504,7 +520,7 @@ function extractFields(): NamedValue[] {
 
 function addField(fields: Map<string, NamedValue>, rawName: string, rawValue: string): void {
   const name = normalizeFieldName(rawName);
-  const value = normalizeText(rawValue);
+  const value = rawValue.trim();
   if (!name || !value || value === '-' || /^(description|summary|comments?|activity)$/i.test(name)) return;
   const key = name.toLowerCase();
   const existing = fields.get(key);
@@ -514,7 +530,7 @@ function addField(fields: Map<string, NamedValue>, rawName: string, rawValue: st
 function normalizeFieldName(value: string): string {
   const normalized = normalizeText(value).replace(/:$/, '').trim();
   if (!normalized || normalized.length > 80) return '';
-  return normalized.replace(/\b\w/g, (character) => character.toUpperCase());
+  return normalized.replace(/(^|\s)\w/g, (start) => start.toUpperCase());
 }
 
 function removeLeadingLabel(value: string, label: string): string {
@@ -527,6 +543,7 @@ function extractComments(): JiraComment[] {
     '[data-testid="issue.activity.comment"]',
     '[data-test-id="issue.activity.comment"]',
     '[data-testid^="issue.activity.comments-list.comment-"]',
+    '[data-testid^="comment-base-item-"]',
     '#activitymodule .issue-data-block.activity-comment',
     '.actionContainer .action-body',
   ].join(', ');
@@ -535,10 +552,13 @@ function extractComments(): JiraComment[] {
 
   document.querySelectorAll<HTMLElement>(selector).forEach((container) => {
     if (!isVisible(container)) return;
+    // Data Center nests the action body inside the comment that owns its author.
+    if (container.matches('.action-body') && container.closest('#activitymodule .issue-data-block.activity-comment')) return;
     const bodyElement = container.matches('.action-body')
       ? container
       : container.querySelector(
         '[data-testid*="comment-body"] .ak-renderer-document, '
+        + '[data-testid*="ak-comment"] .ak-renderer-document, '
         + '[data-testid*="comment-body"], .action-body, .comment-body, .user-content-block, '
         + '.ak-renderer-document',
       );
@@ -552,6 +572,7 @@ function extractComments(): JiraComment[] {
     if (!body) return;
     const author = textOf(container.querySelector(
       '[data-testid*="comment-author"], [data-testid*="user-avatar"], '
+      + '[data-testid*="ak-comment"][data-testid$="-header"] h3, '
       + '[rel="author"], .user-hover, .action-details a:first-child',
     ));
     const dateElement = container.querySelector('time, [data-testid*="comment-date"], .livestamp');
@@ -608,7 +629,9 @@ function addKnownFieldMetadata(metadata: PageMetadata, fields: NamedValue[]): vo
 }
 
 function markdownFromContent(element: Element, noise: string[]): string {
-  return Markdown.elementToMarkdown(Utils.removeNoise(element, noise)).trim();
+  const clone = element.cloneNode(true) as Element;
+  prepareAtlassianContent(clone);
+  return Markdown.elementToMarkdown(Utils.removeNoise(clone, noise)).trim();
 }
 
 function firstVisible(selectors: string[]): Element | null {
@@ -631,6 +654,11 @@ function textOf(element: Element | null): string {
 
 function normalizeText(value: string): string {
   return Markdown.normalizeWhitespace(value).trim();
+}
+
+/** Keep the line structure of text that has no markup. */
+function plainText(value: unknown): string {
+  return stringValue(value).split(/\r?\n/).map(normalizeText).join('\n').trim();
 }
 
 function escapeInline(value: string): string {

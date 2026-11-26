@@ -607,6 +607,9 @@ function findDescription(kind: RouteKind, root: Element): Element | null {
 }
 
 function preserveInlineChips(clone: Element): void {
+  clone.querySelectorAll<HTMLInputElement>('input[type="checkbox"]').forEach((checkbox) => {
+    checkbox.replaceWith(checkbox.checked ? '[x] ' : '[ ] ');
+  });
   clone.querySelectorAll<HTMLElement>('button').forEach((button) => {
     if (button.closest('[role="toolbar"], [role="menu"], [data-testid*="toolbar"], [data-testid*="action"]')) {
       return;

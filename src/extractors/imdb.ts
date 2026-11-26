@@ -77,7 +77,9 @@ export const imdbExtractor = register({
     if (meta.length > 0) parts.push(meta.join(' | '));
 
     const plot = Markdown.normalizeWhitespace(
-      document.querySelector('[data-testid="plot-xl"], [data-testid="plot-l"], [data-testid="plot"]')?.textContent
+      // The plot element can wrap one copy of the text for each breakpoint.
+      (document.querySelector('[data-testid="plot-xl"], [data-testid="plot-l"]')
+        || document.querySelector('[data-testid="plot"]'))?.textContent
         || (typeof schema?.description === 'string' ? schema.description : ''),
     );
     if (plot) parts.push(`\n## Synopsis\n\n${plot}`);

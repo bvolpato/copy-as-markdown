@@ -126,6 +126,7 @@ function extractSemanticDocument(app: OfficeApp, title: string): ExtractionResul
 
   const clone = candidate.cloneNode(true) as HTMLElement;
   removeOfficeNoise(clone);
+  convertHeadingRoles(clone);
   const body = Markdown.elementToMarkdown(clone);
   if (!isMeaningful(body, title)) return null;
 
@@ -329,6 +330,17 @@ function removeOfficeNoise(root: Element): void {
     '[aria-label*="status bar" i]',
     '[aria-label*="navigation pane" i]',
   ].join(', ')).forEach((element) => element.remove());
+}
+
+/** Word for the web renders headings as paragraphs with a heading role. */
+function convertHeadingRoles(root: Element): void {
+  root.querySelectorAll('[role="heading"][aria-level]').forEach((element) => {
+    if (/^H[1-6]$/.test(element.tagName)) return;
+    const level = Math.min(6, positiveInteger(element.getAttribute('aria-level')) || 1);
+    const heading = root.ownerDocument.createElement(`h${level}`);
+    heading.append(...element.childNodes);
+    element.replaceWith(heading);
+  });
 }
 
 function detectApp(): OfficeApp {

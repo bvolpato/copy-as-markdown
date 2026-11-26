@@ -34,6 +34,38 @@ let activeAnchorTimeout: number | null = null;
 let activeWatchdogInterval: number | null = null;
 let activeWatchdogCleanup: (() => void) | null = null;
 let activeOptionCancel: (() => void) | null = null;
+/** Dismissals made in this document, kept for pages where storage is denied or full. */
+const dismissedKeys = new Set<string>();
+
+/** Try the selector, because a page can replace the `CSS` global that a userscript shares. */
+function supportsSelector(selector: string): boolean {
+  try {
+    document.querySelector(selector);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** Top-layer selectors. A browser without one of these states rejects the whole selector. */
+const MODAL_SELECTOR = supportsSelector(':modal') ? 'dialog:modal' : 'dialog[open]';
+const POPUP_SELECTOR = supportsSelector(':popover-open')
+  ? `${MODAL_SELECTOR}, [popover]:popover-open`
+  : MODAL_SELECTOR;
+
+function appendStyles(id: string, css: string): void {
+  const style = document.createElement('style');
+  style.id = id;
+  style.textContent = css;
+  (document.head || document.documentElement).appendChild(style);
+  if (style.sheet) return;
+  // A strict style-src policy blocks the element but allows a constructed sheet.
+  try {
+    const sheet = new CSSStyleSheet();
+    sheet.replaceSync(css);
+    document.adoptedStyleSheets = [...document.adoptedStyleSheets, sheet];
+  } catch { /* constructed sheets unavailable */ }
+}
 
 function injectStyles(): void {
   if (document.getElementById(STYLE_ID)) return;
@@ -51,6 +83,7 @@ function injectStyles(): void {
       touch-action: none;
       user-select: none;
       -webkit-user-select: none;
+      transition: none;
     }
 
     /* ---- Floating icon button (bottom-right fallback) ---- */
@@ -58,6 +91,9 @@ function injectStyles(): void {
       position: relative;
       width: 38px;
       height: 38px;
+      min-width: 0;
+      min-height: 0;
+      margin: 0;
       padding: 0;
       border: none;
       background: none;
@@ -93,6 +129,9 @@ function injectStyles(): void {
       right: -6px;
       width: 18px;
       height: 18px;
+      min-width: 0;
+      min-height: 0;
+      margin: 0;
       padding: 0;
       border: none;
       border-radius: 50%;
@@ -402,10 +441,7 @@ function injectStyles(): void {
     }
   `;
 
-  const style = document.createElement('style');
-  style.id = STYLE_ID;
-  style.textContent = css;
-  (document.head || document.documentElement).appendChild(style);
+  appendStyles(STYLE_ID, css);
 }
 
 const TOAST_STYLE_ID = 'cam-toast-styles';
@@ -453,10 +489,7 @@ function injectToastStyles(): void {
     }
   `;
 
-  const style = document.createElement('style');
-  style.id = TOAST_STYLE_ID;
-  style.textContent = css;
-  (document.head || document.documentElement).appendChild(style);
+  appendStyles(TOAST_STYLE_ID, css);
 }
 
 
@@ -688,6 +721,7 @@ type OverlayElement = HTMLDivElement & {
 
 type FloatingWrapperElement = HTMLDivElement & {
   _camCleanup?: () => void;
+  _camReposition?: () => void;
 };
 
 function cleanupOverlay(overlay: Element): void {
@@ -841,25 +875,25 @@ function isOverlaySpaceClear(rect: DOMRect): boolean {
 }
 
 function getFloatingParent(): HTMLElement {
-  const selector = 'dialog:modal, [popover]:popover-open';
   const buttonRect = document.getElementById(BUTTON_ID)?.getBoundingClientRect();
   if (buttonRect?.width && buttonRect.height) {
     const coveringPopup = document.elementFromPoint(
       Math.max(0, Math.min(window.innerWidth - 1, buttonRect.left + buttonRect.width / 2)),
       Math.max(0, Math.min(window.innerHeight - 1, buttonRect.top + buttonRect.height / 2)),
-    )?.closest<HTMLElement>(selector);
+    )?.closest<HTMLElement>(POPUP_SELECTOR);
     if (coveringPopup) return coveringPopup;
   }
   const atCenter = document.elementFromPoint(window.innerWidth / 2, window.innerHeight / 2)
-    ?.closest<HTMLElement>(selector);
+    ?.closest<HTMLElement>(POPUP_SELECTOR);
   if (atCenter) return atCenter;
-  const popups = Array.from(document.querySelectorAll<HTMLElement>(selector));
-  for (const popup of popups.reverse()) {
-    const rect = popup.getBoundingClientRect();
+  // Only a modal makes the rest of the page inert. Do not follow a tooltip that covers nothing.
+  const modals = Array.from(document.querySelectorAll<HTMLElement>(MODAL_SELECTOR));
+  for (const modal of modals.reverse()) {
+    const rect = modal.getBoundingClientRect();
     const hit = document.elementFromPoint(
       Math.max(0, Math.min(window.innerWidth - 1, rect.left + rect.width / 2)),
       Math.max(0, Math.min(window.innerHeight - 1, rect.top + rect.height / 2)),
-    )?.closest<HTMLElement>(selector);
+    )?.closest<HTMLElement>(POPUP_SELECTOR);
     if (hit) return hit;
   }
   return document.documentElement;
@@ -877,7 +911,7 @@ function startAnchorWatchdog(
 ): void {
   cancelWatchdog();
 
-  const updatePlacement = () => {
+  const place = () => {
     if (!isActiveInstance(instanceId)) {
       cancelWatchdog();
       return;
@@ -886,9 +920,8 @@ function startAnchorWatchdog(
     const target = findAnchorTarget(anchor.selector);
     const isFloating = !!btn.closest('.cam-floating-wrapper');
     if (isFloating) {
-      const wrapper = btn.closest('.cam-floating-wrapper')!;
-      const parent = getFloatingParent();
-      if (wrapper.parentElement !== parent) parent.appendChild(wrapper);
+      const wrapper = btn.closest<FloatingWrapperElement>('.cam-floating-wrapper')!;
+      moveFloatingWrapper(wrapper);
       if (!target || wrapper.hasAttribute('data-cam-pointer-active') || isAnchorObscured(target)) return;
 
       // Keep the existing floating wrapper until native placement succeeds.
@@ -903,7 +936,7 @@ function startAnchorWatchdog(
       btn.title = FLOATING_BUTTON_TITLE;
       btn.style.cssText = floatingStyle;
       setButtonContent(btn, createIconElement());
-      wrapper.appendChild(btn);
+      wrapper.prepend(btn);
       return;
     }
 
@@ -938,6 +971,13 @@ function startAnchorWatchdog(
     }
 
     showFloating(btn, instanceId);
+  };
+
+  const updatePlacement = () => {
+    const hadFocus = document.activeElement === btn;
+    place();
+    // Moving the button in the document drops keyboard focus.
+    if (hadFocus) btn.focus({ preventScroll: true });
   };
 
   let frame: number | null = null;
@@ -1319,41 +1359,55 @@ function saveFloatingPosition(position: FloatingPosition): void {
   } catch { /* storage unavailable */ }
 }
 
-function clampFloatingPosition(
-  wrapper: HTMLElement,
-  left: number,
-  top: number,
-): FloatingPosition {
-  const rect = wrapper.getBoundingClientRect();
-  const maxLeft = Math.max(FLOATING_VIEWPORT_MARGIN, window.innerWidth - rect.width - FLOATING_VIEWPORT_MARGIN);
-  const maxTop = Math.max(FLOATING_VIEWPORT_MARGIN, window.innerHeight - rect.height - FLOATING_VIEWPORT_MARGIN);
-  return {
-    left: Math.min(Math.max(left, FLOATING_VIEWPORT_MARGIN), maxLeft),
-    top: Math.min(Math.max(top, FLOATING_VIEWPORT_MARGIN), maxTop),
-  };
+function clampToRange(value: number, start: number, end: number): number {
+  return Math.min(Math.max(value, start), Math.max(start, end));
 }
 
+/** Move the wrapper to a viewport position, clamped to the visible area. */
 function setFloatingPosition(wrapper: HTMLElement, position: FloatingPosition): void {
-  wrapper.style.left = `${position.left}px`;
-  wrapper.style.top = `${position.top}px`;
+  wrapper.style.left = '0px';
+  wrapper.style.top = '0px';
   wrapper.style.right = 'auto';
   wrapper.style.bottom = 'auto';
+  // A transformed dialog is the containing block for fixed content and can clip it.
+  const origin = wrapper.getBoundingClientRect();
+  let visible = new DOMRect(0, 0, window.innerWidth, window.innerHeight);
+  if ((origin.left || origin.top) && wrapper.parentElement && wrapper.parentElement !== document.documentElement) {
+    visible = wrapper.parentElement.getBoundingClientRect();
+  }
+  const left = clampToRange(
+    position.left,
+    Math.max(0, visible.left) + FLOATING_VIEWPORT_MARGIN,
+    Math.min(window.innerWidth, visible.right) - origin.width - FLOATING_VIEWPORT_MARGIN,
+  );
+  const top = clampToRange(
+    position.top,
+    Math.max(0, visible.top) + FLOATING_VIEWPORT_MARGIN,
+    Math.min(window.innerHeight, visible.bottom) - origin.height - FLOATING_VIEWPORT_MARGIN,
+  );
+  wrapper.style.left = `${left - origin.left}px`;
+  wrapper.style.top = `${top - origin.top}px`;
+}
+
+function moveFloatingWrapper(wrapper: FloatingWrapperElement): void {
+  const parent = getFloatingParent();
+  if (wrapper.parentElement === parent) return;
+  parent.appendChild(wrapper);
+  wrapper._camReposition?.();
 }
 
 function watchFloatingParent(wrapper: FloatingWrapperElement, instanceId: string): () => void {
   let active = true;
   let frame: number | null = null;
-  const popupSelector = 'dialog:modal, [popover]:popover-open';
 
   const updateParent = () => {
     frame = null;
     if (!active || !isActiveInstance(instanceId)) return;
     // Fast-path: skip forced layout/hit-testing when already on root and no modal/popover exists.
-    if (wrapper.parentElement === document.documentElement && !document.querySelector(popupSelector)) {
+    if (wrapper.parentElement === document.documentElement && !document.querySelector(POPUP_SELECTOR)) {
       return;
     }
-    const parent = getFloatingParent();
-    if (wrapper.parentElement !== parent) parent.appendChild(wrapper);
+    moveFloatingWrapper(wrapper);
   };
 
   const scheduleUpdate = () => {
@@ -1395,13 +1449,13 @@ function enableFloatingDrag(btn: HTMLButtonElement, wrapper: FloatingWrapperElem
   let startTop = 0;
   let dragged = false;
   let suppressClick = false;
-  let hasCustomPosition = false;
 
-  const storedPosition = readFloatingPosition();
-  if (storedPosition) {
-    setFloatingPosition(wrapper, clampFloatingPosition(wrapper, storedPosition.left, storedPosition.top));
-    hasCustomPosition = true;
-  }
+  // Clamp only what is displayed, so the chosen position survives a temporarily small viewport.
+  let chosenPosition = readFloatingPosition();
+  const applyChosenPosition = () => {
+    if (chosenPosition && document.contains(wrapper)) setFloatingPosition(wrapper, chosenPosition);
+  };
+  applyChosenPosition();
 
   const finishDrag = (event: PointerEvent): void => {
     if (event.pointerId !== activePointerId) return;
@@ -1413,7 +1467,8 @@ function enableFloatingDrag(btn: HTMLButtonElement, wrapper: FloatingWrapperElem
     }
     if (dragged) {
       const rect = wrapper.getBoundingClientRect();
-      saveFloatingPosition({ left: rect.left, top: rect.top });
+      chosenPosition = { left: rect.left, top: rect.top };
+      saveFloatingPosition(chosenPosition);
       suppressClick = true;
       window.setTimeout(() => { suppressClick = false; }, 100);
     }
@@ -1442,32 +1497,35 @@ function enableFloatingDrag(btn: HTMLButtonElement, wrapper: FloatingWrapperElem
     if (!dragged && Math.hypot(deltaX, deltaY) < FLOATING_DRAG_THRESHOLD) return;
     if (!dragged) {
       dragged = true;
-      hasCustomPosition = true;
       wrapper.classList.add('cam-dragging');
     }
     event.preventDefault();
-    setFloatingPosition(wrapper, clampFloatingPosition(wrapper, startLeft + deltaX, startTop + deltaY));
+    setFloatingPosition(wrapper, { left: startLeft + deltaX, top: startTop + deltaY });
   });
 
   wrapper.addEventListener('pointerup', finishDrag);
   wrapper.addEventListener('pointercancel', finishDrag);
+  // Moving the wrapper into a dialog drops the capture, and then no pointerup arrives.
+  wrapper.addEventListener('lostpointercapture', finishDrag);
   wrapper.addEventListener('click', (event) => {
     if (!suppressClick) return;
     event.preventDefault();
     event.stopImmediatePropagation();
   }, true);
 
-  const keepInsideViewport = () => {
-    if (!hasCustomPosition || !document.contains(wrapper)) return;
-    const rect = wrapper.getBoundingClientRect();
-    const position = clampFloatingPosition(wrapper, rect.left, rect.top);
-    setFloatingPosition(wrapper, position);
-    saveFloatingPosition(position);
+  window.addEventListener('resize', applyChosenPosition, { passive: true });
+  wrapper._camReposition = applyChosenPosition;
+  // An entry animation of the dialog changes the containing block while it runs.
+  const onParentSettled = (event: Event) => {
+    if (event.target === wrapper.parentElement && activePointerId === null) applyChosenPosition();
   };
-  window.addEventListener('resize', keepInsideViewport, { passive: true });
+  document.addEventListener('animationend', onParentSettled, true);
+  document.addEventListener('transitionend', onParentSettled, true);
   const stopWatchingFloatingParent = watchFloatingParent(wrapper, instanceId);
   wrapper._camCleanup = () => {
-    window.removeEventListener('resize', keepInsideViewport);
+    window.removeEventListener('resize', applyChosenPosition);
+    document.removeEventListener('animationend', onParentSettled, true);
+    document.removeEventListener('transitionend', onParentSettled, true);
     stopWatchingFloatingParent();
     wrapper.remove();
     wrapper._camCleanup = undefined;
@@ -1475,6 +1533,7 @@ function enableFloatingDrag(btn: HTMLButtonElement, wrapper: FloatingWrapperElem
 }
 
 export function isHostDismissed(): boolean {
+  if (dismissedKeys.has(getHostDismissKey())) return true;
   try {
     return localStorage.getItem(getHostDismissKey()) === '1';
   } catch {
@@ -1483,14 +1542,15 @@ export function isHostDismissed(): boolean {
 }
 
 function dismissHost(): void {
+  dismissedKeys.add(getHostDismissKey());
   try {
     localStorage.setItem(getHostDismissKey(), '1');
   } catch { /* storage unavailable */ }
 }
 
 function isDismissedForCurrentPage(): boolean {
+  if (isHostDismissed() || dismissedKeys.has(getDismissKey())) return true;
   try {
-    if (isHostDismissed()) return true;
     return sessionStorage.getItem(getDismissKey()) === '1';
   } catch {
     return false;
@@ -1498,9 +1558,10 @@ function isDismissedForCurrentPage(): boolean {
 }
 
 function dismissForCurrentPage(): void {
+  dismissedKeys.add(getDismissKey());
   try {
     sessionStorage.setItem(getDismissKey(), '1');
-  } catch { /* storage unavailable — dismiss is visual-only */ }
+  } catch { /* storage unavailable */ }
 }
 
 /**
@@ -1523,6 +1584,7 @@ function showFloating(btn: HTMLButtonElement, instanceId: string): void {
   markInjected(wrapper, instanceId);
 
   const dismiss = document.createElement('button');
+  dismiss.type = 'button';
   dismiss.id = DISMISS_ID;
   markInjected(dismiss, instanceId);
   dismiss.title = 'Hide for this page';
@@ -1546,6 +1608,7 @@ function showFloating(btn: HTMLButtonElement, instanceId: string): void {
     const actions = document.createElement('div');
     actions.className = 'cam-prompt-actions';
     const yesBtn = document.createElement('button');
+    yesBtn.type = 'button';
     yesBtn.className = 'cam-prompt-btn cam-prompt-yes';
     yesBtn.textContent = 'Yes, hide forever';
     yesBtn.addEventListener('click', () => {
@@ -1553,6 +1616,7 @@ function showFloating(btn: HTMLButtonElement, instanceId: string): void {
       prompt.remove();
     });
     const noBtn = document.createElement('button');
+    noBtn.type = 'button';
     noBtn.className = 'cam-prompt-btn cam-prompt-no';
     noBtn.textContent = 'No, just this page';
     noBtn.addEventListener('click', () => {
@@ -1604,6 +1668,8 @@ export function showButton(
   setActiveInstance(instanceId);
 
   const btn = document.createElement('button');
+  // A submit button can become the default button of a host form and take its Enter key.
+  btn.type = 'button';
   btn.id = BUTTON_ID;
   btn.title = BUTTON_TITLE;
   btn.setAttribute('aria-label', 'Copy this page as Markdown');
@@ -1673,7 +1739,8 @@ function observeForAnchor(
   let checkFrame: number | null = null;
   const checkAnchor = () => {
     checkFrame = null;
-    if (settled) return;
+    // Cancelling the observer leaves a queued frame, so a dismissed button must not come back here.
+    if (settled || activeAnchorObserver !== observer) return;
     if (!isActiveInstance(instanceId)) {
       settled = true;
       observer.disconnect();
@@ -1757,14 +1824,28 @@ export async function copyToClipboard(text: string): Promise<void> {
   textarea.style.cssText = 'position:fixed;opacity:0;left:-9999px';
   (document.body || document.documentElement).appendChild(textarea);
 
+  // execCommand reports success even when the page cancels the event or the text cannot be
+  // selected, for example behind a modal dialog. Write through the event and require that it ran.
+  let copied = false;
+  const onCopy = (event: ClipboardEvent) => {
+    if (!event.clipboardData) return;
+    event.clipboardData.clearData();
+    event.clipboardData.setData('text/plain', text);
+    event.preventDefault();
+    event.stopImmediatePropagation();
+    copied = true;
+  };
+  window.addEventListener('copy', onCopy, true);
+
   try {
     textarea.select();
-    if (!document.execCommand('copy')) {
+    if (!document.execCommand('copy') || !copied) {
       throw clipboardError instanceof Error
         ? clipboardError
         : new Error('Browser denied clipboard access');
     }
   } finally {
+    window.removeEventListener('copy', onCopy, true);
     textarea.remove();
   }
 }

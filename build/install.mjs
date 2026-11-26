@@ -286,7 +286,7 @@ async function requireFile(filePath, description) {
 }
 
 async function copyExtension(sourceDirectory, destination) {
-  const target = path.resolve(ROOT, destination);
+  const target = path.resolve(destination);
   const relativeTarget = path.relative(path.resolve(sourceDirectory), target);
   if (relativeTarget === '' || (!relativeTarget.startsWith(`..${path.sep}`) && relativeTarget !== '..' && !path.isAbsolute(relativeTarget))) {
     throw new Error(`Copy destination must be outside the built extension directory: ${target}`);

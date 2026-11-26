@@ -1,5 +1,6 @@
 /** Hugging Face model, dataset, and Space repository extractor. */
 
+import { replaceMath } from '../core/ai-conversation';
 import * as Markdown from '../core/markdown';
 import { register } from '../core/registry';
 import type { PageMetadata } from '../core/types';
@@ -56,9 +57,11 @@ const MODEL_RESERVED_PATH_PREFIXES = [
   'tasks',
 ];
 const MODEL_RESERVED_PREFIXES = new Set(MODEL_RESERVED_PATH_PREFIXES);
+// Profile tabs, such as /google/models
+const PROFILE_TABS = ['models', 'datasets', 'spaces', 'collections', 'papers', 'buckets'];
 const REPO_SUBVIEW = '(?:/(?:tree/[^/?#]+(?:/.*)?|blob/[^/?#]+/.+|discussions(?:/.*)?|commits(?:/.*)?|commit/[^/?#]+))?';
 const REPOSITORY_PATHNAME = new RegExp(
-  `^/(?:datasets/[^/?#]+/[^/?#]+${REPO_SUBVIEW}|spaces/[^/?#]+/[^/?#]+${REPO_SUBVIEW}|papers/[^/?#]+(?:/.*)?|collections/[^/?#]+(?:/.*)?|(?!(?:${MODEL_RESERVED_PATH_PREFIXES.join('|')})(?:/|$))[^/?#]+/[^/?#]+${REPO_SUBVIEW})/?$`,
+  `^/(?:datasets/[^/?#]+/[^/?#]+${REPO_SUBVIEW}|spaces/[^/?#]+/[^/?#]+${REPO_SUBVIEW}|papers/[^/?#]+(?:/.*)?|collections/[^/?#]+(?:/.*)?|(?!(?:${MODEL_RESERVED_PATH_PREFIXES.join('|')})(?:/|$))[^/?#]+/(?!(?:${PROFILE_TABS.join('|')})/?$)[^/?#]+${REPO_SUBVIEW})/?$`,
   'i',
 );
 
@@ -328,12 +331,14 @@ function extractCard(
   const card = getRenderedCard(route.kind);
   let capturedCard = false;
   if (card) {
-    const cardMarkdown = Markdown.elementToMarkdown(Utils.removeNoise(card, [
+    const cleaned = Utils.removeNoise(card, [
       ...Utils.NOISE_SELECTORS,
       'button',
       '[data-target="CopyButton"]',
       '.not-prose',
-    ]));
+    ]);
+    replaceMath(cleaned);
+    const cardMarkdown = Markdown.elementToMarkdown(cleaned);
     if (cardMarkdown) {
       parts.push(`## ${cardLabel(route.kind)}\n\n${cardMarkdown}`);
       capturedCard = true;
@@ -638,7 +643,7 @@ function extractTree(
       ...entries.map((entry) => {
         const label = escapeTableLinkText(entry.path);
         const path = `[${label}](${escapeMarkdownDestination(entry.href)})`;
-        return `| ${entry.type} | ${path} | ${formatBytes(entry.size)} | ${Markdown.escapeMarkdownTableCell(entry.updated || '')} |`;
+        return `| ${entry.type} | ${path} | ${entry.type === 'file' ? formatBytes(entry.size) : ''} | ${Markdown.escapeMarkdownTableCell(entry.updated || '')} |`;
       }),
     ].join('\n'));
   } else {
@@ -837,17 +842,21 @@ function extractBlob(
     route.revision ? `**Revision:** \`${route.revision}\`` : '',
   ];
 
-  const fileRoot = document.querySelector(
-    '.blob-content, [data-target="BlobContent"], main .prose, main pre, main, [role="main"]',
-  );
+  const fileRoot = ['.blob-content', '[data-target="BlobContent"]', 'main .prose', 'main', '[role="main"]']
+    .map((selector) => document.querySelector(selector))
+    .find((element) => element !== null);
   let captured = false;
   if (fileRoot) {
+    const source = renderedSource(fileRoot);
     const cleaned = Utils.removeNoise(fileRoot, [
       ...Utils.NOISE_SELECTORS,
       'button',
       '[data-target="CopyButton"]',
     ]);
-    const body = Markdown.elementToMarkdown(cleaned).trim();
+    replaceMath(cleaned);
+    const body = source === null
+      ? Markdown.elementToMarkdown(cleaned).trim()
+      : Markdown.fencedCodeToMarkdown(source, route.filePath?.match(/\.(\w+)$/)?.[1] || '');
     if (body) {
       parts.push(`## File Content\n\n${body}`);
       captured = true;
@@ -856,6 +865,31 @@ function extractBlob(
   metadata.completeness = captured ? 'complete_rendered_file' : 'metadata_only';
   metadata.complete = String(captured);
   return Markdown.buildPageMarkdown(metadata, parts.filter(Boolean).join('\n\n'));
+}
+
+/** Read the source lines of the code viewer. */
+function renderedSource(root: Element): string | null {
+  // Large files keep their full text beside a window of rendered rows.
+  const text = root.querySelector('.blob-virtual .blob-text');
+  if (text) return text.textContent || '';
+  const rows = Array.from(root.querySelectorAll('tr[id^="L"]'));
+  if (rows.length === 0) return null;
+  return rows.map((row) => row.lastElementChild?.textContent || '').join('\n');
+}
+
+/** Diff tables depend on literal indentation. */
+function fenceDiffs(root: Element): void {
+  for (const table of root.querySelectorAll('table.d2h-diff-table')) {
+    const lines = Array.from(table.querySelectorAll('.d2h-code-side-line, .d2h-code-line')).map((line) => {
+      const content = line.querySelector('.d2h-code-line-ctn')?.textContent;
+      if (content === undefined) return (line.textContent || '').trim();
+      return `${line.querySelector('.d2h-code-line-prefix')?.textContent?.trim() || ' '}${content}`;
+    });
+    const pre = document.createElement('pre');
+    pre.setAttribute('data-language', 'diff');
+    pre.textContent = lines.join('\n');
+    table.replaceWith(pre);
+  }
 }
 
 function extractRepositorySubpage(
@@ -890,6 +924,8 @@ function extractRepositorySubpage(
       '[data-target="CopyButton"]',
       `[data-target="${HEADER_TARGETS[route.kind]}"]`,
     ]);
+    replaceMath(cleaned);
+    fenceDiffs(cleaned);
     const body = Markdown.elementToMarkdown(cleaned).trim();
     if (body) {
       parts.push(body);
@@ -928,6 +964,7 @@ function extractHubPage(route: PageRoute): string {
     if (firstH1 && textOf(firstH1).toLowerCase() === title.toLowerCase()) {
       firstH1.remove();
     }
+    replaceMath(cleaned);
     body = Markdown.elementToMarkdown(cleaned).trim();
   }
   metadata.complete = String(body.length > 0);

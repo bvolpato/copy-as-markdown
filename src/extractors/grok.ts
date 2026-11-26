@@ -4,11 +4,14 @@ import { register } from '../core/registry';
 import * as Markdown from '../core/markdown';
 import * as Utils from '../core/utils';
 import { addExtractionMetadata, limitCollection, limitMarkdown } from '../core/context';
+import {
+  cloneMessage, conversationPageTitle, conversationUrl, createTurnOwner, hasHistoryControl,
+  isAriaHidden, isFaviconUrl, isInText, isPageAnchor, messageToMarkdown, renderedBlocks, type Role,
+} from '../core/ai-conversation';
 
 const MAX_TURNS = 200;
 
-type Role = 'user' | 'assistant';
-type Turn = { role: Role; element: Element; container: Element };
+type Turn = { role: Role; element: Element; container: Element; blocks?: Element[] };
 
 register({
   name: 'Grok',
@@ -23,11 +26,11 @@ register({
   pathnameRegex: /^\/(?:c|chat|conversation|share|imagine|project)(?:\/|$)|^\/i\/grok(?:\/|$)|^\/$/,
 
   async extract() {
-    const title = cleanTitle(Utils.getPageTitle()) || 'Grok Conversation';
+    const title = cleanTitle(conversationPageTitle()) || 'Grok Conversation';
     const metadata: Record<string, string | number> = {
       source: 'Grok',
       title,
-      url: Utils.getCanonicalUrl(),
+      url: conversationUrl(),
       route: conversationRoute(window.location.pathname),
     };
     const model = document.querySelector('[data-model], [data-model-name], [data-message-model]')
@@ -47,19 +50,25 @@ register({
     let imageCount = 0;
     let codeBlockCount = 0;
 
+    const owns = createTurnOwner(limitedTurns.items);
+
     for (const turn of limitedTurns.items) {
-      const cleaned = clean(turn.element);
-      let content = Markdown.elementToMarkdown(cleaned);
-      const standalone = standaloneImages(turn.container, turn.element);
+      const contentNodes = turn.blocks || [turn.element];
+      const cleanedNodes = contentNodes.map((node) => clean(node));
+      let content = cleanedNodes.map(messageToMarkdown).filter(Boolean).join('\n\n');
+      const standalone = standaloneImages(turn.container, contentNodes, (node) => owns(turn, node));
       if (standalone.length) content = `${content}\n\n${standalone.join('\n')}`.trim();
       if (!content) continue;
 
-      const citations = extractCitations(turn.container);
+      const citations = extractCitations(turn.container, (link) => owns(turn, link, turn.role));
       citations.forEach((citation) => citationUrls.add(citation.href));
       if (turn.role === 'user') userCount += 1;
       else assistantCount += 1;
-      imageCount += cleaned.querySelectorAll('img[src]').length + standalone.length;
-      codeBlockCount += cleaned.querySelectorAll('pre').length;
+      imageCount += standalone.length;
+      for (const node of cleanedNodes) {
+        imageCount += node.querySelectorAll('img[src]').length;
+        codeBlockCount += node.querySelectorAll('pre').length;
+      }
 
       parts.push('', `## ${turn.role === 'user' ? '👤 User' : '🤖 Grok'}`, '', content);
       if (turn.role === 'assistant' && citations.length) {
@@ -70,9 +79,13 @@ register({
     const captured = userCount + assistantCount;
     const loadMore = hasUnrenderedHistory();
     const structuralIncomplete = limitedTurns.truncated || loadMore;
-    if (!captured) {
+    if (captured) {
+      parts.push('', structuralIncomplete
+        ? '> **Coverage:** Visible rendered conversation only; older or virtualized history was not loaded.'
+        : '> **Coverage:** Visible rendered conversation only; unloaded page history is not included.');
+    } else {
       const fallback = document.querySelector('main, [role="main"], #react-root, #__next');
-      if (fallback) parts.push('', Markdown.elementToMarkdown(clean(fallback)));
+      if (fallback) parts.push('', messageToMarkdown(clean(fallback)));
     }
 
     metadata.turn_count = captured;
@@ -114,8 +127,7 @@ function collectTurns(): Turn[] {
     for (const root of roots) {
       const explicitRole = roleFor(root);
       if (explicitRole) {
-        const content = messageContent(root) || root;
-        result.push({ role: explicitRole, element: content, container: root });
+        result.push(buildTurn(explicitRole, root, root));
         continue;
       }
       const user = queryFirst(root, [
@@ -130,8 +142,8 @@ function collectTurns(): Turn[] {
         '[data-role="assistant"]',
         '.response-content-markdown',
       ]);
-      if (user) result.push({ role: 'user', element: messageContent(user) || user, container: root });
-      if (assistant && assistant !== user) result.push({ role: 'assistant', element: messageContent(assistant) || assistant, container: root });
+      if (user) result.push(buildTurn('user', user, root));
+      if (assistant && assistant !== user) result.push(buildTurn('assistant', assistant, root));
     }
     if (result.length) return dedupeTurns(result);
   }
@@ -150,7 +162,7 @@ function collectTurns(): Turn[] {
   for (const element of standalone) {
     const role = roleFor(element);
     if (!role) continue;
-    result.push({ role, element: messageContent(element) || element, container: closestTurn(element) });
+    result.push(buildTurn(role, element, closestTurn(element)));
   }
   return dedupeTurns(result);
 }
@@ -167,6 +179,17 @@ function roleFor(element: Element): Role | null {
   if (/(?:^|[\s_-])(user|human|you|prompt|query)(?:$|[\s_-])/.test(value)) return 'user';
   if (/(?:^|[\s_-])(assistant|grok|model|response|answer)(?:$|[\s_-])/.test(value)) return 'assistant';
   return null;
+}
+
+function buildTurn(role: Role, message: Element, container: Element): Turn {
+  const blocks = renderedBlocks(Array.from(message.querySelectorAll('.response-content-markdown'))
+    .filter((block) => !block.closest('[data-testid="conversation-trace"]')));
+  return {
+    role,
+    element: blocks[0] || messageContent(message) || message,
+    container,
+    blocks: blocks.length > 1 ? blocks : undefined,
+  };
 }
 
 function messageContent(element: Element): Element | null {
@@ -189,10 +212,14 @@ function dedupeTurns(turns: Turn[]): Turn[] {
     return true;
   });
   return unique.filter((turn) => !unique.some((other) => other.role === turn.role
-    && other.element !== turn.element && other.element.contains(turn.element)));
+    && other.element !== turn.element
+    && (other.blocks || [other.element]).some((block) => block.contains(turn.element))));
 }
 
-function extractCitations(container: Element): Array<{ label: string; href: string }> {
+function extractCitations(
+  container: Element,
+  ownsNode: (node: Element) => boolean,
+): Array<{ label: string; href: string }> {
   const links = container.querySelectorAll<HTMLAnchorElement>([
     'a[data-citation][href]',
     '[data-testid*="citation"] a[href]',
@@ -203,6 +230,7 @@ function extractCitations(container: Element): Array<{ label: string; href: stri
   const seen = new Set<string>();
   const result: Array<{ label: string; href: string }> = [];
   for (const link of links) {
+    if (isPageAnchor(link) || !ownsNode(link)) continue;
     const href = safeHttpUrl(link.href);
     if (!href || seen.has(href)) continue;
     seen.add(href);
@@ -214,17 +242,24 @@ function extractCitations(container: Element): Array<{ label: string; href: stri
   return result;
 }
 
-function standaloneImages(container: Element, content: Element): string[] {
+function standaloneImages(
+  container: Element,
+  contentNodes: Element[],
+  ownsNode: (node: Element) => boolean,
+): string[] {
+  const inText = (image: Element) => isInText(contentNodes, image);
   const existing = new Set(
-    Array.from(content.querySelectorAll<HTMLImageElement>('img[src]'))
+    contentNodes
+      .flatMap((node) => Array.from(node.querySelectorAll<HTMLImageElement>('img[src]')))
+      .filter(inText)
       .map((image) => safeImageUrl(imageSource(image)))
       .filter(Boolean),
   );
   const result: string[] = [];
   for (const image of container.querySelectorAll<HTMLImageElement>('img[src]')) {
-    if (content.contains(image) || image.getAttribute('aria-hidden') === 'true') continue;
+    if (inText(image) || isAriaHidden(container, image) || !ownsNode(image)) continue;
     const source = safeImageUrl(imageSource(image));
-    if (!source || existing.has(source)) continue;
+    if (!source || existing.has(source) || isFaviconUrl(source)) continue;
     const alt = image.getAttribute('alt') || '';
     const meaningful = Boolean(image.closest('figure, [data-testid*="image"], [class*="generated"]'))
       || /generated|uploaded|image/i.test(alt)
@@ -237,11 +272,11 @@ function standaloneImages(container: Element, content: Element): string[] {
 }
 
 function clean(element: Element): Element {
-  return Utils.removeNoise(element, [
+  return Utils.removeNoise(cloneMessage(element), [
     ...Utils.NOISE_SELECTORS,
     'button', '[data-testid*="actions"]', '[data-testid*="feedback"]',
     '[class*="toolbar"]:not(.code-toolbar)', '[class*="avatar"]',
-    'textarea', 'input', '[contenteditable="true"]',
+    'textarea', 'input', '[contenteditable="true"]', '[data-no-copy]',
   ]);
 }
 
@@ -271,9 +306,18 @@ function compareDomOrder(left: Element, right: Element): number {
 }
 
 function hasUnrenderedHistory(): boolean {
-  return Boolean(document.querySelector(
-    '[data-testid*="load-more"], button[aria-label*="older" i], button[aria-label*="previous" i], [data-virtualized="true"]',
-  ));
+  return hasHistoryControl() || Boolean(document.querySelector(
+    '[data-testid*="load-more"], [data-virtualized="true"]',
+  )) || hasUnmountedRows();
+}
+
+/** The virtual transcript also unmounts its empty edge rows, which take 212px. The shortest turn takes 48px. */
+function hasUnmountedRows(): boolean {
+  const rows = Array.from(document.querySelectorAll('[data-plane-row]'));
+  const isMounted = (edge: string) => rows.some((row) => row.matches(`[data-plane-row^="transcript:${edge}"]`));
+  if (!rows.length || (isMounted('top') && isMounted('bottom'))) return false;
+  const mounted = rows.reduce((height, row) => height + row.getBoundingClientRect().height, 0);
+  return rows[0].parentElement!.getBoundingClientRect().height - mounted > 240;
 }
 
 function conversationRoute(path: string): string {
@@ -319,7 +363,7 @@ function hostname(value: string): string {
 }
 
 function cleanTitle(value: string): string {
-  return value.replace(/\s*[·|\-]\s*Grok\s*$/i, '').trim();
+  return value.replace(/(?:^|\s*[·|\-])\s*(?:Shared\s+)?Grok(?:\s+Conversation)?\s*$/i, '').trim();
 }
 
 function normalize(value: string): string {

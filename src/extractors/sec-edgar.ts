@@ -27,7 +27,7 @@ export const secEdgarExtractor = register({
       url: window.location.href,
     };
 
-    const filingRoot = document.querySelector('#dynamic-xbrl-form, #formDiv, main, body') || document.body;
+    const filingRoot = document.querySelector('#dynamic-xbrl-form, #formDiv') || document.querySelector('main') || document.body;
     const cleaned = Utils.removeNoise(filingRoot, [
       ...Utils.NOISE_SELECTORS,
       '#sec-header',

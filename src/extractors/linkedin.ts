@@ -164,9 +164,9 @@ function extractJob(url: string): string {
   if (location) parts.push(`**Location:** ${location}`);
   parts.push('');
 
-  const descEl = document.querySelector(
-    '.jobs-description__content, .jobs-box__html-content, .description__text, article, main',
-  );
+  const descEl = document.querySelector('.jobs-description__content, .jobs-box__html-content, .description__text')
+    || document.querySelector('article')
+    || document.querySelector('main');
   if (descEl) {
     const cleaned = cleanProfileElement(descEl);
     const body = Markdown.elementToMarkdown(cleaned);
@@ -324,10 +324,11 @@ function personLocation(person: JsonObject | null): string {
 }
 
 function cleanProfileName(value: string): string {
-  return normalize(value)
-    .replace(/\s*\|\s*LinkedIn.*$/i, '')
-    .replace(/\s+-\s+[^|]+$/i, '')
-    .trim() || 'LinkedIn Profile';
+  const name = normalize(value);
+  // Only a page title appends the headline. A heading can hold a dash of its own.
+  return (/\|\s*LinkedIn/i.test(name)
+    ? name.replace(/\s*\|\s*LinkedIn.*$/i, '').replace(/\s+-\s+[^|]+$/i, '')
+    : name).trim() || 'LinkedIn Profile';
 }
 
 function cleanProfileDescription(value: string): string {
@@ -429,7 +430,7 @@ function extractArticle(url: string): string {
   const authorEl = document.querySelector('.author-info__name, .article-author');
   if (authorEl) metadata.author = authorEl.textContent?.trim() || '';
 
-  const articleBody = document.querySelector('.article-content, .reader-article-content, article');
+  const articleBody = document.querySelector('.article-content, .reader-article-content') || document.querySelector('article');
   const body = articleBody
     ? Markdown.elementToMarkdown(Utils.removeNoise(articleBody, [...Utils.NOISE_SELECTORS, 'h1']))
     : '*No article content found.*';

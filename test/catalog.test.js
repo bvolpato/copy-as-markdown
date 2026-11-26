@@ -2,9 +2,11 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import puppeteer from 'puppeteer';
 import * as library from '../dist/library/index.js';
+import { SITE_CASES } from './fixtures/site-cases.js';
 import { DISCUSSION_CASES } from './fixtures/discussion-cases.js';
 import { BITBUCKET_CASES } from './fixtures/bitbucket-cases.js';
 import { GITHUB_CASES } from './fixtures/github-cases.js';
+import { WORKSPACE_CASES } from './fixtures/workspace-cases.js';
 
 await library.loadAllExtractors();
 const failures = [];
@@ -34,6 +36,24 @@ await check('Subdomain patterns include the base host and arbitrary ports', () =
   for (const url of ['file://example.test/content/a', 'https://example.test/CONTENT/a', 'https://example.test.evil/content/a']) {
     assert.equal(matcher.match({ url }), null, url);
   }
+});
+await check('URL patterns ignore fragments and match IPv6 hosts', () => {
+  const match = (pattern, url) => {
+    const extractor = library.defineExtractor({ name: 'Pattern', matches: [pattern], extract: async () => '' });
+    const custom = library.defineExtractor({ name: 'Restricted', matches: [], regex: /./, extract: async () => '' });
+    const results = [
+      library.createExtractorMatcher({ extractors: [extractor] }).match({ url }),
+      library.createExtractorMatcher({ extractors: [custom], urlPatterns: [pattern] }).match({ url }),
+    ].map(Boolean);
+    assert.equal(results[0], results[1], `${pattern} ${url}`);
+    return results[0];
+  };
+  assert.equal(match('https://example.test/page', 'https://example.test/page#section'), true);
+  assert.equal(match('https://example.test/page', 'https://example.test/page?query#section'), false);
+  assert.equal(match('https://example.test/#/issues/*', 'https://example.test/#/issues/1'), true);
+  assert.equal(match('*://*/*', 'http://[::1]:5000/page'), true);
+  assert.equal(match('http://[::1]:5000/*', 'http://[::1]:5000/page'), true);
+  assert.equal(match('*://*/*', 'https://[::1]@unrelated.example/page'), false);
 });
 await check('X and Hacker News reject unrelated route suffixes', async () => {
   const x = await library.loadExtractor('x-twitter');
@@ -66,7 +86,7 @@ const browser = await puppeteer.launch({ headless: 'shell', args: ['--no-sandbox
 const browserCode = fs.readFileSync(new URL('../dist/library/browser.js', import.meta.url), 'utf8');
 const userscript = fs.readFileSync(new URL('../dist/userscript/copy-as-markdown.user.js', import.meta.url), 'utf8');
 const repeat = (count, make) => Array.from({ length: count }, (_, index) => make(index)).join('');
-async function fixture({ url, name, html, head = '<title>Catalog fixture</title>', resources = {}, expected = [], excluded = [], ordered = [], occurrences = {}, ui = false, afterLoad }) {
+async function fixture({ url, name, html, option, head = '<title>Catalog fixture</title>', resources = {}, expected = [], excluded = [], ordered = [], occurrences = {}, ui = false, afterLoad }) {
   const context = await browser.createBrowserContext();
   const page = await context.newPage();
   try {
@@ -81,12 +101,12 @@ async function fixture({ url, name, html, head = '<title>Catalog fixture</title>
     await page.addScriptTag({ content: browserCode });
     if (ui) await page.addScriptTag({ content: userscript });
     if (afterLoad) await afterLoad(page);
-    const output = await page.evaluate(async ({ name }) => {
+    const output = await page.evaluate(async ({ name, option }) => {
       await CopyAsMarkdown.loadAllExtractors();
       const match = CopyAsMarkdown.createExtractorMatcher().match({ url: location.href, document });
       if (match?.name !== name) throw new Error(`Expected ${name}, got ${match?.name}`);
-      return match.extract();
-    }, { name });
+      return match.extract(option);
+    }, { name, option });
     for (const value of expected) assert.ok(output.includes(value), `Missing ${JSON.stringify(value)}`);
     for (const value of excluded) assert.ok(!output.includes(value), `Unexpected ${JSON.stringify(value)}`);
     let previous = -1;
@@ -102,9 +122,31 @@ async function fixture({ url, name, html, head = '<title>Catalog fixture</title>
 }
 
 try {
-  for (const fixtureCase of [...DISCUSSION_CASES, ...BITBUCKET_CASES, ...GITHUB_CASES]) {
+  for (const fixtureCase of [...DISCUSSION_CASES, ...BITBUCKET_CASES, ...GITHUB_CASES, ...WORKSPACE_CASES]) {
     await check(fixtureCase.id, () => fixture(fixtureCase));
   }
+  await check('Selection copies drop session credentials from links, images, and link text', async () => {
+    const context = await browser.createBrowserContext();
+    const page = await context.newPage();
+    try {
+      await page.setRequestInterception(true);
+      page.on('request', request => request.isNavigationRequest() ? request.respond({ contentType: 'text/html', body: `<!doctype html><title>Selection</title><main>
+        <p>Selected <img alt="chart" src="https://media-cdn.atlassian.com/file/1/image?token=SECRET" srcset="https://media-cdn.atlassian.com/file/1/image?token=SECRET 2x"></p>
+        <p><a href="https://attachment.outlook.live.net/s/GetFileAttachment?id=1&amp;token=SECRET">https://attachment.outlook.live.net/s/GetFileAttachment?id=1&amp;token=SECRET</a></p></main>` }) : request.abort());
+      await page.goto('https://acme.atlassian.net/wiki/spaces/ENG/pages/6/Selection');
+      await page.evaluate(() => {
+        window.chrome = { runtime: { onMessage: { addListener: listener => { window.copyListener = listener; } } } };
+        Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText: async text => { window.copied = text; } } });
+        getSelection().selectAllChildren(document.querySelector('main'));
+      });
+      await page.addScriptTag({ content: fs.readFileSync(new URL('../dist/chrome/content.js', import.meta.url), 'utf8') });
+      await page.evaluate(() => new Promise(resolve => window.copyListener({ action: 'copy-as-markdown' }, null, resolve)));
+      const copied = await page.evaluate(() => window.copied);
+      assert.ok(copied.includes('![chart](https://media-cdn.atlassian.com/file/1/image)'), copied);
+      assert.equal(copied.split('\n').at(-1), 'https://attachment.outlook.live.net/s/GetFileAttachment');
+      assert.ok(!copied.includes('SECRET'), copied);
+    } finally { await context.close(); }
+  });
   await check('Reddit includes sibling comment threads and excludes sidebar comments', () => fixture({
     name: 'Reddit', url: 'https://www.reddit.com/r/markdown/comments/abc123/thread/',
     html: `<main><shreddit-post data-post-id="t3_abc123" author="poster" score="42" comment-count="2">
@@ -117,6 +159,9 @@ try {
       '## Comments (2 loaded)', '**reader** (5 points):', '> Top-level comment', '> **reply-author** (2 points):', '> > Nested reply'],
     excluded: ['Unrelated sidebar comment'],
   }));
+  for (const fixtureCase of SITE_CASES) {
+    await check(fixtureCase.id, () => fixture(fixtureCase));
+  }
   await check('Reddit retains comments nested inside the post', () => fixture({
     name: 'Reddit', url: 'https://new.reddit.com/r/markdown/comments/abc123/thread/',
     html: '<div class="Post" data-post-id="t3_abc123"><h1>Classic post</h1><div data-testid="post-selftext"><p>Classic body</p></div><div class="Comment"><a class="author">classic-reader</a><div class="md"><p>Classic comment</p></div></div></div>',
@@ -525,6 +570,44 @@ try {
     },
     expected: ['Newsletter body'],
   }));
+  await check('Floating copy button stays in place when a tooltip popover opens elsewhere', () => fixture({
+    name: 'Substack', url: 'https://newsletter.substack.com/p/tooltip',
+    html: '<div id="tooltip" popover="manual" style="position:fixed;inset:auto;left:0;top:0;margin:0;width:120px;height:24px;overflow:hidden;transform:translate(300px,200px)">Tooltip</div><h1 class="post-title">Newsletter title</h1><div class="body markup"><p>Newsletter body</p></div>',
+    ui: true,
+    afterLoad: async page => {
+      await page.waitForSelector('.cam-floating-wrapper #cam-copy-btn');
+      const placement = () => page.evaluate(() => {
+        const { left, top } = document.querySelector('#cam-copy-btn').getBoundingClientRect();
+        return { left, top, parent: document.querySelector('.cam-floating-wrapper').parentElement.tagName };
+      });
+      const before = await placement();
+      await page.evaluate(() => document.querySelector('#tooltip').showPopover());
+      await new Promise(resolve => setTimeout(resolve, 200));
+      assert.deepEqual(await placement(), before);
+    },
+    expected: ['Newsletter body'],
+  }));
+  await check('Floating copy button stays inside a transformed modal at a saved position', () => fixture({
+    name: 'Substack', url: 'https://newsletter.substack.com/p/transformed-modal',
+    html: '<dialog id="site-dialog" style="position:fixed;left:50%;top:50%;margin:0;width:400px;height:300px;transform:translate(-50%,-50%)"></dialog><script>localStorage.setItem("cam-position:newsletter.substack.com", JSON.stringify({ left: 700, top: 500 }))</script><h1 class="post-title">Newsletter title</h1><div class="body markup"><p>Newsletter body</p></div>',
+    ui: true,
+    afterLoad: async page => {
+      await page.waitForSelector('.cam-floating-wrapper #cam-copy-btn');
+      await page.evaluate(() => document.querySelector('#site-dialog').showModal());
+      await page.waitForSelector('#site-dialog #cam-copy-btn');
+      assert.equal(await page.evaluate(() => {
+        const button = document.querySelector('#cam-copy-btn');
+        const rect = button.getBoundingClientRect();
+        return button.contains(document.elementFromPoint(rect.left + rect.width / 2, rect.top + rect.height / 2));
+      }), true);
+      await page.evaluate(() => document.querySelector('#site-dialog').close());
+      await page.waitForFunction(() => {
+        const rect = document.querySelector('html > .cam-floating-wrapper')?.getBoundingClientRect();
+        return rect?.left === 700 && rect.top === 500;
+      });
+    },
+    expected: ['Newsletter body'],
+  }));
   await check('Floating copy button preserves an active drag while an overlay blocks its anchor', () => fixture({
     name: 'Globo', url: 'https://g1.globo.com/news/noticia/drag.ghtml',
     html: '<article><h1>Article title</h1><p>Article body</p></article>', ui: true,
@@ -771,6 +854,71 @@ try {
     },
     expected: ['Article body'],
   }));
+  await check('Anchored copy control does not take Enter from a host form', () => fixture({
+    name: 'Wikipedia', url: 'https://en.wikipedia.org/wiki/Form', ui: true,
+    html: '<form><nav id="p-views"><ul><li>Read</li></ul></nav><input id="query"><button>Search</button></form><h1 id="firstHeading">Form</h1><div id="mw-content-text"><p>Article body</p></div>',
+    afterLoad: async page => {
+      await page.waitForSelector('form #cam-copy-btn');
+      await page.evaluate(() => document.querySelector('form').addEventListener('submit', event => {
+        event.preventDefault();
+        window.__submitter = event.submitter?.textContent;
+      }));
+      await page.focus('#query');
+      await page.keyboard.press('Enter');
+      assert.equal(await page.evaluate(() => window.__submitter), 'Search');
+    },
+    expected: ['Article body'],
+  }));
+  await check('A copy that finishes after an SPA navigation does not replace the clipboard', () => fixture({
+    name: 'Google Docs', url: 'https://docs.google.com/document/d/slow-doc/edit', ui: true, html: '<main>Canvas editor</main>',
+    afterLoad: async page => {
+      await page.waitForSelector('#cam-copy-btn');
+      await page.evaluate(async () => {
+        window.__clips = [];
+        Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText: async text => { window.__clips.push(text); } } });
+        const slow = new Promise(resolve => { window.__releaseSlowExport = resolve; });
+        window.fetch = async url => {
+          const id = String(url).includes('slow-doc') ? 'slow' : 'next';
+          if (id === 'slow') await slow;
+          return new Response(`<html><body><p>Body of ${id} document</p></body></html>`, { headers: { 'Content-Type': 'text/html' } });
+        };
+        document.querySelector('#cam-copy-btn').click();
+        history.pushState({}, '', '/document/d/next-doc/edit');
+        window.__staleButton = document.querySelector('#cam-copy-btn');
+      });
+      await page.waitForFunction(() => {
+        const button = document.querySelector('#cam-copy-btn');
+        return button && button !== window.__staleButton;
+      });
+      await page.evaluate(() => document.querySelector('#cam-copy-btn').click());
+      await page.waitForFunction(() => window.__clips.length === 1);
+      await page.evaluate(() => window.__releaseSlowExport());
+      await page.waitForFunction(() => document.querySelector('#cam-toast')?.textContent.includes('Page changed'));
+      const clips = await page.evaluate(() => window.__clips);
+      assert.equal(clips.length, 1);
+      assert.ok(clips[0].includes('Body of next document'));
+    },
+    expected: ['Body of next document'],
+  }));
+  await check('A Gmail copy that finishes after another thread opens does not reach the clipboard', () => fixture({
+    name: 'Gmail', url: 'https://mail.google.com/mail/u/0/#inbox/FMfcgzQgMMHLwtbqvvsLSmnmFrtzlwhR', ui: true, html: '<main><h2 class="hP">Thread</h2></main>',
+    afterLoad: async page => {
+      await page.waitForSelector('#cam-copy-btn');
+      await page.evaluate(() => {
+        window.__clips = [];
+        Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText: async text => { window.__clips.push(text); } } });
+        window.fetch = async () => {
+          await new Promise(resolve => setTimeout(resolve, 100));
+          return new Response('<div class="maincontent"><table class="message"><tr><td>Sender</td><td>Jul 29</td></tr><tr><td>to me</td></tr><tr><td><p>Thread body</p></td></tr></table></div>');
+        };
+        document.querySelector('#cam-copy-btn').click();
+        location.hash = '#inbox/FMfcgzQgMMHLwtbqvvsLSmnmFrtzlwhS';
+      });
+      await page.waitForFunction(() => document.querySelector('#cam-toast'), { timeout: 5000 });
+      assert.deepEqual(await page.evaluate(() => window.__clips), []);
+    },
+    expected: ['Thread body'],
+  }));
   await check('Crowded overlays use a stable floating control and restore only into free space', () => fixture({
     name: 'YouTube', url: 'https://www.youtube.com/watch?v=placement', ui: true,
     html: '<h1>Video title</h1><div id="actions" style="position:absolute;left:0;top:100px;width:100%;height:40px"><button>Like</button></div><div id="description" style="position:absolute;left:8px;top:148px">Description metadata</div>',
@@ -778,7 +926,9 @@ try {
       await page.setViewport({ width: 390, height: 844 });
       await page.waitForSelector('.cam-floating-wrapper #cam-copy-btn', { timeout: 1500 });
       await page.evaluate(() => { window.__placementWrapper = document.querySelector('.cam-floating-wrapper'); });
+      await page.focus('#cam-copy-btn');
       await new Promise(resolve => setTimeout(resolve, 2200));
+      assert.equal(await page.evaluate(() => document.activeElement?.id), 'cam-copy-btn', 'placement retry dropped keyboard focus');
       assert.equal(await page.evaluate(() => window.__placementWrapper === document.querySelector('.cam-floating-wrapper')), true);
       assert.equal(await page.$('.cam-overlay-container'), null);
       await page.evaluate(() => {

@@ -6,8 +6,10 @@ import { register } from '../core/registry';
 import * as Markdown from '../core/markdown';
 import * as Utils from '../core/utils';
 import { addExtractionMetadata, limitCollection, limitMarkdown } from '../core/context';
+import { labeledCount } from '../core/counts';
 
 const COMMENT_LIMIT = 30;
+const TEXT_SELECTOR = 'h1, [data-testid="post-caption"], [data-testid="comment"], li, figcaption';
 
 interface InstagramPost {
   shortcode: string;
@@ -184,11 +186,12 @@ function extractDomPost(container: Element | null, shortcode: string, routeType:
     || clean(authorLink?.getAttribute('href')?.split('/').filter(Boolean)[0] || authorLink?.textContent || '').replace(/^@/, '');
   post.authorName = attr(container, ['header img[alt]'], 'alt').replace(/['’]s profile picture.*$/i, '').trim()
     || (routeType === 'profile' ? text(container, ['header h1', 'header span']) : '');
-  post.caption = text(container, ['h1', '[data-testid="post-caption"]', 'section + div h1'])
+  post.caption = multilineText(container.querySelector('h1'))
+    || multilineText(container.querySelector('[data-testid="post-caption"]'))
     || (routeType === 'profile' ? clean(Utils.getMeta('description')) : '');
   post.timestamp = attr(container, ['time[datetime]'], 'datetime') || text(container, ['time']);
   post.likes = engagementFromDom(container, /likes?/i, ['section button', 'a[href$="/liked_by/"]', '[data-testid="like-count"]']);
-  post.comments = engagementFromDom(container, /comments?/i, ['a[href*="comments"]', 'button', '[data-testid="comment-count"]']);
+  post.comments = engagementFromDom(container, /comment\p{L}*/iu, ['a[href*="comments"]', 'button', '[data-testid="comment-count"]']);
   post.views = engagementFromDom(container, /views?|plays?/i, ['span', 'div']);
 
   const seenMedia = new Set<string>();
@@ -324,15 +327,18 @@ function extractComments(scope: Element, post: InstagramPost): InstagramComment[
   const seen = new Set<string>();
   nodes.forEach((node) => {
     if (node.closest('nav, header, footer')) return;
-    const timeEl = node.querySelector('time');
-    const authorLink = node.querySelector<HTMLAnchorElement>('h3 a[href^="/"], a[href^="/"]');
+    // A list item can contain nested replies, which are separate comments.
+    const own = (query: string) => Array.from(node.querySelectorAll(query))
+      .filter((element) => element.closest('[data-testid="comment"], li') === node);
+    const timeEl = own('time')[0];
+    const authorLink = own('h3 a[href^="/"]')[0] || own('a[href^="/"]').find((link) => clean(link.textContent || ''));
     const author = clean(authorLink?.textContent || '').replace(/^@/, '');
-    const candidates = Array.from(node.querySelectorAll('span'))
-      .map((span) => clean(span.textContent || ''))
+    const candidates = own('span')
+      .map((span) => multilineText(span))
       .filter((value) => value && value !== author);
     const body = candidates.sort((a, b) => b.length - a.length)[0] || '';
     if (!author || !body || (!timeEl && !node.matches('[data-testid="comment"]'))) return;
-    if (author === post.author && body === post.caption) return;
+    if (author === post.author && clean(body) === clean(post.caption)) return;
     const key = `${author}\n${body}`;
     if (seen.has(key)) return;
     seen.add(key);
@@ -356,12 +362,10 @@ function appendComment(parts: string[], comment: InstagramComment): void {
 function engagementFromDom(scope: ParentNode, label: RegExp, selectors: string[]): string {
   for (const selector of selectors) {
     for (const node of scope.querySelectorAll(selector)) {
-      const textValue = clean(node.textContent || '');
-      const aria = node.getAttribute('aria-label') || '';
-      const combined = `${aria} ${textValue}`.trim();
-      if (!label.test(combined)) continue;
-      const match = combined.match(/[\d,.]+\s*[kmb]?/i);
-      if (match) return match[0];
+      // Numbers in the caption or in a comment are not engagement counts.
+      if (node.closest(TEXT_SELECTOR) || node.querySelector(TEXT_SELECTOR)) continue;
+      const value = labeledCount(`${node.getAttribute('aria-label') || ''} ${clean(node.textContent || '')}`, label);
+      if (value) return value;
     }
   }
   return '';
@@ -397,6 +401,14 @@ function nestedCount(record: Record<string, unknown>, ...paths: string[][]): str
   return '';
 }
 
+/** Captions and comments use br elements, which textContent drops. */
+function multilineText(element: Element | null): string {
+  if (!element) return '';
+  const clone = element.cloneNode(true) as Element;
+  clone.querySelectorAll('br').forEach((lineBreak) => lineBreak.replaceWith('\n'));
+  return (clone.textContent || '').split('\n').map(clean).join('\n').replace(/\n{3,}/g, '\n\n').trim();
+}
+
 function text(scope: ParentNode, selectors: string[]): string {
   for (const selector of selectors) {
     const value = clean(scope.querySelector(selector)?.textContent || '');
@@ -412,6 +424,7 @@ function attr(scope: ParentNode, selectors: string[], name: string): string {
   return '';
 }
 function safeHttpUrl(value: string): string {
+  if (!value) return '';
   try {
     const url = new URL(value, document.baseURI);
     return /^https?:$/.test(url.protocol) ? url.href : '';

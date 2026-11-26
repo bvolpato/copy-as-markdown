@@ -132,6 +132,7 @@ function safeYandexUrl(value: string): string {
     const url = new URL(value, document.baseURI);
     if (!/^https?:$/.test(url.protocol)) return '';
     if (/^yabs\.yandex\./i.test(url.hostname)) return '';
+    if (!/(?:^|\.)(?:yandex\.(?:com\.tr|[a-z]{2,3})|ya\.ru)$/i.test(url.hostname)) return url.href;
     for (const key of ['url', 'u']) {
       const redirected = url.searchParams.get(key);
       if (!redirected) continue;
@@ -142,9 +143,7 @@ function safeYandexUrl(value: string): string {
         // Ignore malformed redirect parameter.
       }
     }
-    if (/(?:^|\.)(?:yandex\.[^/]+|ya\.ru)$/i.test(url.hostname)) {
-      if (/^\/search(?:\/(?:touch|pad))?\/?$/i.test(url.pathname)) return '';
-    }
+    if (/^\/search(?:\/(?:touch|pad))?\/?$/i.test(url.pathname)) return '';
     return url.href;
   } catch {
     return '';

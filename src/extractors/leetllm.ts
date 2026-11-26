@@ -6,6 +6,7 @@
  * navigation, progress controls, editors, and comment UI.
  */
 
+import { replaceMath } from '../core/ai-conversation';
 import { register } from '../core/registry';
 import * as Markdown from '../core/markdown';
 import * as Utils from '../core/utils';
@@ -25,7 +26,7 @@ register({
     const root = findContentRoot(route);
     const h1El = root?.querySelector('h1[itemprop="headline"], h1');
     const title = cleanTitle(
-      (h1El ? Markdown.normalizeWhitespace(Markdown.elementToMarkdown(h1El).replace(/^#+\s*/, '')) : '')
+      (h1El ? headingText(h1El) : '')
       || Utils.getMeta('title')
       || Utils.getPageTitle(),
     ) || 'LeetLLM';
@@ -41,12 +42,11 @@ register({
     addRouteMetadata(metadata, route, root);
 
     const parts: string[] = [`# ${title}`];
-    if (description && !containsText(root, description)) parts.push('', description);
+    const references = root ? extractReferences(root) : [];
+    const cleaned = root ? clean(findBodyRoot(root, route), title, references.length > 0) : null;
+    if (description && !containsText(cleaned, description)) parts.push('', description);
 
-    if (root) {
-      const references = extractReferences(root);
-      const content = findBodyRoot(root, route);
-      const cleaned = clean(content, title, references.length > 0);
+    if (cleaned) {
       const body = Markdown.elementToMarkdown(cleaned).trim();
       if (body) parts.push('', body);
 
@@ -87,11 +87,11 @@ function findContentRoot(route: RouteKind): Element | null {
   const main = document.querySelector('main, [role="main"]');
   if (!main) return document.body;
 
-  if (route === 'lesson' || route === 'blog') {
+  if ((route === 'lesson' || route === 'blog') && hasSlug()) {
     return main.querySelector('article[data-reader-article], article[itemtype*="Article"], article') || main;
   }
 
-  if (route === 'practice' && window.location.pathname.split('/').filter(Boolean).length > 1) {
+  if (route === 'practice' && hasSlug()) {
     const heading = main.querySelector('h1');
     const section = heading?.closest('section');
     return section || main;
@@ -100,12 +100,17 @@ function findContentRoot(route: RouteKind): Element | null {
   return main;
 }
 
+/** Index pages list several articles. */
+function hasSlug(): boolean {
+  return window.location.pathname.split('/').filter(Boolean).length > 1;
+}
+
 function findBodyRoot(root: Element, route: RouteKind): Element {
-  if (route === 'lesson' || route === 'blog') {
+  if ((route === 'lesson' || route === 'blog') && hasSlug()) {
     return root.querySelector('[itemprop="articleBody"], .reader-prose, .prose') || root;
   }
 
-  if (route === 'practice' && window.location.pathname.split('/').filter(Boolean).length > 1) {
+  if (route === 'practice' && hasSlug()) {
     // Prompt and sample tests are the durable educational content. Avoid
     // copying the live code editor and result panes as page chrome.
     return root.querySelector('.practice-markdown, [data-testid="problem-prompt"], [data-problem-body]') || root;
@@ -138,11 +143,16 @@ function clean(element: Element, title: string, stripReferences: boolean): Eleme
   ]);
   const normalizedTitle = normalize(title).toLowerCase();
   for (const heading of clone.querySelectorAll('h1')) {
-    if (cleanTitle(normalize(heading.textContent || '')).toLowerCase() === normalizedTitle) {
+    if (cleanTitle(normalize(headingText(heading))).toLowerCase() === normalizedTitle) {
       heading.remove();
     }
   }
+  replaceMath(clone);
   return clone;
+}
+
+function headingText(heading: Element): string {
+  return Markdown.normalizeWhitespace(Markdown.elementToMarkdown(heading).replace(/^#+\s*/, ''));
 }
 
 function extractReferences(root: Element): Array<{ title: string; href: string }> {
