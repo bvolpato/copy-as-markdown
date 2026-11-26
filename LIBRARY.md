@@ -62,6 +62,8 @@ const matcher = createExtractorMatcher({
 
 See `exports` in [package.json](package.json) for the extractors that have a subpath. All other extractors load through `loadExtractor(id)`.
 
+A plain script without a bundler can load `dist/library/browser.js`, which sets the global `CopyAsMarkdown`.
+
 ### Restrict a matcher
 
 | Option | Meaning |

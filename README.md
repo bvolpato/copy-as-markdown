@@ -95,7 +95,7 @@ Language models read structure better than loose text, and Markdown keeps the st
 | [GitHub issue thread](https://github.com/microsoft/TypeScript/issues/9998) | 936,857 | 36,820 | 4% |
 | [PyPI package](https://pypi.org/project/requests/) | 353,729 | 8,906 | 3% |
 | [Guardian article](https://www.theguardian.com/commentisfree/2022/jul/15/the-guardian-view-on-the-james-webb-telescope-a-window-on-the-unknown) | 342,150 | 5,534 | 2% |
-| [MDN reference page](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Array/map) | 88,950 | 12,460 | 14% |
+| [MDN reference page](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Array/map) | 88,961 | 12,599 | 14% |
 | [arXiv paper](https://arxiv.org/html/1706.03762v7) | 188,288 | 40,020 | 21% |
 | [Hacker News thread](https://news.ycombinator.com/item?id=8863) | 101,315 | 28,549 | 28% |
 

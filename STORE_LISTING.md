@@ -63,8 +63,8 @@ English
 
 Upload these 3 images from `docs/screenshots/`:
 
-1. `1-wikipedia.png`: a Wikipedia article with the inline button and the success message
-2. `2-github.png`: a GitHub source file with the success message
+1. `1-wikipedia.png`: a Wikipedia article with the success message of the extension
+2. `2-github.png`: a GitHub source file with the success message of the extension
 3. `3-before-after.png`: excerpts of the same Wikipedia article, as a plain copy and as Markdown
 
 All three are real captures of live pages. Do not use generated images.
