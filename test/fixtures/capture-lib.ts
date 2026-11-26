@@ -45,17 +45,21 @@ function isPrivateIpv4(address: string): boolean {
   const octets = address.split('.').map(Number);
   return octets[0] === 10
     || octets[0] === 127
+    || (octets[0] === 100 && octets[1] >= 64 && octets[1] <= 127)
     || (octets[0] === 169 && octets[1] === 254)
     || (octets[0] === 172 && octets[1] >= 16 && octets[1] <= 31)
     || (octets[0] === 192 && octets[1] === 168)
+    || (octets[0] === 192 && octets[1] === 0 && octets[2] === 0)
+    || (octets[0] === 198 && (octets[1] === 18 || octets[1] === 19))
     || (octets[0] === 0)
     || octets[0] >= 224;
 }
 
-function mappedIpv4Address(address: string): string | null {
-  const dotted = address.match(/^::ffff:(\d+\.\d+\.\d+\.\d+)$/i);
+/** Return the IPv4 part of a mapped, compatible, translated, or NAT64 address. */
+function embeddedIpv4Address(address: string): string | null {
+  const dotted = address.match(/^(?:::(?:ffff:(?:0:)?)?|64:ff9b::)(\d+\.\d+\.\d+\.\d+)$/i);
   if (dotted) return dotted[1];
-  const hexadecimal = address.match(/^::ffff:([\da-f]{1,4}):([\da-f]{1,4})$/i);
+  const hexadecimal = address.match(/^(?:::(?:ffff:(?:0:)?)?|64:ff9b::)([\da-f]{1,4}):([\da-f]{1,4})$/i);
   if (!hexadecimal) return null;
   const high = Number.parseInt(hexadecimal[1], 16);
   const low = Number.parseInt(hexadecimal[2], 16);
@@ -66,21 +70,12 @@ function isPrivateAddress(address: string): boolean {
   if (net.isIPv4(address)) return isPrivateIpv4(address);
   if (!net.isIPv6(address)) return true;
   const normalized = address.toLowerCase();
-  const mappedIpv4 = mappedIpv4Address(normalized);
-  if (mappedIpv4) return isPrivateIpv4(mappedIpv4);
-  return normalized === '::1'
-    || normalized === '::'
-    || normalized.startsWith('fc')
-    || normalized.startsWith('fd')
-    || normalized.startsWith('fe8')
-    || normalized.startsWith('fe9')
-    || normalized.startsWith('fea')
-    || normalized.startsWith('feb')
-    || normalized.startsWith('fec')
-    || normalized.startsWith('fed')
-    || normalized.startsWith('fee')
-    || normalized.startsWith('fef')
-    || normalized.startsWith('ff')
+  const embeddedIpv4 = embeddedIpv4Address(normalized);
+  if (embeddedIpv4) return isPrivateIpv4(embeddedIpv4);
+  // Only 2000::/3 is global unicast. Teredo and 6to4 addresses can route to a private IPv4 address.
+  return !/^[23][\da-f]{3}:/.test(normalized)
+    || /^2001:0?:/.test(normalized)
+    || normalized.startsWith('2002:')
     || normalized.startsWith('2001:db8:');
 }
 

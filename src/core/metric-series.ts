@@ -71,8 +71,8 @@ export function metricSeriesToMarkdown(
         const steps = points.map(({ step }) => step).filter(isFiniteNumber);
         const stepRange = steps.length > 0
           ? steps[0] === steps[steps.length - 1]
-            ? formatNumber(steps[0])
-            : `${formatNumber(steps[0])} to ${formatNumber(steps[steps.length - 1])}`
+            ? formatStep(steps[0])
+            : `${formatStep(steps[0])} to ${formatStep(steps[steps.length - 1])}`
           : '';
         return [
           escapeCell(name),
@@ -164,7 +164,7 @@ function metricPointsTable(points: MetricPoint[]): string {
   const hasTime = points.some(({ timestamp }) => timestamp !== undefined);
   const headers = [hasStep ? 'Step' : 'Index', ...(hasTime ? ['Time'] : []), 'Value'];
   const rows = points.map((point, index) => [
-    point.step === undefined ? String(index) : formatNumber(point.step),
+    point.step === undefined ? String(index) : formatStep(point.step),
     ...(hasTime ? [point.timestamp === undefined ? '' : formatTimestamp(point.timestamp)] : []),
     formatNumber(point.value),
   ]);
@@ -204,6 +204,11 @@ function formatTimestamp(value: number): string {
   else if (abs >= 1e14) milliseconds = value / 1e3;
   const date = new Date(milliseconds);
   return Number.isNaN(date.getTime()) ? String(value) : date.toISOString();
+}
+
+/** Steps identify rows, so rounding a large one would make different rows look the same. */
+function formatStep(value: number): string {
+  return Number.isSafeInteger(value) ? String(value) : formatNumber(value);
 }
 
 function formatNumber(value: number): string {

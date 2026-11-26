@@ -2,9 +2,11 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import puppeteer from 'puppeteer';
 import * as library from '../dist/library/index.js';
+import { SITE_CASES } from './fixtures/site-cases.js';
 import { DISCUSSION_CASES } from './fixtures/discussion-cases.js';
 import { BITBUCKET_CASES } from './fixtures/bitbucket-cases.js';
 import { GITHUB_CASES } from './fixtures/github-cases.js';
+import { WORKSPACE_CASES } from './fixtures/workspace-cases.js';
 
 await library.loadAllExtractors();
 const failures = [];
@@ -34,6 +36,24 @@ await check('Subdomain patterns include the base host and arbitrary ports', () =
   for (const url of ['file://example.test/content/a', 'https://example.test/CONTENT/a', 'https://example.test.evil/content/a']) {
     assert.equal(matcher.match({ url }), null, url);
   }
+});
+await check('URL patterns ignore fragments and match IPv6 hosts', () => {
+  const match = (pattern, url) => {
+    const extractor = library.defineExtractor({ name: 'Pattern', matches: [pattern], extract: async () => '' });
+    const custom = library.defineExtractor({ name: 'Restricted', matches: [], regex: /./, extract: async () => '' });
+    const results = [
+      library.createExtractorMatcher({ extractors: [extractor] }).match({ url }),
+      library.createExtractorMatcher({ extractors: [custom], urlPatterns: [pattern] }).match({ url }),
+    ].map(Boolean);
+    assert.equal(results[0], results[1], `${pattern} ${url}`);
+    return results[0];
+  };
+  assert.equal(match('https://example.test/page', 'https://example.test/page#section'), true);
+  assert.equal(match('https://example.test/page', 'https://example.test/page?query#section'), false);
+  assert.equal(match('https://example.test/#/issues/*', 'https://example.test/#/issues/1'), true);
+  assert.equal(match('*://*/*', 'http://[::1]:5000/page'), true);
+  assert.equal(match('http://[::1]:5000/*', 'http://[::1]:5000/page'), true);
+  assert.equal(match('*://*/*', 'https://[::1]@unrelated.example/page'), false);
 });
 await check('X and Hacker News reject unrelated route suffixes', async () => {
   const x = await library.loadExtractor('x-twitter');
@@ -66,7 +86,7 @@ const browser = await puppeteer.launch({ headless: 'shell', args: ['--no-sandbox
 const browserCode = fs.readFileSync(new URL('../dist/library/browser.js', import.meta.url), 'utf8');
 const userscript = fs.readFileSync(new URL('../dist/userscript/copy-as-markdown.user.js', import.meta.url), 'utf8');
 const repeat = (count, make) => Array.from({ length: count }, (_, index) => make(index)).join('');
-async function fixture({ url, name, html, head = '<title>Catalog fixture</title>', resources = {}, expected = [], excluded = [], ordered = [], occurrences = {}, ui = false, afterLoad }) {
+async function fixture({ url, name, html, option, head = '<title>Catalog fixture</title>', resources = {}, expected = [], excluded = [], ordered = [], occurrences = {}, ui = false, afterLoad }) {
   const context = await browser.createBrowserContext();
   const page = await context.newPage();
   try {
@@ -81,12 +101,12 @@ async function fixture({ url, name, html, head = '<title>Catalog fixture</title>
     await page.addScriptTag({ content: browserCode });
     if (ui) await page.addScriptTag({ content: userscript });
     if (afterLoad) await afterLoad(page);
-    const output = await page.evaluate(async ({ name }) => {
+    const output = await page.evaluate(async ({ name, option }) => {
       await CopyAsMarkdown.loadAllExtractors();
       const match = CopyAsMarkdown.createExtractorMatcher().match({ url: location.href, document });
       if (match?.name !== name) throw new Error(`Expected ${name}, got ${match?.name}`);
-      return match.extract();
-    }, { name });
+      return match.extract(option);
+    }, { name, option });
     for (const value of expected) assert.ok(output.includes(value), `Missing ${JSON.stringify(value)}`);
     for (const value of excluded) assert.ok(!output.includes(value), `Unexpected ${JSON.stringify(value)}`);
     let previous = -1;
@@ -102,9 +122,31 @@ async function fixture({ url, name, html, head = '<title>Catalog fixture</title>
 }
 
 try {
-  for (const fixtureCase of [...DISCUSSION_CASES, ...BITBUCKET_CASES, ...GITHUB_CASES]) {
+  for (const fixtureCase of [...DISCUSSION_CASES, ...BITBUCKET_CASES, ...GITHUB_CASES, ...WORKSPACE_CASES]) {
     await check(fixtureCase.id, () => fixture(fixtureCase));
   }
+  await check('Selection copies drop session credentials from links, images, and link text', async () => {
+    const context = await browser.createBrowserContext();
+    const page = await context.newPage();
+    try {
+      await page.setRequestInterception(true);
+      page.on('request', request => request.isNavigationRequest() ? request.respond({ contentType: 'text/html', body: `<!doctype html><title>Selection</title><main>
+        <p>Selected <img alt="chart" src="https://media-cdn.atlassian.com/file/1/image?token=SECRET" srcset="https://media-cdn.atlassian.com/file/1/image?token=SECRET 2x"></p>
+        <p><a href="https://attachment.outlook.live.net/s/GetFileAttachment?id=1&amp;token=SECRET">https://attachment.outlook.live.net/s/GetFileAttachment?id=1&amp;token=SECRET</a></p></main>` }) : request.abort());
+      await page.goto('https://acme.atlassian.net/wiki/spaces/ENG/pages/6/Selection');
+      await page.evaluate(() => {
+        window.chrome = { runtime: { onMessage: { addListener: listener => { window.copyListener = listener; } } } };
+        Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText: async text => { window.copied = text; } } });
+        getSelection().selectAllChildren(document.querySelector('main'));
+      });
+      await page.addScriptTag({ content: fs.readFileSync(new URL('../dist/chrome/content.js', import.meta.url), 'utf8') });
+      await page.evaluate(() => new Promise(resolve => window.copyListener({ action: 'copy-as-markdown' }, null, resolve)));
+      const copied = await page.evaluate(() => window.copied);
+      assert.ok(copied.includes('![chart](https://media-cdn.atlassian.com/file/1/image)'), copied);
+      assert.equal(copied.split('\n').at(-1), 'https://attachment.outlook.live.net/s/GetFileAttachment');
+      assert.ok(!copied.includes('SECRET'), copied);
+    } finally { await context.close(); }
+  });
   await check('Reddit includes sibling comment threads and excludes sidebar comments', () => fixture({
     name: 'Reddit', url: 'https://www.reddit.com/r/markdown/comments/abc123/thread/',
     html: `<main><shreddit-post data-post-id="t3_abc123" author="poster" score="42" comment-count="2">
@@ -117,6 +159,9 @@ try {
       '## Comments (2 loaded)', '**reader** (5 points):', '> Top-level comment', '> **reply-author** (2 points):', '> > Nested reply'],
     excluded: ['Unrelated sidebar comment'],
   }));
+  for (const fixtureCase of SITE_CASES) {
+    await check(fixtureCase.id, () => fixture(fixtureCase));
+  }
   await check('Reddit retains comments nested inside the post', () => fixture({
     name: 'Reddit', url: 'https://new.reddit.com/r/markdown/comments/abc123/thread/',
     html: '<div class="Post" data-post-id="t3_abc123"><h1>Classic post</h1><div data-testid="post-selftext"><p>Classic body</p></div><div class="Comment"><a class="author">classic-reader</a><div class="md"><p>Classic comment</p></div></div></div>',
@@ -236,6 +281,51 @@ try {
   await check('GitLab preserves rendered files beyond 500000 characters', () => fixture({
     name: 'GitLab', url: 'https://gitlab.com/team/project/-/blob/main/large.txt', html: `<main><div class="blob-content"><pre>${'a'.repeat(500_010)}FILE_END</pre></div></main>`, expected: ['FILE_END'], excluded: ['Content truncated'],
   }));
+  await check('GitLab joins source viewer chunks without their highlighted copies', () => fixture({
+    name: 'GitLab', url: 'https://gitlab.com/team/project/-/blob/main/app.go',
+    html: `<main><div class="blob-viewer"><div class="file-content">
+      <pre><code data-testid="content">package main\n</code><code inert><div>package main</div></code></pre><pre><code data-testid="content">func main() {}\n</code></pre>
+    </div></div></main>`,
+    expected: ['```go\npackage main\n\nfunc main() {}\n```'], occurrences: { 'package main': 1 },
+  }));
+  await check('GitLab merge requests keep note authors, repeated replies, and diff markers', () => fixture({
+    name: 'GitLab', url: 'https://gitlab.com/team/project/-/merge_requests/5/diffs',
+    html: `<main><div data-testid="rd-diff-file"><a class="rd-diff-file-link">a.<wbr>go</a><table><tbody>
+        <tr><td class="rd-hunk-header-content">@@ -1 +1 @@</td></tr>
+        <tr><td class="rd-line-content" data-change="removed"><pre class="rd-line-text">old()\n</pre></td></tr>
+        <tr><td class="rd-line-content" data-change="added"><pre class="rd-line-text">new()\n</pre></td></tr>
+        <tr><td class="rd-line-content"><pre class="rd-line-text">same()\n</pre></td><td class="rd-line-content"><pre class="rd-line-text">same()\n</pre></td></tr>
+      </tbody></table></div>
+      ${['Ada', 'Grace'].map(author => `<div data-testid="note-wrapper"><a class="author-name-link"><span data-testid="author-name">${author}</span></a><div class="note-text md"><p>LGTM</p></div></div>`).join('')}</main>`,
+    expected: ['### a.go\n\n```diff\n@@ -1 +1 @@\n-old()\n+new()\n same()\n```', '### Ada\n\nLGTM', '### Grace\n\nLGTM'],
+  }));
+  await check('Forgejo issues and files do not repeat comments or double line breaks', async () => {
+    await fixture({
+      name: 'Codeberg / Gitea', url: 'https://codeberg.org/organizers/project/issues/3',
+      html: `<div class="repo-header"><a class="muted">organizers</a>/<a class="muted">project</a></div><div id="issue-title-display"><h1>Title <span class="index">#3</span></h1><a role="button">New issue</a></div>
+        <div class="timeline-item comment"><div class="content comment-container"><div class="comment-header-left"><a class="author">ada</a></div><div class="render-content markup"><p>Only once.</p></div></div></div>`,
+      expected: ['# Title #3', '## ada'], excluded: ['New issue'], occurrences: { 'Only once.': 1 },
+    });
+    await fixture({
+      name: 'Codeberg / Gitea', url: 'https://codeberg.org/team/project/src/branch/main/issues/7/app.go',
+      html: '<div class="file-view"><table><tbody><tr><td class="lines-code"><code class="code-inner">package main\n</code></td></tr><tr><td class="lines-code"><code class="code-inner">func main() {}\n</code></td></tr></tbody></table></div>',
+      expected: ['```go\npackage main\nfunc main() {}\n```'],
+    });
+  });
+  await check('Bitbucket reads source files and current pull request headers', async () => {
+    await fixture({
+      name: 'Bitbucket', url: 'https://bitbucket.org/team/src/src/main/app.js', html: '<main><div role="code"></div></main>',
+      resources: { '/team/src/raw/main/app.js': { contentType: 'text/plain', body: 'run();\n' } }, expected: ['```js\nrun();\n```'],
+    });
+    await fixture({
+      name: 'Bitbucket', url: 'https://bitbucket.org/team/project/pull-requests/9/diff',
+      html: `<main><div data-testid="pr-header"><div data-qa="pr-header-author"><span hidden>Ada Example</span></div><div data-qa="pr-branches-and-state-styles"><div>from</div><div>To</div><div>main</div><div>Merged</div></div><span>#9 • Created 2026-08-24 • Last updated 2026-09-01</span></div>
+        <article data-qa="branch-diff-file"><h2 data-qa="bk-filepath">app.js</h2><div><div>@@ -1 +1 @@</div><div data-qa="code-line"><pre><span>-</span><span>old();</span></pre></div><div data-qa="code-line"><pre><span>+</span><span>run();</span></pre></div></div></article>
+        <div data-testid="pr-diff-placeholder-wrapper"></div><div data-testid="pr-cards-list"><time datetime="2026-09-02"></time></div>
+        <div data-testid="comment"><span data-testid="comment-header"><span role="presentation">Grace</span></span><time datetime="2026-09-01"></time><div data-testid="comment-content"><p>Looks right.</p></div></div></main>`,
+      expected: ['**Status:** Merged', '**Author:** Ada Example', '**Created:** 2026-08-24', '```diff\n@@ -1 +1 @@\n-old();\n+run();\n```', '*1 changed files are not rendered yet.', '### Grace (2026-09-01)'],
+    });
+  });
   await check('YouTube preserves all loaded comments and transcript segments', () => fixture({
     name: 'YouTube', url: 'https://www.youtube.com/watch?v=audit',
     html: `<h1>Video</h1>${repeat(25, i => `<ytd-comment-thread-renderer><span id="author-text">Author ${i}</span><div id="content-text">Comment ${i}</div></ytd-comment-thread-renderer>`)}${repeat(505, i => `<ytd-transcript-segment-renderer><span class="segment-text">Transcript ${i}</span></ytd-transcript-segment-renderer>`)}`,
@@ -268,8 +358,8 @@ try {
     name: 'FOX', url: 'https://www.fox.com/shows/audit', html: '<main><h1>Show</h1><div class="details"><p data-testid="description">Synopsis</p><p>Additional episode detail</p></div></main>', expected: ['Synopsis', 'Additional episode detail'],
   }));
   await check('Current PyPI headers preserve package version and summary', () => fixture({
-    name: 'PyPI', url: 'https://pypi.org/project/requests/', html: '<h1 class="project-header__name">requests 2.34.2</h1><p class="project-header__summary">Python HTTP for Humans.</p><div class="project-description"><p>Package README</p></div>',
-    expected: ['# requests 2.34.2', 'Python HTTP for Humans.', 'Package README'],
+    name: 'PyPI', url: 'https://pypi.org/project/requests/', html: '<h1 class="project-header__name">requests 2.34.2</h1><p class="project-header__summary">Python HTTP for Humans.</p><div class="sidebar-section"><h2 class="sidebar-section__title">License</h2><div class="sidebar-section__data-block"><p>Apache-2.0</p></div></div><div class="project-description"><p>Package README</p></div>',
+    expected: ['title: requests 2.34.2', '# requests 2.34.2', 'Python HTTP for Humans.', '**License:** Apache-2.0', 'Package README'],
   }));
   await check('npm reads the version rather than a repository link and retains sidebar fields', () => fixture({
     name: 'NPM', url: 'https://www.npmjs.com/package/tsx', html: '<main id="top"><h1 class="flex"><span>tsx</span></h1><span>4.7.0 • </span><div class="fdbf4038"><a class="f2874b88" aria-labelledby="repository" href="https://github.com/privatenumber/tsx">Git repository</a><h3>License</h3><p class="f2874b88">MIT</p><h3>Total Files</h3><p class="f2874b88">35</p></div><div id="readme"><p>Package README</p></div></main>', ui: true,
@@ -305,6 +395,27 @@ try {
   }));
   await check('Wikipedia preserves citations and reference targets', () => fixture({
     name: 'Wikipedia', url: 'https://en.wikipedia.org/wiki/Audit', html: '<h1 id="firstHeading">Audit</h1><main id="mw-content-text"><p>Claim<sup class="reference"><a href="#cite-note-1">[1]</a></sup></p><div class="reflist"><ol><li id="cite-note-1"><a href="https://source.example/paper">Reference title</a></li></ol></div></main>', expected: ['[1]', 'Reference title', 'https://source.example/paper'],
+  }));
+  for (const [renderer, math, expected = 'Formula $E=mc^{2}$ here.'] of [
+    ['legacy', '<span class="mwe-math-element"><span class="mwe-math-mathml-inline mwe-math-mathml-a11y" style="display: none"><math alttext="{\\displaystyle E=mc^{2}}"></math></span><img class="mwe-math-fallback-image-inline" aria-hidden="true" alt="{\\displaystyle E=mc^{2}}" src="https://example.org/math.svg"></span>'],
+    ['Parsoid', `<span class="mwe-math-mathml-a11y" style="display: none"><math class="mwe-math-element" data-mw='{"body":{"extsrc":"E=mc^{2}"}}'><mi>E</mi></math></span><mjx-container><svg></svg></mjx-container>`],
+    ['MathML', '<span class="mwe-math-mathml-a11y" style="display: none"><math class="mwe-math-element"><mi>E</mi><mo>=</mo><mi>m</mi><msup><mi>c</mi><mn>2</mn></msup></math></span>', 'Formula E=mc^(2) here.'],
+  ]) {
+    await check(`Wikipedia keeps ${renderer} math`, () => fixture({
+      name: 'Wikipedia', url: 'https://en.wikipedia.org/wiki/Energy', html: `<h1 id="firstHeading">Energy</h1><main id="mw-content-text"><p>Formula ${math} here.</p></main>`,
+      expected: [expected],
+    }));
+  }
+  await check('MDN reads code examples and compatibility tables from nested shadow roots', () => fixture({
+    name: 'MDN Web Docs', url: 'https://developer.mozilla.org/en-US/docs/Web/Example',
+    html: '<main id="content"><h1>Example</h1><details class="baseline-indicator"><summary><div class="status-title">Baseline</div><div class="pill">Widely available</div></summary><p>Support text</p></details><h2>Syntax</h2><mdn-code-example class="brush: js notranslate"></mdn-code-example><mdn-compat-table-lazy></mdn-compat-table-lazy></main>',
+    afterLoad: page => page.evaluate(() => {
+      document.querySelector('mdn-code-example').attachShadow({ mode: 'open' }).innerHTML = '<div class="example-header">js</div><pre class="brush: js"><code>run();\n</code></pre>';
+      const lazy = document.querySelector('mdn-compat-table-lazy').attachShadow({ mode: 'open' });
+      lazy.innerHTML = '<mdn-compat-table></mdn-compat-table>';
+      lazy.firstChild.attachShadow({ mode: 'open' }).innerHTML = '<table class="bc-table"><tr><th>Feature</th></tr><tr><td>Chrome 1</td></tr></table>';
+    }),
+    expected: ['**Status:** Baseline Widely available', '## Syntax\n\n```js\nrun();\n```', 'Support text', '| Chrome 1 |'], occurrences: { 'Widely available': 1 },
   }));
   await check('Datadog documentation fallback retains code-toolbar contents', () => fixture({
     name: 'Datadog Documentation', url: 'https://docs.datadoghq.com/audit/', html: '<main id="mainContent"><h1>Audit</h1><div class="code-toolbar"><pre><code class="language-python">print("CODE_END")</code></pre><div class="toolbar"><button>Copy noise</button></div></div></main>', expected: ['CODE_END', '```python'], excluded: ['Copy noise'],
@@ -459,6 +570,44 @@ try {
     },
     expected: ['Newsletter body'],
   }));
+  await check('Floating copy button stays in place when a tooltip popover opens elsewhere', () => fixture({
+    name: 'Substack', url: 'https://newsletter.substack.com/p/tooltip',
+    html: '<div id="tooltip" popover="manual" style="position:fixed;inset:auto;left:0;top:0;margin:0;width:120px;height:24px;overflow:hidden;transform:translate(300px,200px)">Tooltip</div><h1 class="post-title">Newsletter title</h1><div class="body markup"><p>Newsletter body</p></div>',
+    ui: true,
+    afterLoad: async page => {
+      await page.waitForSelector('.cam-floating-wrapper #cam-copy-btn');
+      const placement = () => page.evaluate(() => {
+        const { left, top } = document.querySelector('#cam-copy-btn').getBoundingClientRect();
+        return { left, top, parent: document.querySelector('.cam-floating-wrapper').parentElement.tagName };
+      });
+      const before = await placement();
+      await page.evaluate(() => document.querySelector('#tooltip').showPopover());
+      await new Promise(resolve => setTimeout(resolve, 200));
+      assert.deepEqual(await placement(), before);
+    },
+    expected: ['Newsletter body'],
+  }));
+  await check('Floating copy button stays inside a transformed modal at a saved position', () => fixture({
+    name: 'Substack', url: 'https://newsletter.substack.com/p/transformed-modal',
+    html: '<dialog id="site-dialog" style="position:fixed;left:50%;top:50%;margin:0;width:400px;height:300px;transform:translate(-50%,-50%)"></dialog><script>localStorage.setItem("cam-position:newsletter.substack.com", JSON.stringify({ left: 700, top: 500 }))</script><h1 class="post-title">Newsletter title</h1><div class="body markup"><p>Newsletter body</p></div>',
+    ui: true,
+    afterLoad: async page => {
+      await page.waitForSelector('.cam-floating-wrapper #cam-copy-btn');
+      await page.evaluate(() => document.querySelector('#site-dialog').showModal());
+      await page.waitForSelector('#site-dialog #cam-copy-btn');
+      assert.equal(await page.evaluate(() => {
+        const button = document.querySelector('#cam-copy-btn');
+        const rect = button.getBoundingClientRect();
+        return button.contains(document.elementFromPoint(rect.left + rect.width / 2, rect.top + rect.height / 2));
+      }), true);
+      await page.evaluate(() => document.querySelector('#site-dialog').close());
+      await page.waitForFunction(() => {
+        const rect = document.querySelector('html > .cam-floating-wrapper')?.getBoundingClientRect();
+        return rect?.left === 700 && rect.top === 500;
+      });
+    },
+    expected: ['Newsletter body'],
+  }));
   await check('Floating copy button preserves an active drag while an overlay blocks its anchor', () => fixture({
     name: 'Globo', url: 'https://g1.globo.com/news/noticia/drag.ghtml',
     html: '<article><h1>Article title</h1><p>Article body</p></article>', ui: true,
@@ -526,6 +675,63 @@ try {
     name: 'Sphinx / Read the Docs', url: 'https://requests.readthedocs.io/en/latest/', html: '<div class="document"><div class="body" role="main"><h1>Guide</h1><p>Documentation body</p><pre>Code sample</pre></div></div><main><dl><dt>Footer label</dt><dd>Footer noise</dd></dl></main>',
     expected: ['Documentation body', 'Code sample'], excluded: ['Footer noise'],
   }));
+  for (const [framework, { head = '', html, ...checks }] of Object.entries({
+    'Docusaurus blog lists': {
+      head: '<meta name="generator" content="Docusaurus v3.10">',
+      html: '<main><article><header><h2><a href="/blog/one">One</a></h2></header><p>First post.</p></article><article><header><h2><a href="/blog/two">Two</a></h2></header><p>Second post.</p></article></main>',
+      expected: ['## [One](https://docs.example.org/blog/one)', 'First post.', '## [Two](https://docs.example.org/blog/two)', 'Second post.'],
+    },
+    'Docusaurus code lines and titles': {
+      head: '<meta name="generator" content="Docusaurus v3.10">',
+      html: '<div class="theme-doc-markdown"><header><h1>Clients for C#</h1><p>Page summary.</p></header><pre class="language-bash"><code><div class="token-line"># install<br></div><div class="token-line">run<br></div></code></pre></div>',
+      expected: ['title: Clients for C#', '# Clients for C#', 'Page summary.', '```bash\n# install\nrun\n```'],
+    },
+    'Starlight code lines': {
+      html: '<main><h1>Guide</h1><div class="sl-markdown-content"><pre data-language="js"><code><div class="ec-line"><div class="code">one();</div></div><div class="ec-line"><div class="code">two();</div></div></code></pre></div></main>',
+      expected: ['```js\none();\ntwo();\n```'],
+    },
+    'VuePress headings': {
+      head: '<meta name="generator" content="VuePress 2">',
+      html: '<main class="theme-default-content"><h1><a class="header-anchor" href="#guide"><span>Guide</span></a></h1><h2><a class="header-anchor" href="#setup"><span>Setup</span></a></h2><p>Text.</p></main>',
+      expected: ['# Guide', '## Setup'],
+    },
+    'GitBook paragraphs': {
+      html: '<div data-content-ref-root><h1>Guide</h1><div data-ask-ai-paragraph class="group/ask-ai"><p>Paragraph text.</p><button>Ask</button></div></div>',
+      expected: ['Paragraph text.'],
+    },
+    'MkDocs tabs and math': {
+      head: '<meta name="generator" content="mkdocs-1.6">',
+      html: '<article class="md-content__inner"><h1>Guide</h1><div class="tabbed-set"><div class="tabbed-labels"><label>C</label><label>C++</label></div><div class="tabbed-content"><div class="tabbed-block"><p>First.</p></div><div class="tabbed-block"><p>Second.</p></div></div></div><p>Let <span class="katex"><span class="katex-mathml"><math><semantics><mi>x</mi><annotation encoding="application/x-tex">x^2</annotation></semantics></math></span><span aria-hidden="true">x2</span></span>.</p></article>',
+      expected: ['Let $x^2$.'], ordered: ['**C**', 'First.', '**C++**', 'Second.'],
+    },
+  })) {
+    await check(`Documentation keeps ${framework}`, () => fixture({
+      name: 'Sphinx / Read the Docs', url: 'https://docs.example.org/guide', head: `<title>Guide</title>${head}`, html, ...checks,
+    }));
+  }
+  await check('Redoc keeps endpoint paths, response codes, and nested property names', () => fixture({
+    name: 'OpenAPI Docs', url: 'https://api.example.org/', html: `<div class="redoc-wrap"><div class="api-content"><h1>API</h1>
+      <button><span class="http-verb get">get</span><span>/items</span></button><button><strong>200</strong><div><p>Success</p></div></button><button>Copy noise</button>
+      <table><tr><td><button aria-label="expand owner"><span class="property-name">owner</span></button></td><td>object</td></tr></table></div></div>`,
+    expected: ['`GET /items`', '**200** Success', '| owner | object |'], excluded: ['Copy noise'],
+  }));
+  await check('Grafana reads current panels and legend names', () => fixture({
+    name: 'Grafana', url: 'https://grafana.example/d/abc/board', html: `<div class="grafana-app"><section data-testid="data-testid Panel header Power"><h2>Power</h2><div data-testid="data-testid panel content">
+      <div data-testid="data-testid VizLegend series Energy"><button>Energy</button><ul><li>Last: 226 W</li></ul></div></div></section></div>`,
+    expected: ['## Power', 'Energy'], ordered: ['Energy', 'Last: 226 W'],
+  }));
+  await check('Datadog notebooks do not show formula inputs as the plotted series', () => fixture({
+    name: 'Datadog Notebook', url: 'https://app.datadoghq.com/notebook/7/example',
+    html: '<h1 class="NotebookTitle__text">Rates</h1><div class="ProseMirror" contenteditable><div class="node-widget react-renderer"><div data-qa="cell" data-cell="a"><div data-cell-id="a" data-test-cell-type="timeseries"><button data-toc-graph-title="Error rate">Error rate</button></div></div></div></div>',
+    resources: {
+      '/api/v1/notebooks/7': { contentType: 'application/json', body: JSON.stringify({ data: { attributes: { time: { live_span: '1h' }, cells: [{ id: 'a', attributes: { definition: { type: 'timeseries', requests: [{
+        formulas: [{ formula: 'errors / hits * 100' }],
+        queries: ['errors', 'hits'].map(name => ({ data_source: 'metrics', name, query: `sum:app.${name}{*}` })),
+      }] } } }] } } }) },
+      '/api/v1/query': { contentType: 'application/json', body: JSON.stringify({ series: [{ display_name: 'app.value', pointlist: [[1, 5], [2, 7]] }] }) },
+    },
+    expected: ['### Error rate'], excluded: ['app.value'],
+  }));
   await check('Anchored copy controls never appear in converted article content', () => fixture({
     name: 'News (Generic)', url: 'https://www.foxnews.com/science/audit', html: '<article><div class="article-header"><h1>Article title</h1></div><p>Article body</p></article>', ui: true,
     afterLoad: page => page.waitForSelector('#cam-copy-btn'), expected: ['Article body'], excluded: ['Copy as Markdown'],
@@ -536,6 +742,28 @@ try {
     resources: { '/graphql': { headers: { 'Access-Control-Allow-Origin': 'https://wandb.ai', 'Access-Control-Allow-Credentials': 'true' }, contentType: 'application/json', body: JSON.stringify({ data: { project: { run: {
       displayName: 'Audit', notes: 'n'.repeat(10_010) + 'NOTES_END', config: Object.fromEntries(Array.from({ length: 101 }, (_, i) => [`param-${i}`, 'v'.repeat(2010) + `VALUE_END_${i}`])),
     } } } }) } }, expected: ['NOTES_END', 'VALUE_END_100'],
+  }));
+  await check('W&B keeps metrics that were logged at different steps', () => fixture({
+    name: 'Weights & Biases', url: 'https://wandb.ai/wandb/project/runs/audit', html: '<main>Run</main>',
+    afterLoad: page => page.evaluate(() => {
+      const rows = [{ _step: 1_000_001, loss: 0.5 }, { _step: 1_000_002, loss: 0.25 }, { _step: 1_000_003, accuracy: 0.9 }];
+      window.fetch = async (url, { body }) => {
+        const { variables } = JSON.parse(body);
+        const run = variables.specs
+          ? { sampledHistory: variables.specs.map(spec => rows.filter(row => JSON.parse(spec).keys.every(key => key === '_timestamp' || key in row))) }
+          : { displayName: 'Audit', summaryMetrics: '{}', historyKeys: { keys: Object.fromEntries(['loss', 'accuracy'].map(key => [key, { typeCounts: [{ type: 'number' }] }])) } };
+        return Response.json({ data: { project: { run } } });
+      };
+    }),
+    expected: ['### accuracy', '| 1000003 | 0.9 |', '### loss', '| 1000001 | 0.5 |', '| 1000002 | 0.25 |'],
+  }));
+  await check('MLflow stops when a server repeats a page token and reports the gap', () => fixture({
+    name: 'MLflow', url: 'https://mlflow.example/#/experiments/1/runs/audit', html: '<main class="mlflow-ui-container">Run</main>',
+    resources: {
+      '/ajax-api/2.0/mlflow/runs/get': { contentType: 'application/json', body: JSON.stringify({ run: { info: { run_id: 'audit' }, data: { metrics: [{ key: 'loss', value: 0.5 }] } } }) },
+      '/ajax-api/2.0/mlflow/metrics/get-history': { contentType: 'application/json', body: JSON.stringify({ metrics: [], next_page_token: 'same' }) },
+    },
+    expected: ['### loss', '*1 metric histories are incomplete'],
   }));
   await check('MLflow preserves every parameter and complete values', () => fixture({
     name: 'MLflow', url: 'https://mlflow.example/#/experiments/1/runs/audit', html: '<main class="mlflow-ui-container">Run</main>',
@@ -626,6 +854,71 @@ try {
     },
     expected: ['Article body'],
   }));
+  await check('Anchored copy control does not take Enter from a host form', () => fixture({
+    name: 'Wikipedia', url: 'https://en.wikipedia.org/wiki/Form', ui: true,
+    html: '<form><nav id="p-views"><ul><li>Read</li></ul></nav><input id="query"><button>Search</button></form><h1 id="firstHeading">Form</h1><div id="mw-content-text"><p>Article body</p></div>',
+    afterLoad: async page => {
+      await page.waitForSelector('form #cam-copy-btn');
+      await page.evaluate(() => document.querySelector('form').addEventListener('submit', event => {
+        event.preventDefault();
+        window.__submitter = event.submitter?.textContent;
+      }));
+      await page.focus('#query');
+      await page.keyboard.press('Enter');
+      assert.equal(await page.evaluate(() => window.__submitter), 'Search');
+    },
+    expected: ['Article body'],
+  }));
+  await check('A copy that finishes after an SPA navigation does not replace the clipboard', () => fixture({
+    name: 'Google Docs', url: 'https://docs.google.com/document/d/slow-doc/edit', ui: true, html: '<main>Canvas editor</main>',
+    afterLoad: async page => {
+      await page.waitForSelector('#cam-copy-btn');
+      await page.evaluate(async () => {
+        window.__clips = [];
+        Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText: async text => { window.__clips.push(text); } } });
+        const slow = new Promise(resolve => { window.__releaseSlowExport = resolve; });
+        window.fetch = async url => {
+          const id = String(url).includes('slow-doc') ? 'slow' : 'next';
+          if (id === 'slow') await slow;
+          return new Response(`<html><body><p>Body of ${id} document</p></body></html>`, { headers: { 'Content-Type': 'text/html' } });
+        };
+        document.querySelector('#cam-copy-btn').click();
+        history.pushState({}, '', '/document/d/next-doc/edit');
+        window.__staleButton = document.querySelector('#cam-copy-btn');
+      });
+      await page.waitForFunction(() => {
+        const button = document.querySelector('#cam-copy-btn');
+        return button && button !== window.__staleButton;
+      });
+      await page.evaluate(() => document.querySelector('#cam-copy-btn').click());
+      await page.waitForFunction(() => window.__clips.length === 1);
+      await page.evaluate(() => window.__releaseSlowExport());
+      await page.waitForFunction(() => document.querySelector('#cam-toast')?.textContent.includes('Page changed'));
+      const clips = await page.evaluate(() => window.__clips);
+      assert.equal(clips.length, 1);
+      assert.ok(clips[0].includes('Body of next document'));
+    },
+    expected: ['Body of next document'],
+  }));
+  await check('A Gmail copy that finishes after another thread opens does not reach the clipboard', () => fixture({
+    name: 'Gmail', url: 'https://mail.google.com/mail/u/0/#inbox/FMfcgzQgMMHLwtbqvvsLSmnmFrtzlwhR', ui: true, html: '<main><h2 class="hP">Thread</h2></main>',
+    afterLoad: async page => {
+      await page.waitForSelector('#cam-copy-btn');
+      await page.evaluate(() => {
+        window.__clips = [];
+        Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText: async text => { window.__clips.push(text); } } });
+        window.fetch = async () => {
+          await new Promise(resolve => setTimeout(resolve, 100));
+          return new Response('<div class="maincontent"><table class="message"><tr><td>Sender</td><td>Jul 29</td></tr><tr><td>to me</td></tr><tr><td><p>Thread body</p></td></tr></table></div>');
+        };
+        document.querySelector('#cam-copy-btn').click();
+        location.hash = '#inbox/FMfcgzQgMMHLwtbqvvsLSmnmFrtzlwhS';
+      });
+      await page.waitForFunction(() => document.querySelector('#cam-toast'), { timeout: 5000 });
+      assert.deepEqual(await page.evaluate(() => window.__clips), []);
+    },
+    expected: ['Thread body'],
+  }));
   await check('Crowded overlays use a stable floating control and restore only into free space', () => fixture({
     name: 'YouTube', url: 'https://www.youtube.com/watch?v=placement', ui: true,
     html: '<h1>Video title</h1><div id="actions" style="position:absolute;left:0;top:100px;width:100%;height:40px"><button>Like</button></div><div id="description" style="position:absolute;left:8px;top:148px">Description metadata</div>',
@@ -633,7 +926,9 @@ try {
       await page.setViewport({ width: 390, height: 844 });
       await page.waitForSelector('.cam-floating-wrapper #cam-copy-btn', { timeout: 1500 });
       await page.evaluate(() => { window.__placementWrapper = document.querySelector('.cam-floating-wrapper'); });
+      await page.focus('#cam-copy-btn');
       await new Promise(resolve => setTimeout(resolve, 2200));
+      assert.equal(await page.evaluate(() => document.activeElement?.id), 'cam-copy-btn', 'placement retry dropped keyboard focus');
       assert.equal(await page.evaluate(() => window.__placementWrapper === document.querySelector('.cam-floating-wrapper')), true);
       assert.equal(await page.$('.cam-overlay-container'), null);
       await page.evaluate(() => {

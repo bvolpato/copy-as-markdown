@@ -41,6 +41,7 @@ register({
       parts.push('*No messages found. Make sure a chat is open.*');
     } else {
       let lastDate = '';
+      let incomingSender = '';
       messages.items.forEach((msg) => {
         const dateEl = msg.querySelector('[data-testid="msg-date"], [data-testid="date"], time[datetime]');
         if (dateEl) {
@@ -49,18 +50,24 @@ register({
         }
 
         const preamble = msg.querySelector('[data-pre-plain-text]')?.getAttribute('data-pre-plain-text') || '';
-        const parsed = preamble.match(/^\[([^\]]+)]\s*([^:]+):/);
+        const parsed = preamble.match(/^\[([^\]]+)]\s*(.+?):\s*$/);
+        // An empty labelled element names the sender of a message without text.
         const explicitSender = msg.querySelector('[data-testid="msg-author"] span, [data-testid="msg-author"], [data-testid="author"]')
-          ?.textContent?.trim() || parsed?.[2]?.trim() || '';
-        const sender = explicitSender || fallbackSender(msg, chatName);
-        const time = msg.querySelector('[data-testid="msg-time"], time')?.textContent?.trim()
-          || parsed?.[1]?.trim() || '';
+          ?.textContent?.trim() || parsed?.[2]?.trim()
+          || msg.querySelector('span[aria-label$=":"]:empty')?.getAttribute('aria-label')?.slice(0, -1).trim() || '';
+        const incoming = Boolean(msg.closest('.message-in'));
+        // A group chat names the sender only on the first message of a run, which has the bubble tail.
+        if (msg.querySelector('[data-icon="tail-in"], [data-testid="tail-in"]')) incomingSender = '';
+        const sender = explicitSender || (incoming && incomingSender) || fallbackSender(msg, chatName);
+        incomingSender = incoming ? sender : '';
+        // The preamble also has the date.
+        const time = parsed?.[1]?.trim()
+          || msg.querySelector('[data-testid="msg-time"], time')?.textContent?.trim() || '';
         const bodyElement = findWhatsAppBodyElement(msg);
         const body = bodyElement
-          ? Markdown.elementToMarkdown(Utils.removeNoise(bodyElement, ['button', '[role="button"]', '[aria-hidden="true"]'])).trim()
+          ? Markdown.elementToMarkdown(Utils.removeNoise(cloneWithLineBreaks(bodyElement), ['button', '[role="button"]', '[aria-hidden="true"]'])).trim()
           : '';
-        const quote = msg.querySelector('[data-testid="quoted-message-text"], [data-testid="quoted-message"], .quoted-mention, [aria-label*="Quoted message"]')
-          ?.textContent?.replace(/\s+/g, ' ').trim() || '';
+        const quote = quotedText(msg.querySelector(QUOTED_SELECTOR));
         const attachment = attachmentLabel(msg);
         const reactions = Array.from(msg.querySelectorAll('[data-testid*="reaction"], [aria-label*="reaction" i]'))
           .map((reaction) => (reaction.getAttribute('aria-label') || reaction.textContent || '').trim())
@@ -117,6 +124,39 @@ function fallbackSender(message: Element, chatName: string): string {
   if (message.matches('.message-out') || message.closest('.message-out')) return 'You';
   if (message.matches('.message-in') || message.closest('.message-in')) return chatName || 'Contact';
   return chatName || 'Contact';
+}
+
+function quotedText(quote: Element | null): string {
+  const text = normalize(quote?.textContent || '');
+  const excerpt = normalize(quote?.querySelector('[data-testid="quoted-message-text"], .quoted-mention')?.textContent || '');
+  const author = excerpt && text.endsWith(excerpt) ? text.slice(0, -excerpt.length).trim() : '';
+  return author ? `${author}: ${excerpt}` : text;
+}
+
+/** Message text keeps its line breaks as literal newlines in preformatted elements. */
+function cloneWithLineBreaks(element: Element): Element {
+  const clone = element.cloneNode(true) as Element;
+  const originals = textNodes(element);
+  textNodes(clone).forEach((text, index) => {
+    const parent = originals[index].parentElement;
+    if (!parent || !text.data.includes('\n') || parent.closest('pre, code')) return;
+    if (!/^(?:pre|break-spaces)/.test(getComputedStyle(parent).whiteSpace)) return;
+    text.replaceWith(...text.data.split('\n').flatMap((line, lineIndex) =>
+      lineIndex ? [document.createElement('br'), line] : [line],
+    ));
+  });
+  return clone;
+}
+
+function textNodes(root: Element): Text[] {
+  const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+  const nodes: Text[] = [];
+  while (walker.nextNode()) nodes.push(walker.currentNode as Text);
+  return nodes;
+}
+
+function normalize(value: string): string {
+  return value.replace(/\s+/g, ' ').trim();
 }
 
 function findWhatsAppBodyElement(message: Element): Element | null {

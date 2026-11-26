@@ -7,11 +7,19 @@
  */
 
 import { addExtractionMetadata, limitCollection, limitMarkdown } from '../core/context';
+import { labeledCount } from '../core/counts';
 import * as Markdown from '../core/markdown';
 import { register } from '../core/registry';
 import * as Utils from '../core/utils';
 
 const COMMENT_LIMIT = 30;
+const COMMENT_TEXT_SELECTOR = [
+  '[data-test-id="comment-text"]', '[data-test-id="comment-body"]', '[data-test-id="commentContent"]',
+].join(', ');
+const PIN_TEXT_SELECTOR = [
+  'h1', '[data-test-id="pin-title"]', '[data-test-id="pinTitle"]', '[data-test-id="pin-description"]',
+  '[data-test-id="pinDescription"]', '[data-test-id="closeupDescription"]', '[data-test-id="pinDescriptionText"]',
+].join(', ');
 
 const PINTEREST_TLDS = [
   'com', 'co.uk', 'de', 'fr', 'ca', 'jp', 'es', 'it', 'com.au',
@@ -186,9 +194,9 @@ function extractDomPin(scope: Element | null, id: string): PinterestPin {
     '[data-test-id="user-profile-link"]',
   ]).replace(/^@/, '');
   pin.timestamp = attr(scope, ['time[datetime]'], 'datetime') || text(scope, ['time']);
-  pin.saves = count(scope, /save|saved/i);
-  pin.comments = count(scope, /comment/i);
-  pin.reactions = count(scope, /reaction|like/i);
+  pin.saves = count(scope, /saves?|saved/i);
+  pin.comments = count(scope, /comment\p{L}*/iu);
+  pin.reactions = count(scope, /reactions?|likes?/i);
   pin.media = extractMedia(scope);
   return pin;
 }
@@ -217,7 +225,7 @@ function extractComments(scope: ParentNode): PinterestComment[] {
       author: author || 'Anonymous',
       body,
       timestamp: attr(node, ['time[datetime]'], 'datetime') || text(node, ['time']),
-      reactions: count(node, /reaction|like/i),
+      reactions: count(node, /reactions?|likes?/i),
     });
   });
   return comments;
@@ -343,10 +351,11 @@ function mergePins(primary: PinterestPin | null, fallback: PinterestPin): Pinter
 
 function count(scope: ParentNode, label: RegExp): string {
   for (const node of scope.querySelectorAll<HTMLElement>('[aria-label], button, a, span')) {
-    const combined = `${node.getAttribute('aria-label') || ''} ${clean(node.textContent || '')}`.trim();
-    if (!label.test(combined)) continue;
-    const match = combined.match(/[\d,.]+\s*[kmb]?/i);
-    if (match) return match[0];
+    // Numbers in the pin or comment text are not engagement counts.
+    const textSelector = `${PIN_TEXT_SELECTOR}, ${COMMENT_TEXT_SELECTOR}`;
+    if (node.closest(textSelector) || node.querySelector(textSelector)) continue;
+    const value = labeledCount(`${node.getAttribute('aria-label') || ''} ${clean(node.textContent || '')}`, label);
+    if (value) return value;
   }
   return '';
 }
@@ -392,6 +401,7 @@ function attr(scope: ParentNode, selectors: string[], name: string): string {
 }
 
 function safeHttpUrl(value: string): string {
+  if (!value) return '';
   try {
     const url = new URL(value, document.baseURI);
     return /^https?:$/.test(url.protocol) ? url.href : '';

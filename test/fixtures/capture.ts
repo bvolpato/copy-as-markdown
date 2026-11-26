@@ -36,7 +36,9 @@ async function main(): Promise<void> {
   const scriptContent = readBuiltUserscript();
   const browser = await puppeteer.launch({
     headless: 'shell',
-    args: ['--no-sandbox', '--disable-setuid-sandbox'],
+    // Request guards apply to the captured page only, so the page must not open another one.
+    // This does not block speculation rules (prefetch and prerender).
+    args: ['--no-sandbox', '--disable-setuid-sandbox', '--block-new-web-contents'],
   });
   const failures: string[] = [];
   try {

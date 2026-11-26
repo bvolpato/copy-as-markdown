@@ -7,6 +7,8 @@ import { register } from '../core/registry';
 import * as Markdown from '../core/markdown';
 import * as Utils from '../core/utils';
 
+const USER_SELECTOR = '.hnuser, .subtext a[href^="user?id="], .comhead a[href^="user?id="]';
+
 register({
   name: 'Hacker News',
   pathnameRegex: /^\/item\/?$/,
@@ -32,7 +34,7 @@ register({
     // Post metadata
     const scoreEl = queryPostMeta(postScope, '.score');
     const score = scoreEl?.textContent?.trim() || '';
-    const authorEl = queryPostMeta(postScope, '.hnuser');
+    const authorEl = queryPostMeta(postScope, USER_SELECTOR);
     const author = authorEl?.textContent?.trim() || '';
     const ageEl = queryPostMeta(postScope, '.age a');
     const age = ageEl?.textContent?.trim() || '';
@@ -54,7 +56,7 @@ register({
 
     // Post text (for Ask HN, Show HN, etc.)
     const postTextEl = document.querySelector('.fatitem .toptext, .fatitem .commtext');
-    const postText = postTextEl ? Markdown.elementToMarkdown(postTextEl).trim() : '';
+    const postText = postTextEl ? textToMarkdown(postTextEl) : '';
     if (postText) {
       parts.push('## Post\n');
       parts.push(postText);
@@ -62,17 +64,21 @@ register({
     }
 
     // Comments
-    const commentEls = document.querySelectorAll('.comtr');
+    const commentEls = Array.from(document.querySelectorAll('.comtr'));
     const renderedComments: string[][] = [];
-    commentEls.forEach((comment) => {
+    let commentCount = 0;
+    commentEls.forEach((comment, index) => {
+      const depth = getCommentDepth(comment);
       const textEl = comment.querySelector('.commtext');
-      const text = textEl ? Markdown.elementToMarkdown(textEl).trim() : '';
+      let text = textEl ? textToMarkdown(textEl) : '';
+      if (text) commentCount += 1;
+      // Keep a removed comment that has replies, so that they do not move below another comment.
+      else if (commentEls[index + 1] && getCommentDepth(commentEls[index + 1]) > depth) text = removedLabel(comment);
       if (!text) return;
 
-      const depth = getCommentDepth(comment);
       const prefix = '  '.repeat(depth);
 
-      const commentAuthor = comment.querySelector('.hnuser')?.textContent?.trim() || '';
+      const commentAuthor = comment.querySelector(USER_SELECTOR)?.textContent?.trim() || '';
       const commentAge = comment.querySelector('.age a')?.textContent?.trim() || '';
       const header = formatCommentHeader(prefix, commentAuthor, commentAge);
 
@@ -85,7 +91,7 @@ register({
     });
 
     if (renderedComments.length > 0) {
-      parts.push(`## Comments (${renderedComments.length})\n`);
+      parts.push(`## Comments (${commentCount})\n`);
       for (const block of renderedComments) {
         parts.push(...block);
       }
@@ -95,6 +101,17 @@ register({
   },
 });
 
+/** The first paragraph is bare text before the first <p>, so wrap it to keep the paragraph break. */
+function textToMarkdown(element: Element): string {
+  const clone = element.cloneNode(true) as Element;
+  const paragraph = clone.ownerDocument.createElement('p');
+  while (clone.firstChild && !(clone.firstChild instanceof Element && clone.firstChild.matches('p, pre, ul, ol, div'))) {
+    paragraph.append(clone.firstChild);
+  }
+  clone.prepend(paragraph);
+  return Markdown.elementToMarkdown(clone).trim();
+}
+
 function queryPostMeta(scope: ParentNode | null, selector: string): Element | null {
   if (!scope) return null;
   for (const el of scope.querySelectorAll(selector)) {
@@ -103,6 +120,14 @@ function queryPostMeta(scope: ParentNode | null, selector: string): Element | nu
     }
   }
   return null;
+}
+
+function removedLabel(comment: Element): string {
+  const label = Array.from(comment.querySelector('.comment')?.childNodes || [])
+    .filter((node) => node.nodeType === Node.TEXT_NODE)
+    .map((node) => node.textContent?.trim())
+    .find(Boolean);
+  return label || '[deleted]';
 }
 
 function getCommentDepth(comment: Element): number {

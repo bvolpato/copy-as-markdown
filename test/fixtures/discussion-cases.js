@@ -129,6 +129,60 @@ export const DISCUSSION_CASES = [
     occurrences: { '## Comments (2)': 1, 'top_reader': 1, 'nested_reader': 1 },
   },
   {
+    id: 'hacker-news-current-user-links-and-flagged-parent',
+    name: 'Hacker News',
+    url: 'https://news.ycombinator.com/item?id=42000006',
+    html: `<a id="me" href="user?id=viewer">viewer</a><table class="fatitem"><tr class="athing submission"><td><span class="titleline"><a href="https://example.org/post">Current markup</a></span></td></tr>
+      <tr><td class="subtext"><span class="subline"><span class="score">9 points</span> by <a href="user?id=poster">poster</a> <span class="age"><a>1 hour ago</a></span></span></td></tr></table>
+      <table class="comment-tree">
+        <tr class="comtr"><td class="ind" indent="0"></td><td><span class="comhead"><a href="user?id=first">first</a> <span class="age"><a>50 minutes ago</a></span></span>
+          <div class="comment"><div class="commtext c00">Opening line.<p>Second paragraph.</p></div></div></td></tr>
+        <tr class="comtr coll"><td class="ind" indent="0"></td><td><span class="comhead"><a href="user?id=flagged">flagged</a></span>
+          <div class="comment noshow">[flagged]<div class="reply"></div></div></td></tr>
+        <tr class="comtr"><td class="ind" indent="1"></td><td><span class="comhead"><a href="user?id=second">second</a></span>
+          <div class="comment"><div class="commtext c00">Reply to the flagged comment.</div></div></td></tr>
+      </table>`,
+    expected: ['**Author:** poster', '## Comments (2)', '- **first** (50 minutes ago):\n  Opening line.\n\n  Second paragraph.'],
+    excluded: ['viewer'],
+    ordered: ['**first**', '- **flagged**:\n  [flagged]', '  - **second**:', 'Reply to the flagged comment.'],
+  },
+  {
+    id: 'stack-exchange-deleted-user-and-math',
+    name: 'Stack Overflow',
+    url: 'https://math.stackexchange.com/questions/123/example',
+    html: `<div id="question-header"><h1><a>Roots</a></h1></div>
+      <div class="question"><div class="s-prose"><p>Let <span class="math-container"><span class="MathJax_Preview"></span><span class="MathJax">x2</span><script type="math/tex">x^2</script></span> and
+        <span class="math-container"><span class="MathJax_Preview"></span><span class="mjx-chtml MathJax_CHTML">y2</span><script type="math/tex">y^2</script></span> be even.</p></div></div>
+      <div class="answer accepted-answer"><div class="js-vote-count">3</div><div class="s-prose"><p>Yes.</p></div>
+        <div class="post-signature owner"><div class="user-info"><div class="user-gravatar32"><a href="/users/1/ada"><img alt=""></a></div>
+          <div class="user-details"><a href="/users/1/ada">Ada</a></div></div></div></div>
+      <div class="answer"><div class="js-vote-count">0</div><div class="s-prose"><p>No.</p></div>
+        <div class="post-signature"><div class="user-info"><div class="user-gravatar32"></div><div class="user-details">user12345 <div class="-flair"></div></div></div></div></div>`,
+    expected: ['Let $x^2$ and $y^2$ be even.', '### ✅ Answer 1 (3 votes) by Ada', '### Answer 2 (0 votes) by user12345'],
+  },
+  {
+    id: 'discourse-current-post-header',
+    name: 'Discourse',
+    url: 'https://forum.example/t/topic/1',
+    head: '<meta name="generator" content="Discourse 3.6"><title>Topic</title>',
+    html: `<div id="topic-title"><h1><a class="fancy-title">Topic</a></h1></div><div class="topic-post" data-post-number="1"><article data-post-id="7">
+      <a class="main-avatar" data-user-card="ada" href="/u/ada"><img alt=""></a>
+      <div class="names"><span class="first full-name"><a data-user-card="ada" href="/u/ada">Ada Example</a></span></div>
+      <div class="post-date"><a class="post-date" title="Post date"><span class="relative-date" title="May 4, 2026 2:22 pm">May 2026</span></a></div>
+      <div class="cooked"><p>First post.</p></div></article></div>`,
+    expected: ['## Ada Example (#1) - May 4, 2026 2:22 pm', 'First post.'],
+  },
+  {
+    id: 'devto-nested-comments-and-code',
+    name: 'Dev.to',
+    url: 'https://dev.to/ada/example-1abc',
+    html: `<div id="article-show-container"><h1>Example</h1></div>
+      <div id="article-body"><div class="highlight"><pre class="highlight javascript"><code>run();</code></pre></div></div>
+      <div class="comment comment--deep-0"><div class="comment__header"><a>Top</a></div><div class="comment__body"><pre><code>first();\n\nsecond();</code></pre></div></div>
+      <div class="comment comment--deep-1"><div class="comment__header"><a>Nested</a></div><div class="comment__body"><p>Reply.</p></div></div>`,
+    expected: ['```javascript\nrun();\n```', '- **Top:**\n  ```\n  first();\n  \n  second();\n  ```', '  - **Nested:**\n    Reply.'],
+  },
+  {
     id: 'medium-rich-article',
     name: 'Medium',
     url: 'https://medium.com/@fixture_author/testing-rendered-articles-42000003',

@@ -56,11 +56,13 @@ export const semanticScholarExtractor = register({
     if (meta.length > 0) parts.push(meta.join(' | '));
 
     const tldr = Markdown.normalizeWhitespace(
-      document.querySelector('[data-test-id="tldr-abstract-text"], .tldr-abstract-replacement')?.textContent || '',
+      (document.querySelector('[data-test-id="tldr-abstract-text"]')
+        || document.querySelector('.tldr-abstract-replacement'))?.textContent || '',
     );
     if (tldr) parts.push(`\n## TL;DR\n\n${tldr}`);
 
-    const abstractEl = document.querySelector('[data-test-id="abstract-text"], .abstract__text, [class*="abstract"]');
+    const abstractEl = document.querySelector('[data-test-id="abstract-text"], .abstract__text')
+      || document.querySelector('[class*="abstract"]:not([class*="tldr"])');
     if (abstractEl) {
       const abstractMd = Markdown.elementToMarkdown(Utils.removeNoise(abstractEl, [...Utils.NOISE_SELECTORS, 'button']));
       if (abstractMd) parts.push(`\n## Abstract\n\n${abstractMd}`);

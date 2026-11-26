@@ -94,7 +94,7 @@ const GMAIL_TWO_SEGMENT_VIEWS = new Set([
 ]);
 
 function getThreadId(): string {
-  const rawHash = decodeHash(window.location.hash).replace(/^#/, '');
+  const rawHash = decodeText(window.location.hash).replace(/^#/, '');
   const cleanHash = rawHash.split('?')[0];
   const segments = cleanHash.split('/').filter(Boolean);
   if (segments.length < 2) return '';
@@ -106,11 +106,11 @@ function getThreadId(): string {
   return candidate;
 }
 
-function decodeHash(hash: string): string {
+function decodeText(value: string): string {
   try {
-    return decodeURIComponent(hash);
+    return decodeURIComponent(value);
   } catch {
-    return hash;
+    return value;
   }
 }
 
@@ -148,8 +148,10 @@ function getGmailIk(): string {
 
 function getGmailPermThreadInfo(): { permthid: string; legacyId: string } {
   const scope = document.querySelector('[role="main"]') || document;
-  const permEl = scope.querySelector<HTMLElement>('[data-thread-perm-id]');
-  const legacyEl = scope.querySelector<HTMLElement>('[data-legacy-thread-id]');
+  // With a split pane, list rows before the open thread carry the IDs of other threads.
+  const heading = scope.querySelector<HTMLElement>('h2[data-thread-perm-id], h2[data-legacy-thread-id]');
+  const permEl = heading || scope.querySelector<HTMLElement>('[data-thread-perm-id]');
+  const legacyEl = heading || scope.querySelector<HTMLElement>('[data-legacy-thread-id]');
   return {
     permthid: permEl?.getAttribute('data-thread-perm-id')?.trim() || '',
     legacyId: legacyEl?.getAttribute('data-legacy-thread-id')?.trim() || '',
@@ -215,6 +217,7 @@ function parsePrintView(html: string): { title: string; messages: GmailMessage[]
   if (!root) return { title, messages: [] };
 
   const messages = Array.from(root.querySelectorAll<HTMLTableElement>('table.message'))
+    .filter((table) => !table.parentElement?.closest('table.message'))
     .map(parsePrintMessage)
     .filter((message) => Boolean(message.body || message.sender || message.recipients));
   return { title, messages };
@@ -277,8 +280,9 @@ function parsePrintMessage(table: HTMLTableElement): GmailMessage {
     || headerRoot.querySelector('td[align="right"]')?.textContent
     || '',
   );
+  headerRoot.querySelectorAll('div, br').forEach((line) => line.before(' '));
   const recipients = normalizeText(
-    headerRows.slice(1).map((row) => row.textContent || '').join(' '),
+    Array.from(headerRoot.children).slice(1).map((row) => row.textContent || '').join(' '),
   );
   const bodyCells = bodyRows
     .map((row) => Array.from(row.cells).find((cell) => cell.colSpan > 1) || row.cells[row.cells.length - 1])
@@ -365,7 +369,12 @@ function collectAttachments(root: ParentNode): string[] {
   root.querySelectorAll<HTMLElement>(
     'a[href*="view=att"], a[href*="disp=att"], [download_url], .aQH .aV3, [data-tooltip^="Download"]',
   ).forEach((element) => {
-    const value = element.getAttribute('download')
+    // A chip names its file in download_url ("type:name:url"). Its text adds a preview label and the size.
+    const chip = element.closest('[download_url]');
+    const chipName = chip?.getAttribute('download_url')?.match(/^[^:]*:(.+?):https?:/)?.[1] || '';
+    if (chip && (chip === element) !== Boolean(chipName)) return;
+    const value = decodeText(chipName)
+      || element.getAttribute('download')
       || element.getAttribute('aria-label')
       || element.getAttribute('data-tooltip')
       || element.textContent

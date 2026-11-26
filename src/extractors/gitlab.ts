@@ -177,7 +177,7 @@ function extractBlob(metadata: PageMetadata, route: Route, title: string): strin
   const code = document.querySelector(
     '[data-testid="blob-content"] pre, .blob-content pre, .file-content pre, .blob-viewer pre, table.code',
   );
-  const content = extractCodeText(code);
+  const content = extractBlobChunks() || extractCodeText(code);
   const pageTruncated = Boolean(document.querySelector(
     '[data-testid*="truncated"], .file-content .too-long, .blob-viewer[data-truncated="true"], .js-load-blob',
   ));
@@ -228,6 +228,7 @@ function extractWorkItem(metadata: PageMetadata, route: Route, title: string): s
 
   if (isMergeRequest) appendMergeRequestMetadata(parts, metadata);
   const diffElements = limitCollection(uniqueElements([
+    '[data-testid="rd-diff-file"]',
     '[data-testid="diff-file"]',
     '.diff-file',
     '.merge-request-diffs .file-holder',
@@ -247,12 +248,14 @@ function extractWorkItem(metadata: PageMetadata, route: Route, title: string): s
     const content = note.querySelector('.note-text, .note-body .md, [data-testid="note-body"], .md');
     if (!content || description?.contains(content)) continue;
     const markdown = Markdown.elementToMarkdown(clean(content));
-    const key = normalize(markdown);
+    const noteAuthor = note.querySelector('.author, [data-testid="author-link"], [data-testid="author-name"], .author-name-link')
+      ?.textContent?.trim() || 'Comment';
+    const noteTime = note.querySelector('time')?.getAttribute('datetime') || '';
+    // Different people can post the same text, so only repeated renderings are duplicates.
+    const key = normalize(markdown) && `${noteAuthor}|${noteTime}|${normalize(markdown)}`;
     if (!key || seen.has(key)) continue;
     seen.add(key);
     if (captured === 0) parts.push('', '## Comments');
-    const noteAuthor = note.querySelector('.author, [data-testid="author-link"]')?.textContent?.trim() || 'Comment';
-    const noteTime = note.querySelector('time')?.getAttribute('datetime') || '';
     parts.push('', `### ${noteAuthor}${noteTime ? ` (${noteTime})` : ''}`, '', markdown);
     captured += 1;
   }
@@ -283,7 +286,7 @@ function extractCommit(metadata: PageMetadata, route: Route, title: string): str
   if (created) parts.push(`**Date:** ${created}`);
   if (commitDesc) parts.push('', commitDesc);
 
-  const diffs = limitCollection(uniqueElements(['[data-testid="diff-file"]', '.diff-file', '.file-holder']), MAX_ITEMS);
+  const diffs = limitCollection(uniqueElements(['[data-testid="rd-diff-file"]', '[data-testid="diff-file"]', '.diff-file', '.file-holder']), MAX_ITEMS);
   appendDiffs(parts, metadata, diffs.items);
   return finish(metadata, parts.join('\n'), diffs.total, diffs.items.length, diffs.truncated);
 }
@@ -345,7 +348,7 @@ function extractCompare(metadata: PageMetadata, route: Route, title: string): st
   metadata.type = 'Compare';
   if (route.refAndPath) metadata.ref_and_path = route.refAndPath;
   const parts = [`# ${title}`];
-  const diffs = limitCollection(uniqueElements(['[data-testid="diff-file"]', '.diff-file', '.file-holder']), MAX_ITEMS);
+  const diffs = limitCollection(uniqueElements(['[data-testid="rd-diff-file"]', '[data-testid="diff-file"]', '.diff-file', '.file-holder']), MAX_ITEMS);
   appendDiffs(parts, metadata, diffs.items);
   if (diffs.items.length === 0) {
     const main = document.querySelector('main, [role="main"], .content-wrapper');
@@ -372,14 +375,47 @@ function appendDiffs(parts: string[], metadata: PageMetadata, diffs: Element[]):
   parts.push('', '## Changes');
   let rendered = 0;
   for (const diff of diffs) {
-    const path = diff.querySelector('[data-testid="file-path"], .file-title-name, .file-path')?.textContent?.trim() || 'File';
+    const path = diff.querySelector('[data-testid="file-path"], .file-title-name, .file-path, .rd-diff-file-link')?.textContent?.trim() || 'File';
     const code = diff.querySelector('table.diff-table, .diff-content, [data-testid="diff-content"]');
-    const text = extractCodeText(code);
+    const text = extractDiffText(diff) || extractCodeText(code);
     if (!text) continue;
     parts.push('', `### ${path}`, '', fence(text, 'diff'));
     rendered += 1;
   }
   metadata.diff_file_count = String(rendered);
+}
+
+/** The source viewer renders one code element per chunk and overlays a highlighted copy of visible chunks. */
+function extractBlobChunks(): string {
+  const chunks = document.querySelectorAll('.blob-viewer pre > code[data-testid="content"]');
+  return Array.from(chunks, (chunk) => chunk.textContent || '').join('\n').replace(/\n$/, '');
+}
+
+/** Diff markers come from attributes or classes, so the cell text alone does not show them. */
+function extractDiffText(diff: Element): string {
+  const lines: string[] = [];
+  let contextRow: Element | null = null;
+  for (const cell of diff.querySelectorAll('.rd-hunk-header-content, .rd-line-content, .line_content')) {
+    const text = (cell.textContent || '').replace(/\r?\n$/, '');
+    if (cell.matches('.rd-hunk-header-content, .match')) {
+      lines.push(text.trim());
+      continue;
+    }
+    if (cell.matches('.parallel.empty-cell, .empty-cell')) continue;
+    const change = cell.getAttribute('data-change');
+    if (change === 'added' || cell.matches('.new')) {
+      lines.push(`+${text}`);
+    } else if (change === 'removed' || cell.matches('.old')) {
+      lines.push(`-${text}`);
+    } else {
+      // Split views repeat unchanged lines on both sides.
+      const row = cell.closest('tr, .diff-grid-row, .diff-tr');
+      if (row && row === contextRow) continue;
+      contextRow = row;
+      lines.push(` ${text}`);
+    }
+  }
+  return lines.join('\n');
 }
 
 function extractCodeText(element: Element | null): string {

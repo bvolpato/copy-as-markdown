@@ -82,8 +82,8 @@ async function fetchAbstractDocument(absUrl: string): Promise<Document | null> {
 }
 
 function extractAbstract(url: string, doc: Document): string {
-  // Paper ID
-  const paperId = extractPaperId(url) || extractPaperId(window.location.pathname);
+  // Paper ID. The canonical URL drops the version that the page shows.
+  const paperId = extractPaperId(window.location.pathname) || extractPaperId(url);
 
   // Title
   const titleEl = doc.querySelector('h1.title, .ltx_title');
@@ -118,7 +118,8 @@ function extractAbstract(url: string, doc: Document): string {
     source: 'arXiv',
     paper_id: paperId,
     title,
-    url: url.includes('/abs/') ? url : url.replace(/\/(html|pdf)\//, '/abs/'),
+    url: /v\d+$/.test(paperId) ? `https://arxiv.org/abs/${paperId}`
+      : url.includes('/abs/') ? url : url.replace(/\/(html|pdf)\//, '/abs/'),
   };
   if (authors.length > 0) metadata.authors = authors.join(', ');
   if (date) metadata.submitted = date;
@@ -149,6 +150,33 @@ function extractAbstract(url: string, doc: Document): string {
   return Markdown.buildPageMarkdown(metadata, parts.join('\n'));
 }
 
+/** MathML holds each formula twice: as presentation markup and as TeX. Keep only the TeX. */
+function convertMath(root: Element): void {
+  root.querySelectorAll('math').forEach((math) => {
+    const tex = (math.getAttribute('alttext')
+      || math.querySelector('annotation[encoding="application/x-tex"]')?.textContent || '')
+      .replace(/%\s*\n/g, '')
+      .replace(/\s+/g, ' ')
+      .replace(/^\s*\\displaystyle\s*/, '')
+      .trim();
+    if (!tex) return;
+    const delimiter = math.getAttribute('display') === 'block' ? '$$' : '$';
+    math.replaceWith(`${delimiter}${tex}${delimiter}`);
+  });
+  // LaTeXML lays out display equations with tables.
+  root.querySelectorAll('table.ltx_eqn_table').forEach((table) => {
+    const rows = Array.from(table.querySelectorAll('tr')).map((row) => {
+      const paragraph = document.createElement('p');
+      paragraph.textContent = Array.from(row.querySelectorAll(':scope > td, :scope > th'))
+        .map((cell) => cell.textContent?.replace(/\s+/g, ' ').trim() || '')
+        .filter(Boolean)
+        .join(' ');
+      return paragraph;
+    });
+    table.replaceWith(...rows);
+  });
+}
+
 function extractFullPaper(url: string): string {
   // Paper ID
   const paperId = extractPaperId(url) || extractPaperId(window.location.pathname);
@@ -167,7 +195,7 @@ function extractFullPaper(url: string): string {
       : document.querySelectorAll('.ltx_creator .ltx_role_author');
   const authors = [...new Set(
     Array.from(authorEls)
-      .map((el) => el.textContent?.replace(/\s+/g, ' ').trim())
+      .map((el) => Utils.removeNoise(el, ['.ltx_note']).textContent?.replace(/\s+/g, ' ').trim())
       .filter((name): name is string => Boolean(name)),
   )];
 
@@ -193,6 +221,7 @@ function extractFullPaper(url: string): string {
       '.ltx_authors', '.ltx_title_document',
       '.ltx_page_header', '.ltx_page_footer',
     ]);
+    convertMath(cleaned);
     parts.push(Markdown.elementToMarkdown(cleaned));
   } else {
     parts.push('*Full paper content could not be extracted. Visit the HTML page directly.*');

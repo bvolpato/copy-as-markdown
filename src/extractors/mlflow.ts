@@ -80,6 +80,7 @@ type MlflowRun = {
 type HistoryResult = {
   series: MetricSeries;
   truncated: boolean;
+  interrupted: boolean;
 };
 
 type ComparisonRun = {
@@ -284,6 +285,7 @@ async function buildRunMarkdown(
   if (truncatedHistories > 0) {
     parts.push(`*${truncatedHistories} metric histories exceeded ${MAX_POINTS_PER_METRIC} fetched points and were truncated.*`);
   }
+  appendInterruptedNote(parts, histories);
   appendJsonSection(parts, 'Inputs', run.inputs);
   appendJsonSection(parts, 'Outputs', run.outputs);
   return buildBoundedPageMarkdown(metadata, parts.join('\n\n'));
@@ -378,6 +380,7 @@ async function buildComparisonMarkdown(route: MlflowComparisonRoute): Promise<st
   if (truncatedHistories > 0) {
     parts.push(`*${truncatedHistories} metric histories exceeded ${MAX_COMPARISON_POINTS_PER_METRIC} fetched points and were truncated.*`);
   }
+  appendInterruptedNote(parts, histories);
   if (selectedMetricKeys.length === 0) {
     parts.push('*No loaded numeric metric charts found. Wait for charts to load, then copy again.*');
   }
@@ -473,6 +476,7 @@ async function fetchMetricHistory(
   const points: MetricPoint[] = [];
   let pageToken = '';
   let truncated = false;
+  let interrupted = false;
   try {
     do {
       const query = new URLSearchParams({
@@ -496,11 +500,18 @@ async function fetchMetricHistory(
         });
         if (points.length >= maxPoints) break;
       }
-      pageToken = typeof payload.next_page_token === 'string' ? payload.next_page_token : '';
-      if (points.length >= maxPoints && pageToken) truncated = true;
+      const nextPageToken = typeof payload.next_page_token === 'string' ? payload.next_page_token : '';
+      if (points.length >= maxPoints && nextPageToken) truncated = true;
+      // A server that ignores page tokens would otherwise return the same page forever.
+      if (nextPageToken && nextPageToken === pageToken) {
+        interrupted = true;
+        break;
+      }
+      pageToken = nextPageToken;
     } while (pageToken && points.length < maxPoints);
   } catch {
     // Latest run metric remains useful when history endpoint is unavailable.
+    interrupted = points.length > 0;
   }
 
   if (points.length === 0) {
@@ -515,7 +526,12 @@ async function fetchMetricHistory(
       });
     }
   }
-  return { series: { name: latest.key, points }, truncated };
+  return { series: { name: latest.key, points }, truncated, interrupted };
+}
+
+function appendInterruptedNote(parts: string[], histories: HistoryResult[]): void {
+  const count = histories.filter(({ interrupted }) => interrupted).length;
+  if (count > 0) parts.push(`*${count} metric histories are incomplete because a later page could not be fetched.*`);
 }
 
 async function fetchJson(url: string): Promise<Record<string, any>> {

@@ -6,6 +6,7 @@
 import { register } from '../core/registry';
 import * as Markdown from '../core/markdown';
 import * as Utils from '../core/utils';
+import { prepareWikiContent } from '../core/wiki-content';
 
 register({
   name: 'Wikipedia',
@@ -58,7 +59,7 @@ register({
       return Markdown.buildPageMarkdown(metadata, '*No content found.*');
     }
 
-    const cleaned = Utils.removeNoise(content, [
+    const cleaned = Utils.removeNoise(prepareWikiContent(content), [
       '.mw-editsection',
       '.navbox', '.sistersitebox', '.mw-authority-control',
       '.noprint', '.mw-empty-elt', '.mw-jump-link',

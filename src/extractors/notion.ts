@@ -301,6 +301,8 @@ function removeMatchingProperties(clone: HTMLElement, properties: Property[]): v
   });
 }
 
+const DATABASE_ROW_SELECTOR = '[role="row"], .notion-table-view-header-row, .notion-table-view-row';
+const DATABASE_CELL_SELECTOR = '[role="columnheader"], [role="rowheader"], [role="cell"], [role="gridcell"], .notion-table-view-header-cell, .notion-table-view-cell';
 const DATABASE_COLLECTION_SELECTOR = '.notion-collection_view-block, .notion-collection_view_page-block, .notion-table_view, .notion-table-view, [data-view-type]';
 
 function isDatabaseTableElement(table: HTMLElement): boolean {
@@ -355,9 +357,7 @@ function extractDatabase(root: Element): DatabaseResult {
       return;
     }
 
-    const rows = Array.from(grid.querySelectorAll<HTMLElement>(
-      '[role="row"], .notion-table-view-header-row, .notion-table-view-row',
-    )).filter((row) => {
+    const rows = Array.from(grid.querySelectorAll<HTMLElement>(DATABASE_ROW_SELECTOR)).filter((row) => {
       const owner = row.closest('[role="grid"], [role="table"], .notion-table-view, .notion-table_view');
       return owner === grid || (owner !== null && grid.contains(owner));
     });
@@ -383,9 +383,11 @@ function extractDatabase(root: Element): DatabaseResult {
 }
 
 function roleRowsToMarkdown(rows: HTMLElement[]): string {
-  const values = rows.map((row) => Array.from(row.querySelectorAll<HTMLElement>(
-    ':scope > [role="columnheader"], :scope > [role="rowheader"], :scope > [role="cell"], :scope > [role="gridcell"], :scope > .notion-table-view-header-cell, :scope > .notion-table-view-cell',
-  )).map((cell) => escapeTableCell(cellText(cell))));
+  // Rendered rows wrap their cells in layout elements.
+  const values = rows.map((row) => Array.from(row.querySelectorAll<HTMLElement>(DATABASE_CELL_SELECTOR))
+    .filter((cell) => cell.closest(DATABASE_ROW_SELECTOR) === row
+      && cell.parentElement?.closest(DATABASE_CELL_SELECTOR)?.closest(DATABASE_ROW_SELECTOR) !== row)
+    .map((cell) => escapeTableCell(cellText(cell))));
   const width = Math.max(0, ...values.map((row) => row.length));
   if (width === 0) return '';
   values.forEach((row) => {
@@ -400,7 +402,105 @@ function roleRowsToMarkdown(rows: HTMLElement[]): string {
   ].join('\n');
 }
 
+const LIST_BLOCK_SELECTOR = '.notion-bulleted_list-block, .notion-numbered_list-block, .notion-to_do-block';
+
+/** Notion draws list markers outside the text, so rebuild real lists from the blocks. */
+function rebuildLists(root: Element): void {
+  const lists = new Set<Element>();
+  // Convert nested blocks first so that an outer item can adopt them.
+  Array.from(root.querySelectorAll<HTMLElement>(LIST_BLOCK_SELECTOR)).reverse().forEach((block) => {
+    const markerBox = block.querySelector('.notion-list-item-box-left');
+    const leaf = block.querySelector('[data-content-editable-leaf]');
+    if (!markerBox || !leaf) return;
+    const doc = block.ownerDocument;
+    const ordered = block.matches('.notion-numbered_list-block');
+    const list = doc.createElement(ordered ? 'ol' : 'ul');
+    const item = doc.createElement('li');
+    if (ordered) {
+      const marker = markerBox.querySelector<HTMLElement>('.pseudoBefore')?.style.getPropertyValue('--pseudoBefore--content') || '';
+      const start = Number.parseInt(marker.replace(/["']/g, ''), 10);
+      if (Number.isFinite(start)) list.setAttribute('start', String(start));
+    }
+    if (block.matches('.notion-to_do-block')) {
+      const checkbox = markerBox.querySelector('input[type="checkbox"], [role="checkbox"]');
+      const checked = checkbox instanceof HTMLInputElement
+        ? checkbox.checked
+        : checkbox?.getAttribute('aria-checked') === 'true';
+      item.append(checked ? '[x] ' : '[ ] ');
+    }
+    item.append(...leaf.childNodes);
+    const descendants = Array.from(block.querySelectorAll('ul, ol, [data-block-id]'));
+    const children = descendants.filter((child) =>
+      !descendants.some((other) => other !== child && other.contains(child)),
+    );
+    if (children.some((child) => !lists.has(child))) {
+      // List conversion keeps the paragraphs of an item apart only when the item has block content.
+      const text = doc.createElement('p');
+      text.append(...item.childNodes);
+      item.append(text, doc.createElement('blockquote'));
+    }
+    item.append(...children);
+    list.append(item);
+    lists.add(list);
+    block.replaceWith(list);
+  });
+  Array.from(root.querySelectorAll('ul, ol')).filter((list) => lists.has(list)).forEach((list) => {
+    for (
+      let next = list.nextElementSibling;
+      next && lists.has(next) && next.tagName === list.tagName;
+      next = list.nextElementSibling
+    ) {
+      list.append(...next.childNodes);
+      next.remove();
+    }
+  });
+}
+
+function prepareNotionText(root: Element): void {
+  root.querySelectorAll('.notion-inline-code-container').forEach((container) => {
+    if (container.querySelector('a[href]')) return;
+    const code = container.ownerDocument.createElement('code');
+    code.textContent = container.textContent;
+    container.replaceWith(code);
+  });
+  // KaTeX repeats the formula as MathML and as TeX source.
+  root.querySelectorAll('.katex').forEach((formula) => {
+    const source = formula.querySelector('annotation[encoding="application/x-tex"]')?.textContent?.trim();
+    const delimiter = formula.closest('.notion-equation-block') ? '$$' : '$';
+    if (source) formula.replaceWith(`${delimiter}${source}${delimiter}`);
+  });
+  root.querySelectorAll<HTMLElement>('[data-content-editable-leaf]').forEach((leaf) => {
+    if (leaf.closest('.notion-code-block, pre')) return;
+    leaf.querySelectorAll<HTMLElement>('span[style]').forEach((span) => {
+      const tags = [
+        Number.parseInt(span.style.fontWeight, 10) >= 600 ? 'strong' : '',
+        span.style.fontStyle === 'italic' ? 'em' : '',
+        span.style.textDecoration.includes('line-through') ? 'del' : '',
+      ].filter(Boolean);
+      tags.forEach((tag) => {
+        const wrapper = span.ownerDocument.createElement(tag);
+        wrapper.append(...span.childNodes);
+        span.append(wrapper);
+      });
+    });
+    if (!/^(?:pre|break-spaces)/.test(leaf.style.whiteSpace)) return;
+    // Soft line breaks are literal newlines in preformatted text.
+    const walker = leaf.ownerDocument.createTreeWalker(leaf, NodeFilter.SHOW_TEXT);
+    const breaks: Text[] = [];
+    while (walker.nextNode()) {
+      if (walker.currentNode.nodeValue?.includes('\n')) breaks.push(walker.currentNode as Text);
+    }
+    breaks.forEach((text) => {
+      text.replaceWith(...text.data.split('\n').flatMap((line, index) =>
+        index ? [text.ownerDocument.createElement('br'), line] : [line],
+      ));
+    });
+  });
+}
+
 function prepareNotionBlocks(root: Element): void {
+  prepareNotionText(root);
+  rebuildLists(root);
   root.querySelectorAll<HTMLInputElement>('input[type="checkbox"]').forEach((input) => {
     input.replaceWith(input.ownerDocument.createTextNode(input.checked ? '[x] ' : '[ ] '));
   });
@@ -452,8 +552,16 @@ function removeNotionNoise(root: Element): void {
     '.notion-selectable-halo',
   ].join(', ')).forEach((element) => element.remove());
   root.querySelectorAll<HTMLElement>('.notion-code-block').forEach((block) => {
-    const codeEl = block.querySelector('code');
-    const preEl = block.querySelector('pre');
+    let codeEl = block.querySelector('code');
+    let preEl = block.querySelector('pre');
+    const leaf = block.querySelector('[data-content-editable-leaf]');
+    if (!codeEl && !preEl && leaf) {
+      preEl = block.ownerDocument.createElement('pre');
+      codeEl = block.ownerDocument.createElement('code');
+      codeEl.textContent = leaf.textContent;
+      preEl.append(codeEl);
+      leaf.replaceWith(preEl);
+    }
     if (codeEl && !/\b(?:language|lang)-/i.test(codeEl.className)) {
       const langButton = Array.from(block.querySelectorAll<HTMLElement>('button, [role="button"]'))
         .map((btn) => normalize(btn.textContent || ''))

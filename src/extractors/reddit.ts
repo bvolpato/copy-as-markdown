@@ -5,6 +5,7 @@
  */
 
 import { addExtractionMetadata, limitCollection, limitMarkdown } from '../core/context';
+import { labeledCount } from '../core/counts';
 import * as Markdown from '../core/markdown';
 import { register } from '../core/registry';
 import * as Utils from '../core/utils';
@@ -12,6 +13,8 @@ import * as Utils from '../core/utils';
 const COMMENT_LIMIT = 30;
 const POST_SELECTOR = 'shreddit-post, [data-testid="post-container"], [data-post-id], .Post, [data-testid="post"], .thing.link';
 const COMMENT_SELECTOR = 'shreddit-comment, .Comment, [data-testid="comment"], [data-testid="comment-tree-item"], .thing.comment';
+// Old Reddit renders the score minus one, the score, and the score plus one, and hides two of them.
+const VOTED_SCORE_SELECTOR = '.likes .score.likes, .dislikes .score.dislikes';
 
 interface RedditPost {
   id: string;
@@ -197,21 +200,21 @@ function extractDomPost(root: Element | null, id: string): RedditPost {
   post.id = post.id || (root.getAttribute('data-post-id') || root.getAttribute('data-fullname') || root.id)
     .replace(/^(?:thing_)?t3_/, '');
   post.title = text(root, [
-    'h1', '[data-testid="post-title"]', '[slot="title"]', '.title',
+    'h1', '[data-testid="post-title"]', '[slot="title"]', 'a.title', '.title',
   ]) || clean(root.getAttribute('post-title') || '');
-  post.subreddit = root.getAttribute('subreddit-prefixed-name')
-    || text(root, ['a[href^="/r/"]', '[data-testid="subreddit-name"]'])
+  post.subreddit = root.getAttribute('subreddit-prefixed-name') || root.getAttribute('data-subreddit-prefixed')
+    || text(root, ['a[href^="/r/"]:not(.domain a)', '[data-testid="subreddit-name"]'])
     || window.location.pathname.match(/^\/r\/([^/]+)/)?.[1] || '';
   post.author = root.getAttribute('author') || text(root, [
     '[data-testid="post_author_link"]', '[data-testid="post-author"]', '.author',
     'a[href*="/user/"]', '.Post__author',
   ]);
   post.score = root.getAttribute('score') || text(root, [
-    '[data-testid="post-score"]', '[data-testid="post-vote-count"]', '.score', '.likes',
-  ]) || count(root, /point|score|upvote/i);
+    '[data-testid="post-score"]', '[data-testid="post-vote-count"]', VOTED_SCORE_SELECTOR, '.score.unvoted', '.score', '.likes',
+  ]) || count(root, /points?|score|upvotes?/i);
   post.comments = root.getAttribute('comment-count') || text(root, [
     '[data-testid="comment-count"]', '[data-testid="post-comment-count"]', '.comments',
-  ]) || count(root, /comment/i);
+  ]) || count(root, /comment\p{L}*/iu);
   post.timestamp = root.getAttribute('created-timestamp')?.trim()
     || attr(root, ['time[datetime]'], 'datetime')
     || text(root, ['time', '[data-testid="post_timestamp"]']);
@@ -250,13 +253,17 @@ function extractComments(scope: ParentNode, postRoot: Element | null): RedditCom
     if (!bodyEl) return;
     const body = Markdown.elementToMarkdown(Utils.removeNoise(bodyEl, ['script', 'style', 'button', 'svg'])).trim();
     if (!body) return;
-    const author = (node.getAttribute('author') || clean(commentElement(node,
-      '[data-testid="comment_author_link"], [data-testid="comment-author"], .author, a[href*="/user/"]',
+    const author = (node.getAttribute('author') || clean((
+      commentElement(node, '[data-testid="comment_author_link"], [data-testid="comment-author"], .author')
+      || commentElement(node, 'a[href*="/user/"]', bodyEl)
     )?.textContent || '')).trim();
-    const score = (node.getAttribute('score') || clean(commentElement(node,
-      '[data-testid="comment-score"], .score',
+    const score = (node.getAttribute('score') || clean((
+      commentElement(node, VOTED_SCORE_SELECTOR)
+      || commentElement(node, '.score.unvoted')
+      || commentElement(node, '[data-testid="comment-score"], .score')
     )?.textContent || '')).replace(/\s+points?$/i, '');
-    const key = `${author}\n${body}`;
+    // One author often posts the same short reply in several places.
+    const key = node.getAttribute('thingid') || node.getAttribute('data-fullname') || `${author}\n${body}`;
     if (seen.has(key)) return;
     seen.add(key);
     comments.push({
@@ -272,9 +279,9 @@ function extractComments(scope: ParentNode, postRoot: Element | null): RedditCom
   return comments;
 }
 
-function commentElement(node: Element, selector: string): Element | undefined {
+function commentElement(node: Element, selector: string, excluded?: Element): Element | undefined {
   const lightMatch = Array.from(node.querySelectorAll(selector))
-    .find((element) => element.closest(COMMENT_SELECTOR) === node);
+    .find((element) => element.closest(COMMENT_SELECTOR) === node && !excluded?.contains(element));
   if (lightMatch) return lightMatch;
   if (node.shadowRoot) {
     return node.shadowRoot.querySelector(selector) || undefined;
@@ -298,7 +305,7 @@ function appendComment(parts: string[], comment: RedditComment): void {
   const score = comment.score ? `${comment.score} ${comment.score === '1' ? 'point' : 'points'}` : '';
   const details = [comment.timestamp, score].filter(Boolean).join(' · ');
   parts.push(`${indent}**${comment.author}**${details ? ` (${details})` : ''}:`);
-  const lines = comment.body.split(/\n+/).map((line) => `${indent}> ${line}`);
+  const lines = comment.body.split('\n').map((line) => `${indent}> ${line}`);
   parts.push(...lines, '');
 }
 
@@ -401,10 +408,8 @@ function mergePosts(primary: RedditPost | null, fallback: RedditPost): RedditPos
 
 function count(scope: ParentNode, label: RegExp): string {
   for (const node of queryAllShadow<HTMLElement>(scope, '[aria-label], button, a, span')) {
-    const combined = `${node.getAttribute('aria-label') || ''} ${clean(node.textContent || '')}`;
-    if (!label.test(combined)) continue;
-    const match = combined.match(/[\d,.]+\s*[kmb]?/i);
-    if (match) return match[0];
+    const value = labeledCount(`${node.getAttribute('aria-label') || ''} ${clean(node.textContent || '')}`, label);
+    if (value) return value;
   }
   return '';
 }
@@ -442,6 +447,7 @@ function findObject(root: unknown, predicate: (record: Record<string, unknown>) 
 
 function normalizeAuthor(value: string): string { return value.replace(/^u\//, '').trim(); }
 function safeHttpUrl(value: string): string {
+  if (!value) return '';
   try {
     const url = new URL(value, document.baseURI);
     return /^https?:$/.test(url.protocol) ? url.href : '';

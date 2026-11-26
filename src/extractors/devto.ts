@@ -5,6 +5,7 @@
 
 import { register } from '../core/registry';
 import * as Markdown from '../core/markdown';
+import { restoreMathSource } from '../core/math-source';
 import * as Utils from '../core/utils';
 
 const DEVTO_ARTICLE_PATH_RE = /^\/(?!(?:t|top|pod|settings|tags|search|notifications|dashboard|readinglist)(?:\/|$))[^/]+\/[^/]+/i;
@@ -77,6 +78,8 @@ register({
         '.anchor',
         '.highlight__panel',
       ]);
+      restoreMathSource(cleanedBody);
+      annotateCodeLanguages(cleanedBody);
       parts.push(Markdown.elementToMarkdown(cleanedBody));
     }
 
@@ -94,13 +97,17 @@ register({
         '.comment__footer',
         '.crayons-comment__footer',
         '.comment-action',
+        '.highlight__panel',
         'button',
       ]);
+      annotateCodeLanguages(cleanedComment);
       const cText = Markdown.elementToMarkdown(cleanedComment).trim();
       if (!cText) return;
 
-      const block: string[] = [cAuthor ? `- **${cAuthor}:**` : '- Comment:'];
-      cText.split('\n').filter((line) => line.trim()).forEach((line) => block.push(`  ${line}`));
+      const depth = Number(comment.className.match(/\bcomment--deep-(\d+)/)?.[1] || 0);
+      const indent = '  '.repeat(depth);
+      const block: string[] = [`${indent}${cAuthor ? `- **${cAuthor}:**` : '- Comment:'}`];
+      cText.split('\n').forEach((line) => block.push(`${indent}  ${line}`));
       block.push('');
       renderedComments.push(block);
     });
@@ -115,3 +122,11 @@ register({
     return Markdown.buildPageMarkdown(metadata, parts.join('\n'));
   },
 });
+
+/** The highlighter puts the language in a bare class, as in `highlight javascript`. */
+function annotateCodeLanguages(root: Element): void {
+  root.querySelectorAll('pre.highlight').forEach((pre) => {
+    const language = Array.from(pre.classList).find((name) => !/^(?:highlight|plaintext|text)$/.test(name));
+    if (language) pre.classList.add(`language-${language}`);
+  });
+}

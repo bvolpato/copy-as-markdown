@@ -5,6 +5,7 @@
 
 import { register } from '../core/registry';
 import * as Markdown from '../core/markdown';
+import { restoreMathSource } from '../core/math-source';
 import * as Utils from '../core/utils';
 import { addExtractionMetadata, limitMarkdown } from '../core/context';
 import type { PageMetadata } from '../core/types';
@@ -73,9 +74,13 @@ export const discourseExtractor = register({
       if (!cooked) continue;
 
       const author = Markdown.normalizeWhitespace(
-        post.querySelector('.names .username a, .names .first a, .creator a, [data-user-card]')?.textContent || '',
-      ) || 'Unknown';
-      const dateEl = post.querySelector('.post-date .relative-date, .post-date a, time[datetime]');
+        // The avatar link also carries the user card attribute but has no text.
+        post.querySelector('.names .username a, .names .first a, .creator a')?.textContent
+          || post.querySelector('[data-user-card]')?.textContent
+          || '',
+      ) || post.querySelector('[data-user-card]')?.getAttribute('data-user-card') || 'Unknown';
+      const dateEl = post.querySelector('.post-date .relative-date')
+        || post.querySelector('.post-date a, time[datetime]');
       const dateStr = dateEl?.getAttribute('title')
         || dateEl?.getAttribute('datetime')
         || Markdown.normalizeWhitespace(dateEl?.textContent || '');
@@ -84,7 +89,9 @@ export const discourseExtractor = register({
         || '';
       const isAccepted = Boolean(post.querySelector('.accepted-answer, .accepted-text, .solved'));
 
-      const cleaned = Utils.removeNoise(cooked, [
+      const source = cooked.cloneNode(true) as Element;
+      restoreMathSource(source);
+      const cleaned = Utils.removeNoise(source, [
         ...Utils.NOISE_SELECTORS,
         '.anchor',
         '.lightbox-wrapper .meta',

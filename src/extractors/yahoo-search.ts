@@ -110,6 +110,7 @@ function safeYahooUrl(value: string): string {
   try {
     const url = new URL(value, document.baseURI);
     if (!/^https?:$/.test(url.protocol)) return '';
+    if (!/(?:^|\.)yahoo\.(?:com|co\.jp)$/i.test(url.hostname)) return url.href;
     const ruMatch = url.pathname.match(/\/RU=([^/]+)(?:\/|$)/i);
     if (ruMatch) {
       try {
@@ -129,14 +130,12 @@ function safeYahooUrl(value: string): string {
         // Ignore malformed redirect parameter.
       }
     }
-    if (/(?:^|\.)yahoo\.(?:com|co\.jp)$/i.test(url.hostname)) {
-      if (
-        /^\/(?:search|yhs\/search)(?:;[^/?#]*)?\/?$/i.test(url.pathname)
-        || url.pathname.startsWith('/cbclk')
-        || url.hostname.startsWith('r.search.')
-      ) {
-        return '';
-      }
+    if (
+      /^\/(?:search|yhs\/search)(?:;[^/?#]*)?\/?$/i.test(url.pathname)
+      || url.pathname.startsWith('/cbclk')
+      || url.hostname.startsWith('r.search.')
+    ) {
+      return '';
     }
     return url.href;
   } catch {

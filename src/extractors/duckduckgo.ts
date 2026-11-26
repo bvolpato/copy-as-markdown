@@ -108,9 +108,10 @@ register({
       const link = firstSafeLink(result.querySelectorAll<HTMLAnchorElement>(
         '.result__a[href], h2 a[href], [data-testid="result-title-a"][href], a[href]',
       ));
-      const snippet = cleanText(result.querySelector(
-        '.result__snippet, .result__body, [data-result="snippet"], [data-testid="result-snippet"], p',
-      )?.textContent || '');
+      // On the HTML route, .result__body wraps the title, the URL, and the snippet.
+      const snippet = cleanText((result.querySelector(
+        '.result__snippet, [data-result="snippet"], [data-testid="result-snippet"]',
+      ) || result.querySelector('.result__body, p'))?.textContent || '');
       appendResult(title, link, snippet);
     });
 

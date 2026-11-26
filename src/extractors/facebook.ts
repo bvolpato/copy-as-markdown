@@ -6,8 +6,15 @@ import { register } from '../core/registry';
 import * as Markdown from '../core/markdown';
 import * as Utils from '../core/utils';
 import { addExtractionMetadata, limitCollection, limitMarkdown } from '../core/context';
+import { labeledCount } from '../core/counts';
 
 const COMMENT_LIMIT = 30;
+const MESSAGE_SELECTOR = [
+  '[data-ad-preview="message"]', '[data-ad-comet-preview="message"]',
+  '[data-testid="post_message"]', '[data-ad-rendering-role="story_message"]',
+  '[data-testid="comment_text"]', '[data-ad-rendering-role="comment_message"]',
+  'div[dir="auto"]:not(button *, [role="button"] *)',
+].join(', ');
 
 interface FacebookPost {
   id: string;
@@ -190,7 +197,7 @@ function extractDomPost(article: Element | null, id: string, allowMetadata: bool
   post.timestamp = attr(article, ['time[datetime]'], 'datetime')
     || timestampFromAbbr(article) || text(article, ['time', 'abbr']);
   post.reactions = engagement(article, /reactions?|likes?/i);
-  post.comments = engagement(article, /comments?/i);
+  post.comments = engagement(article, /comment\p{L}*/iu);
   post.shares = engagement(article, /shares?/i);
   post.views = engagement(article, /views?|plays?/i);
   post.media = extractMedia(article);
@@ -326,12 +333,14 @@ function appendComment(parts: string[], comment: FacebookComment): void {
   parts.push(...comment.body.split(/\n+/).map((line) => `> ${line}`), '');
 }
 
-function engagement(scope: ParentNode, label: RegExp): string {
+function engagement(scope: Element, label: RegExp): string {
   for (const node of scope.querySelectorAll('[aria-label], button, a, span')) {
-    const combined = `${node.getAttribute('aria-label') || ''} ${clean(node.textContent || '')}`.trim();
-    if (!label.test(combined)) continue;
-    const match = combined.match(/[\d,.]+\s*[kmb]?/i);
-    if (match) return match[0];
+    // Articles inside an article are its comments.
+    if (scope.matches('[role="article"]') && node.closest('[role="article"]') !== scope) continue;
+    // Numbers in the message text are not engagement counts.
+    if (node.closest(MESSAGE_SELECTOR) || node.querySelector(MESSAGE_SELECTOR)) continue;
+    const value = labeledCount(`${node.getAttribute('aria-label') || ''} ${clean(node.textContent || '')}`, label);
+    if (value) return value;
   }
   return '';
 }
@@ -350,20 +359,33 @@ function longestOwnMarkdown(scope: Element, selector: string): string {
     }
   });
   if (!bestNode) return '';
-  const cleaned = Utils.removeNoise(bestNode, ['script', 'style', 'button', 'svg', '[aria-hidden="true"]']);
-  return Markdown.elementToMarkdown(cleaned).trim();
+  return textLines(bestNode, selector).map((line) => {
+    const cleaned = Utils.removeNoise(line, ['script', 'style', 'button', 'svg', '[aria-hidden="true"]']);
+    return Markdown.elementToMarkdown(cleaned).trim();
+  }).join('\n').trim();
 }
 
 function longestOwnText(scope: Element, selector: string): string {
   let longest = '';
+  let bestNode: Element | null = null;
   scope.querySelectorAll(selector).forEach((node) => {
     const closestArticle = node.closest('[role="article"]');
     if (closestArticle && closestArticle !== scope) return;
     if (node.closest('button, [role="button"], header')) return;
     const value = clean(node.textContent || '');
-    if (value.length > longest.length) longest = value;
+    if (value.length > longest.length) {
+      longest = value;
+      bestNode = node;
+    }
   });
-  return longest;
+  if (!bestNode) return '';
+  return textLines(bestNode, selector).map((line) => clean(line.textContent || '')).join('\n').trim();
+}
+
+/** Facebook renders each line of a text as one sibling element. */
+function textLines(node: Element, selector: string): Element[] {
+  const siblings = Array.from(node.parentElement?.children || []);
+  return siblings.length > 1 && siblings.every((sibling) => sibling.matches(selector)) ? siblings : [node];
 }
 
 function timestampFromAbbr(scope: ParentNode): string {
@@ -452,6 +474,7 @@ function cssEscape(value: string): string {
   return typeof CSS !== 'undefined' && CSS.escape ? CSS.escape(value) : value.replace(/["\\]/g, '\\$&');
 }
 function safeHttpUrl(value: string): string {
+  if (!value) return '';
   try {
     const url = new URL(value, document.baseURI);
     return /^https?:$/.test(url.protocol) ? url.href : '';
