@@ -180,7 +180,7 @@ test('install.sh rejects an unsupported Node.js version', async (context) => {
   const temp = await fs.mkdtemp(path.join(os.tmpdir(), 'copy-as-markdown-node-'));
   context.after(() => fs.rm(temp, { recursive: true, force: true }));
   const preload = path.join(temp, 'version.cjs');
-  for (const [version, status] of [['20.19.5', 1], ['22.22.1', 1], ['22.22.2', 0], ['24.0.0', 0]]) {
+  for (const [version, status] of [['20.19.5', 1], ['22.22.1', 1], ['22.22.2', 0], ['24.2.0', 0]]) {
     await fs.writeFile(preload, `Object.defineProperty(process, 'versions', { value: { ...process.versions, node: '${version}' } });`);
     const result = spawnSync(path.join(REPO_ROOT, 'install.sh'), ['--help'], {
       encoding: 'utf8',
