@@ -10,6 +10,10 @@ import { register } from '../core/registry';
 import * as Utils from '../core/utils';
 
 const COMMENT_LIMIT = 30;
+const TEXT_SELECTOR = [
+  '.wall_post_text', '.post_text', '[data-testid="post-text"]', '[class*="PostText"]',
+  '.reply_text', '.comment_text', '[data-testid="comment-text"]', '[class*="CommentText"]',
+].join(', ');
 
 interface VkPost {
   id: string;
@@ -151,13 +155,15 @@ function findActivePost(id: string): Element | null {
     'article', '[id^="post-"]', '[id^="wpt"]',
   ].join(', ')));
   if (id) {
-    const normalized = id.replace(/^wall/, '');
+    // An ID is a prefix of other IDs on the same wall, such as -1_2 and -1_25.
+    const idPattern = new RegExp(`(?:^|[^\\d-])${id}(?!\\d)`);
+    const linkPattern = new RegExp(`wall${id}(?!\\d)`);
     const match = candidates.find((candidate) => {
       const values = [
         candidate.getAttribute('data-post-id') || '', candidate.getAttribute('data-post') || '', candidate.id,
       ];
-      return values.some((value) => value.includes(id) || value.includes(normalized))
-        || Array.from(candidate.querySelectorAll<HTMLAnchorElement>('a[href]')).some((link) => link.href.includes(`wall${id}`));
+      return values.some((value) => idPattern.test(value))
+        || Array.from(candidate.querySelectorAll<HTMLAnchorElement>('a[href]')).some((link) => linkPattern.test(link.href));
     });
     if (match) return match;
     if (candidates.length === 1) return candidates[0];
@@ -258,19 +264,17 @@ function extractMedia(scope: ParentNode): string[] {
 
 function findEmbeddedPost(id: string): VkPost | null {
   const payloads: unknown[] = [];
-  const suffix = id.split('_').pop() || id;
   for (const script of document.querySelectorAll<HTMLScriptElement>(
     'script[type="application/json"], script[type="application/ld+json"], script[id*="initial" i], script[id*="state" i]',
   )) {
     const raw = script.textContent || '';
-    if (!raw || raw.length > 8_000_000 || (!raw.includes(id) && !raw.includes(suffix))) continue;
+    if (!raw || raw.length > 8_000_000 || !raw.includes(id.replace(/^-/, ''))) continue;
     try { payloads.push(JSON.parse(raw)); } catch { /* VK may include non-JSON scripts */ }
   }
   for (const payload of payloads) {
     const record = findObject(payload, (candidate) => {
       const candidateId = stringValue(candidate.id || candidate.post_id || candidate.postId);
-      const matchesId = candidateId === id || (Boolean(suffix) && candidateId.endsWith(`_${suffix}`));
-      if (!matchesId) return false;
+      if (candidateId.replace(/^-/, '') !== id.replace(/^-/, '')) return false;
       return Boolean(
         candidate.text || candidate.body || candidate.title || candidate.description
         || candidate.likes || candidate.comments || candidate.author || candidate.owner,
@@ -334,9 +338,11 @@ function mergePosts(primary: VkPost | null, fallback: VkPost): VkPost {
 
 function count(scope: ParentNode, label: RegExp): string {
   for (const node of scope.querySelectorAll<HTMLElement>('[aria-label], button, a, span')) {
+    // Numbers in the post or comment text are not engagement counts.
+    if (node.closest(TEXT_SELECTOR) || node.querySelector(TEXT_SELECTOR)) continue;
     const combined = `${node.getAttribute('aria-label') || ''} ${clean(node.textContent || '')}`.trim();
     if (!label.test(combined)) continue;
-    const match = combined.match(/[\d,.]+\s*[kmb]?/i);
+    const match = combined.match(/\d[\d,.]*(?:\s*[kmb]\b)?/i);
     if (match) return match[0];
   }
   return '';
@@ -383,6 +389,7 @@ function attr(scope: ParentNode, selectors: string[], name: string): string {
 }
 
 function safeHttpUrl(value: string): string {
+  if (!value) return '';
   try {
     const url = new URL(value, document.baseURI);
     return /^https?:$/.test(url.protocol) ? url.href : '';

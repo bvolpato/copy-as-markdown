@@ -149,6 +149,9 @@ register({
         '.article-footer', '.tags', '.related-articles', '.related-content',
         '[data-testid*="related"]', '[data-component="links-block"]', '[data-component="topic-list"]',
         '.comments-section', '.newsletter-signup',
+        '[data-component*="most-popular"]', '[data-component="most-viewed"]', '[data-testid="most-popular"]',
+        '[class*="recirc-most-popular"]', '.duet--layout--rail', '.duet--cta--newsletter',
+        '[id^="taboola"]', '.ad-feedback-link', '.jwplayer',
       ];
 
       if (articleEl) {
@@ -175,6 +178,10 @@ function hasVisiblePaywall(): boolean {
   const isVisible = Utils.createVisibilityChecker();
   for (const selector of paywallSelectors) {
     for (const element of document.querySelectorAll(selector)) {
+      // Some sites put the class on each visible paragraph of a metered article.
+      if (element.matches('article :is(p, h2, h3, h4, ul, ol, blockquote, figure)')) continue;
+      // An empty slot is not a paywall prompt.
+      if (!element.textContent?.trim() && !element.querySelector('iframe')) continue;
       if (isVisible(element)) return true;
     }
   }

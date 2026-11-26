@@ -97,13 +97,17 @@ register({
     if (bodyContainer) {
       const cleaned = Utils.removeNoise(bodyContainer, [
         ...Utils.NOISE_SELECTORS,
-        'h1',
         '[data-testid="headerClapButton"]',
         '[data-testid="headerSocialShareButton"]',
         '[data-testid="headerBookmarkButton"]',
         '[data-testid="audioPlayButton"]',
         '.pw-multi-vote-count',
       ]);
+
+      // Medium also renders large section headings as h1.
+      cleaned.querySelectorAll('h1').forEach((heading) => {
+        if (heading.textContent?.trim() === title) heading.remove();
+      });
 
       // Remove interactive button wrappers except those wrapping zoomable images/figures.
       cleaned.querySelectorAll('[role="button"]').forEach((el) => {

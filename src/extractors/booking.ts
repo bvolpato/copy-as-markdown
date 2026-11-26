@@ -126,11 +126,11 @@ function extractSearchResults(url: string): string {
   if (cards.length) {
     parts.push('## Search Results', '');
     cards.forEach((card, index) => {
-      const cardTitle = card.querySelector('[data-testid="title"], h3')?.textContent?.replace(/\s+/g, ' ').trim() || '';
+      const cardTitle = spacedText(card.querySelector('[data-testid="title"], h3'));
       const cardLink = card.querySelector<HTMLAnchorElement>('[data-testid="title-link"], h3 a, a[href*="/hotel/"]')?.href || '';
-      const cardLocation = card.querySelector('[data-testid*="address"], [data-testid*="location"]')?.textContent?.replace(/\s+/g, ' ').trim() || '';
-      const cardRating = card.querySelector('[data-testid="review-score"], [aria-label*="Scored"]')?.textContent?.replace(/\s+/g, ' ').trim() || '';
-      const cardPrice = card.querySelector('[data-testid*="price"]')?.textContent?.replace(/\s+/g, ' ').trim() || '';
+      const cardLocation = spacedText(card.querySelector('[data-testid*="address"], [data-testid*="location"]'));
+      const cardRating = spacedText(card.querySelector('[data-testid="review-score"], [aria-label*="Scored"]'));
+      const cardPrice = spacedText(card.querySelector('[data-testid*="price"]'));
       if (cardTitle) {
         parts.push(`### ${index + 1}. ${cardTitle}`);
         if (cardLink) parts.push(`**URL:** ${cardLink}`);
@@ -149,11 +149,23 @@ type JsonRecord = Record<string, unknown>;
 
 function firstText(selectors: string[]): string {
   for (const selector of selectors) {
-    const element = document.querySelector(selector);
-    const text = element?.textContent?.replace(/\s+/g, ' ').trim() || '';
+    const text = spacedText(document.querySelector(selector));
     if (text) return text;
   }
   return '';
+}
+
+/** Separate adjacent blocks, and skip the visual copy of text that screen readers get in full. */
+function spacedText(element: Element | null): string {
+  if (!element) return '';
+  const walker = document.createTreeWalker(element, NodeFilter.SHOW_TEXT);
+  const chunks: string[] = [];
+  for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+    const hidden = node.parentElement?.closest('[aria-hidden="true"], script, style');
+    const chunk = (node.textContent || '').replace(/\s+/g, ' ').trim();
+    if (chunk && !(hidden && element.contains(hidden))) chunks.push(chunk);
+  }
+  return chunks.join(' ') || (element.textContent || '').replace(/\s+/g, ' ').trim();
 }
 
 function extractRows(selectors: string[]): string[] {
@@ -161,7 +173,7 @@ function extractRows(selectors: string[]): string[] {
   const seen = new Set<string>();
   for (const selector of selectors) {
     for (const element of document.querySelectorAll(selector)) {
-      const text = (element.textContent || '').replace(/\s+/g, ' ').trim();
+      const text = spacedText(element);
       if (!text || seen.has(text)) continue;
       seen.add(text);
       result.push(text);

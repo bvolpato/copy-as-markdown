@@ -120,7 +120,8 @@ function firstMainUfiText(selectors: string[]): string {
 function hasVisiblePaywall(): boolean {
   const isVisible = Utils.createVisibilityChecker();
   for (const element of document.querySelectorAll('.paywall, .paywall-title, [class*="paywall"]')) {
-    if (isVisible(element)) return true;
+    // Posts that a subscriber can read keep an empty marker where the free part ends.
+    if (element.textContent?.trim() && isVisible(element)) return true;
   }
   return false;
 }

@@ -62,7 +62,7 @@ export const ghostExtractor = register({
 
     const bodyEl = platform === 'obsidian'
       ? document.querySelector('.publish-renderer .markdown-preview-sizer, .markdown-preview-view, .obsidian-document')
-      : document.querySelector('.gh-content, .post-content, article');
+      : document.querySelector('.gh-content, .post-content') || document.querySelector('article');
 
     const parts: string[] = [`# ${title}`];
     if (author) parts.push(`**Author:** ${author}`);
@@ -71,13 +71,16 @@ export const ghostExtractor = register({
     if (bodyEl) {
       const cleaned = Utils.removeNoise(bodyEl, [
         ...Utils.NOISE_SELECTORS,
-        'h1',
         '.gh-post-upgrade-cta',
         '.kg-signup-card',
         '.frontmatter-container',
         '.copy-code-button',
         'button',
       ]);
+      // Notes can use h1 for section headings, so remove only the repeated title.
+      cleaned.querySelectorAll('h1, .page-header').forEach((heading) => {
+        if (Markdown.normalizeWhitespace(heading.textContent || '') === title) heading.remove();
+      });
       const body = Markdown.elementToMarkdown(cleaned);
       if (body) parts.push('\n' + body);
     }

@@ -12,6 +12,13 @@ import { register } from '../core/registry';
 import * as Utils from '../core/utils';
 
 const COMMENT_LIMIT = 30;
+const COMMENT_TEXT_SELECTOR = [
+  '[data-test-id="comment-text"]', '[data-test-id="comment-body"]', '[data-test-id="commentContent"]',
+].join(', ');
+const PIN_TEXT_SELECTOR = [
+  '[data-test-id="pin-title"]', '[data-test-id="pinTitle"]', '[data-test-id="pin-description"]',
+  '[data-test-id="pinDescription"]', '[data-test-id="closeupDescription"]', '[data-test-id="pinDescriptionText"]',
+].join(', ');
 
 const PINTEREST_TLDS = [
   'com', 'co.uk', 'de', 'fr', 'ca', 'jp', 'es', 'it', 'com.au',
@@ -343,9 +350,11 @@ function mergePins(primary: PinterestPin | null, fallback: PinterestPin): Pinter
 
 function count(scope: ParentNode, label: RegExp): string {
   for (const node of scope.querySelectorAll<HTMLElement>('[aria-label], button, a, span')) {
+    // Numbers in the pin or comment text are not engagement counts.
+    if (node.closest(`${PIN_TEXT_SELECTOR}, ${COMMENT_TEXT_SELECTOR}`)) continue;
     const combined = `${node.getAttribute('aria-label') || ''} ${clean(node.textContent || '')}`.trim();
     if (!label.test(combined)) continue;
-    const match = combined.match(/[\d,.]+\s*[kmb]?/i);
+    const match = combined.match(/\d[\d,.]*(?:\s*[kmb]\b)?/i);
     if (match) return match[0];
   }
   return '';
@@ -392,6 +401,7 @@ function attr(scope: ParentNode, selectors: string[], name: string): string {
 }
 
 function safeHttpUrl(value: string): string {
+  if (!value) return '';
   try {
     const url = new URL(value, document.baseURI);
     return /^https?:$/.test(url.protocol) ? url.href : '';

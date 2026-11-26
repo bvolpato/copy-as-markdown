@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import puppeteer from 'puppeteer';
 import * as library from '../dist/library/index.js';
+import { SITE_CASES } from './fixtures/site-cases.js';
 import { DISCUSSION_CASES } from './fixtures/discussion-cases.js';
 import { BITBUCKET_CASES } from './fixtures/bitbucket-cases.js';
 import { GITHUB_CASES } from './fixtures/github-cases.js';
@@ -117,6 +118,9 @@ try {
       '## Comments (2 loaded)', '**reader** (5 points):', '> Top-level comment', '> **reply-author** (2 points):', '> > Nested reply'],
     excluded: ['Unrelated sidebar comment'],
   }));
+  for (const fixtureCase of SITE_CASES) {
+    await check(fixtureCase.id, () => fixture(fixtureCase));
+  }
   await check('Reddit retains comments nested inside the post', () => fixture({
     name: 'Reddit', url: 'https://new.reddit.com/r/markdown/comments/abc123/thread/',
     html: '<div class="Post" data-post-id="t3_abc123"><h1>Classic post</h1><div data-testid="post-selftext"><p>Classic body</p></div><div class="Comment"><a class="author">classic-reader</a><div class="md"><p>Classic comment</p></div></div></div>',

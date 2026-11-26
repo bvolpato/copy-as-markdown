@@ -33,8 +33,11 @@ export const mastodonExtractor = register({
     };
 
     const parts: string[] = [`# ${title}`];
-    const detailed = document.querySelector('.detailed-status');
-    const statuses = Array.from(document.querySelectorAll('.detailed-status, article .status, .status__wrapper, .entry .status'));
+    const detailed = document.querySelector('.detailed-status, article[data-variant="page"]');
+    // Mastodon 5 uses article[data-variant] and CSS module names such as _comp_status_content__text.
+    const statuses = Array.from(document.querySelectorAll(
+      '.detailed-status, article .status, .status__wrapper, .entry .status, article[data-variant]',
+    ));
     const seen = new Set<Element>();
 
     let count = 0;
@@ -50,17 +53,22 @@ export const mastodonExtractor = register({
       if (nested) continue;
       seen.add(status);
 
-      const contentEl = status.querySelector('.status__content__text, .status__content, .e-content');
-      if (!contentEl) continue;
+      const contentEl = status.querySelector('.status__content__text, .status__content, .e-content, [class*="status_content__text"]');
+      // Off-screen statuses collapse to spans that hold the author name and the HTML source.
+      const spans = Array.from(status.children);
+      const collapsed = !contentEl && spans.length > 1 && spans.every((child) => child.tagName === 'SPAN');
+      if (!contentEl && !collapsed) continue;
       const author = Markdown.normalizeWhitespace(
-        status.querySelector('.display-name__html, .display-name strong, .p-name')?.textContent || '',
+        (collapsed ? spans[0] : status.querySelector('.display-name__html, .display-name strong, .p-name'))?.textContent || '',
       );
       const handle = Markdown.normalizeWhitespace(
-        status.querySelector('.display-name__account, .p-nickname')?.textContent || '',
+        status.querySelector('.display-name__account, .p-nickname, [class*="status_header__handle"]')?.textContent || '',
       );
       const timeEl = status.querySelector('time[datetime], .detailed-status__datetime');
       const timestamp = timeEl?.getAttribute('datetime') || Markdown.normalizeWhitespace(timeEl?.textContent || '');
-      const body = Markdown.elementToMarkdown(contentEl);
+      const body = contentEl
+        ? Markdown.elementToMarkdown(contentEl)
+        : Markdown.htmlToMarkdown(spans[spans.length - 1].textContent || '');
       if (!body) continue;
 
       count += 1;

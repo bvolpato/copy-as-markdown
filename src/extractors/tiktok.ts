@@ -216,6 +216,8 @@ function extractDomItem(scope: Element | null, routeId: string): TikTokItem {
       const alt = clean(image.alt) || 'TikTok image';
       if (/profile|avatar|logo|icon/i.test(alt)) return '';
       const src = safeHttpUrl(image.currentSrc || image.src || image.getAttribute('data-src') || '');
+      // Avatars use the username as alt text.
+      if (/-avt-\d/.test(src)) return '';
       return src ? `[${escapeLabel(alt)}](${src})` : alt;
     })
     .filter(Boolean));
@@ -258,7 +260,10 @@ function directTikTokItem(payload: unknown, routeId: string): Record<string, unk
   for (const [key, value] of Object.entries(scope)) {
     if (!key.includes('video-detail') || !isRecord(value)) continue;
     const itemInfo = isRecord(value.itemInfo) ? value.itemInfo : null;
-    if (itemInfo && isRecord(itemInfo.itemStruct)) return itemInfo.itemStruct;
+    // The state of the first page stays in place after in-app navigation.
+    if (itemInfo && isRecord(itemInfo.itemStruct) && String(itemInfo.itemStruct.id ?? routeId) === routeId) {
+      return itemInfo.itemStruct;
+    }
   }
   return null;
 }
@@ -445,6 +450,7 @@ function formatTimestamp(value: unknown): string {
 }
 
 function safeHttpUrl(value: string): string {
+  if (!value) return '';
   try {
     const url = new URL(value, document.baseURI);
     return /^https?:$/.test(url.protocol) ? url.href : '';
