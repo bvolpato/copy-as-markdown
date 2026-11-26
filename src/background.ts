@@ -108,7 +108,12 @@ async function copyFromTab(tabId: number): Promise<void> {
     try {
       response = await sendCopyRequest(tabId);
     } catch (error) {
-      if (!(error instanceof MessageDeliveryError)) throw error;
+      // Inject only when nothing is listening. A listener that stops responding means that the tab
+      // navigated during the copy, and a retry would copy a page that the user did not ask for.
+      if (
+        !(error instanceof MessageDeliveryError)
+        || !/could not establish connection|receiving end does not exist/i.test(error.message)
+      ) throw error;
       await injectContentScript(tabId);
       response = await sendCopyRequest(tabId);
     }
