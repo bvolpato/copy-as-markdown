@@ -763,21 +763,25 @@ try {
     ['<table><tr><th>Developed<span>&nbsp;</span>by</th><td>March<span> </span>9</td></tr></table>', '| Developed by | March 9 |\n| --- | --- |'],
     ['<p>a<b> </b>b <i>x</i><i> </i><i>y</i> a<a href="#x"> b </a>c</p>', 'a b *x* *y* a b c'],
     ['<h2>a<span>&nbsp;</span>b</h2><ul><li>c<span> </span>d</li></ul>', '## a b\n\n- c d'],
-    ['<p>a<a href="https://example.com/x"></a>b</p>', 'a https://example.com/x b'],
+    ['<p>a<a href="https://example.com/x"></a>b (<a href="https://example.com/y"></a>).</p>', 'a https://example.com/x b (https://example.com/y).'],
     // Table cells keep superscripts, nested cells, code lines, and empty rows without line break marks.
     ['<table><tr><td>10<sup>5</sup> H<sub>2</sub>O</td><td><p><br></p></td></tr></table>', '| 10^(5) H_(2)O |  |\n| --- | --- |'],
     ['<table><tr><td><table><tr><td>a</td><td>1</td></tr><tr><td>b</td><td>2</td></tr></table></td><td><pre>x:\n  y</pre></td></tr></table>', '| a 1; b 2 | `x:`<br>`  y` |\n| --- | --- |'],
     ['<table><caption>Totals</caption><tr><th>A</th><th>B</th></tr><tr><td colspan="100%">All</td></tr><tr hidden><td>no</td><td>no</td></tr></table>', '*Totals*\n\n| A | B |\n| --- | --- |\n| All |  |'],
+    ['<table><tr><td>a<table><tbody hidden><tr><td>no</td></tr></tbody><tr><td>b</td></tr></table></td></tr></table><table><tr hidden><td><pre>no</pre></td></tr></table>', '| a b |\n| --- |'],
     // Lists keep order, numbering, task state, and items outside valid markup.
     ['<ul><li>a<ul><li>b</li></ul>c</li><ul><li>d</li></ul><a href="https://example.com/e">e</a></ul>', '- a\n  - b\n\n  c\n  - d\n- [e](https://example.com/e)'],
     ['<ol reversed><li>c</li><li value="7">b</li><li hidden>no</li><div><li>a</li></div></ol>', '3. c\n7. b\n6. a'],
+    ['<ol><a href="https://example.com/a"><li>a</li></a><a href="https://example.com/no"><li hidden>no</li></a><li>b</li></ol>', '1. [a](https://example.com/a)\n2. b'],
     ['<ul><li><input type="checkbox" checked> done</li><li><label><input type="checkbox"> open</label></li></ul>', '- [x] done\n- [ ] open'],
     ['<ul><li><h3>Title</h3><p>One</p><p>Two</p></li></ul>', '- ### Title\n\n  One\n\n  Two'],
     // Code keeps lines that exist only as elements and omits line numbers and controls.
     ['<pre><code><span>a</span><br><span>  b</span><br></code></pre>', '```\na\n  b\n```'],
     ['<pre><code><div><div class="ln" aria-hidden="true">1</div><div>a</div></div><div>b</div></code><button>Copy</button></pre>', '```\na\nb\n```'],
     ['<div class="highlight-source-go"><pre><span class="ln">1</span>a\n<span class="ln">2</span>b</pre></div>', '```go\na\nb\n```'],
-    ['<table><tr><td><pre>1\n2</pre></td><td><pre>a\nb</pre></td></tr></table>', '```\na\nb\n```'],
+    ['<table><caption>L</caption><tr><td><pre>1\n2</pre></td><td><pre>a\nb</pre></td></tr></table>', '*L*\n\n```\na\nb\n```'],
+    ['<table><tr><td class="gutter"><pre>7</pre></td><td><pre>a</pre></td></tr></table><table><tr><td>404</td><td><pre>a</pre></td></tr></table><table><tr><td><pre>3\n1</pre></td><td><pre>a\nb</pre></td></tr></table>', '```\na\n```\n\n| 404 | `a` |\n| --- | --- |\n\n| `3`<br>`1` | `a`<br>`b` |\n| --- | --- |'],
+    ['<pre><code><div>a</div>\n<div>b</div><div>\n</div><div>c</div><br><div>d</div></code></pre>', '```\na\nb\n\nc\n\nd\n```'],
     ['<pre>$ <code>ls</code> -l</pre>', '```\n$ ls -l\n```'],
     // Math appears once, as TeX when the page has it.
     ['<p><span class="katex"><math><semantics><mi>E</mi><annotation encoding="application/x-tex">E=mc^2</annotation></semantics></math><span aria-hidden="true">E=mc2</span></span></p>', '$E=mc^2$'],
@@ -786,6 +790,8 @@ try {
     ['<table><tr><td><math alttext="\\frac{a}{b}"><mi>a</mi></math></td></tr></table>', '| $`\\frac{a}{b}`$ |\n| --- |'],
     // Emphasis delimiters stay balanced around adjacent, nested, and block content.
     ['<p><b>a</b><b>b</b> <i>c <em>d</em></i> <code>e</code><code>f</code></p>', '**ab** *c d* `ef`'],
+    ['<p><b><i>a</i></b><b><i>b</i></b> <b>c</b><b><i>d</i></b></p>', '***a******b*** **c*d***'],
+    ['<b><menu><li>a</li></menu></b><b><h2>Head<a href="#h">#</a></h2></b><p>See <a href="#s">\u00A7</a> 1<a href="#p">\u00B6</a></p>', '- a\n\n## Head\n\nSee \u00A7 1'],
     ['<b><h2>Head</h2></b><strong><p>One</p><p>Two</p></strong><dl><dt><b>Term</b></dt><dd>Text</dd></dl>', '## Head\n\n**One**\n\n**Two**\n\n**Term**\n\n: Text'],
     // Blocks do not absorb the text around them.
     ['Text<hr>more<table><tr><td>a</td></tr></table>after<blockquote>q<footer>Source</footer></blockquote>end', 'Text\n\n---\n\nmore\n| a |\n| --- |\n\nafter\n> q\n> Source\n\nend'],

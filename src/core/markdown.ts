@@ -71,6 +71,13 @@ const NFKC_SAFE_RUN = new RegExp(`[^${[
 
 const PURE_PRINTABLE_ASCII = /^[\t\n\r\x20-\x7e]*$/;
 
+// Every character that cleanCharacters can change. Other lines stay as they are.
+const NEEDS_CLEANUP = new RegExp([
+  String.raw`(?![\t\n\r -])[\p{Separator}\p{Dash_Punctuation}\p{Default_Ignorable_Code_Point}`,
+  String.raw`\p{Control}\p{Private_Use}\p{Surrogate}\p{Noncharacter_Code_Point}\u2800`,
+  `${Array.from(ASCII_PUNCTUATION.keys()).join('')}]`,
+].join(''), 'u');
+
 /**
  * Normalize compatibility characters and remove common invisible watermark
  * channels without transliterating ordinary non-ASCII language text.
@@ -79,7 +86,14 @@ export function normalizeUnicodeText(text: string): string {
   if (!text) return '';
   if (PURE_PRINTABLE_ASCII.test(text)) return text;
 
-  const characters = Array.from(text.replace(NFKC_SAFE_RUN, (run) => run.normalize('NFKC')));
+  return text.replace(NFKC_SAFE_RUN, (run) => run.normalize('NFKC'))
+    .split('\n')
+    .map((line) => (NEEDS_CLEANUP.test(line) ? cleanCharacters(line) : line))
+    .join('\n');
+}
+
+function cleanCharacters(text: string): string {
+  const characters = Array.from(text);
   const output: string[] = [];
 
   for (let index = 0; index < characters.length; index += 1) {
@@ -177,13 +191,13 @@ function isNonCharacter(codePoint: number): boolean {
  * Recursively converts cell contents to preserve links and formatting.
  */
 export function tableToMarkdown(tableEl: Element): string {
-  const codeBlock = findLineNumberedCode(tableEl);
-  if (codeBlock) return nodeToMarkdown(codeBlock).trim();
-
   const captionEl = tableEl.querySelector(':scope > caption');
   const caption = captionEl && !isHiddenOrInjectedElement(captionEl)
     ? wrapInlineDelimiter(joinLines(childrenToMarkdown(captionEl, { em: true })), '*')
     : '';
+  const codeBlock = findLineNumberedCode(tableEl);
+  if (codeBlock) return [caption, nodeToMarkdown(codeBlock).trim()].filter(Boolean).join('\n\n');
+
   const trElements = tableRows(tableEl);
 
   if (trElements.length === 0) return caption;
@@ -232,9 +246,7 @@ export function tableToMarkdown(tableEl: Element): string {
       column += columnSpan;
     }
     // Hidden rows still consume row spans.
-    if (!isHiddenOrInjectedElement(tr) && !(tr.parentElement && isHiddenOrInjectedElement(tr.parentElement))) {
-      allRowCells.push(values);
-    }
+    if (!isHiddenRow(tr)) allRowCells.push(values);
     groupRow += 1;
   }
 
@@ -267,6 +279,11 @@ function tableRows(tableEl: Element): Element[] {
   ];
 }
 
+/** Check a row and its section. */
+function isHiddenRow(tr: Element): boolean {
+  return isHiddenOrInjectedElement(tr) || (tr.parentElement !== null && isHiddenOrInjectedElement(tr.parentElement));
+}
+
 /** Collect the cells that occupy a column. */
 function tableCells(tr: Element): Element[] {
   return Array.from(tr.querySelectorAll<HTMLElement>(':scope > th, :scope > td')).filter((cell) => (
@@ -277,12 +294,25 @@ function tableCells(tr: Element): Element[] {
 /** Find the code in a table that only places line numbers next to a code block. */
 function findLineNumberedCode(tableEl: Element): Element | null {
   const rows = tableRows(tableEl);
-  if (rows.length !== 1) return null;
+  if (rows.length !== 1 || isHiddenRow(rows[0])) return null;
   const cells = tableCells(rows[0]);
   const codeCell = cells.pop();
-  const blocks = codeCell?.querySelectorAll('pre');
-  if (blocks?.length !== 1 || codeCell?.textContent?.trim() !== blocks[0].textContent?.trim()) return null;
-  return cells.every((cell) => /^[\s\d]*$/.test(cell.textContent || '')) ? blocks[0] : null;
+  if (!codeCell || isHiddenOrInjectedElement(codeCell)) return null;
+  const blocks = codeCell.querySelectorAll('pre');
+  if (blocks.length !== 1 || codeCell.textContent?.trim() !== blocks[0].textContent?.trim()) return null;
+  const lineCount = codeText(blocks[0]).trimEnd().split('\n').length;
+  return cells.every((cell) => isLineNumberCell(cell, lineCount)) ? blocks[0] : null;
+}
+
+/** Other numbers, such as a status code or a sample input, are data. */
+function isLineNumberCell(cell: Element, lineCount: number): boolean {
+  if (!/^[\s\d]*$/.test(cell.textContent || '')) return false;
+  if (LINE_NUMBER_CLASS.test(cell.getAttribute('class') || '')) return true;
+  const unmarked = codeText(cell).trim();
+  if (!unmarked) return true;
+  const numbers = unmarked.split(/\s+/).map(Number);
+  return lineCount > 1 && numbers.length === lineCount
+    && numbers.every((number, index) => number === numbers[0] + index);
 }
 
 function hasHiddenAttribute(el: Element): boolean {
@@ -327,7 +357,7 @@ const INLINE_DELIMITERS = new Map([
 
 const CELL_INLINE_TAGS = new Set([...INLINE_DELIMITERS.keys(), 'SUP', 'SUB', 'Q', 'RT', 'MATH']);
 
-const BLOCK_CONTENT = 'h1, h2, h3, h4, h5, h6, ul, ol, pre, table, blockquote, dl, hr';
+const BLOCK_CONTENT = 'h1, h2, h3, h4, h5, h6, ul, ol, menu, pre, table, blockquote, dl, hr';
 
 /** Put text from several source lines on one line. */
 function joinLines(value: string): string {
@@ -368,10 +398,18 @@ const CODE_BLOCK_TAGS = new Set(['DIV', 'P', 'PRE', 'OL', 'UL', 'LI', 'TABLE', '
 function codeText(root: Element): string {
   const parts: string[] = [];
   let endsLine = true;
+  let afterBlock = false;
   const push = (text: string): void => {
     if (!text) return;
+    // A newline after a block is the line break that the block makes.
+    if (afterBlock && !/^[^\S\n]*\n/.test(text)) parts.push('\n');
+    afterBlock = false;
     parts.push(text);
     endsLine = text.endsWith('\n');
+  };
+  const breakLine = (): void => {
+    afterBlock = false;
+    push('\n');
   };
   const visit = (node: Node): void => {
     for (const child of node.childNodes) {
@@ -383,7 +421,8 @@ function codeText(root: Element): string {
       const el = child as HTMLElement;
       const tag = el.tagName.toUpperCase();
       if (tag === 'BR') {
-        push('\n');
+        if (afterBlock) breakLine();
+        breakLine();
         continue;
       }
       if (isHiddenOrInjectedElement(el) || isNoiseElement(el) || tag === 'BUTTON') continue;
@@ -392,9 +431,9 @@ function codeText(root: Element): string {
         && /^\s*\d[\s\d]*$/.test(el.textContent || '')
       ) continue;
       const isBlock = CODE_BLOCK_TAGS.has(tag) || /^(?:block|flex|table-row)$/.test(el.style?.display || '');
-      if (isBlock && !endsLine) push('\n');
+      if (isBlock && !endsLine) breakLine();
       visit(el);
-      if (isBlock && !endsLine) push('\n');
+      if (isBlock && !endsLine) afterBlock = true;
     }
   };
   visit(root);
@@ -528,7 +567,7 @@ function cellContentToMarkdown(nodes: Iterable<Node>): string {
     }
     if (tag === 'TABLE') {
       const rows = tableRows(el)
-        .filter((row) => !isHiddenOrInjectedElement(row))
+        .filter((row) => !isHiddenRow(row))
         .map((row) => tableCells(row)
           .filter((inner) => !isHiddenOrInjectedElement(inner))
           .map(cellToMarkdown)
@@ -561,6 +600,16 @@ function isListItem(node: Node): boolean {
   return node.nodeType === Node.ELEMENT_NODE && (node as Element).tagName.toUpperCase() === 'LI';
 }
 
+/** Check for an item, or for a link around one item. */
+function isItemEntry(node: Node): boolean {
+  if (isListItem(node)) return true;
+  if (node.nodeType !== Node.ELEMENT_NODE) return false;
+  const el = node as Element;
+  const items = el.querySelectorAll('li');
+  return el.matches('a[href]:not([href^="#"])') && el.childElementCount === 1
+    && items.length === 1 && items[0].parentElement === el && !isHiddenOrInjectedElement(items[0]);
+}
+
 /** List content in order, including content outside items and items inside custom wrappers. */
 function listEntries(listEl: Element): Node[] {
   return Array.from(listEl.childNodes).flatMap((child): Node[] => {
@@ -568,7 +617,7 @@ function listEntries(listEl: Element): Node[] {
     if (child.nodeType !== Node.ELEMENT_NODE) return [];
     const el = child as Element;
     if (isHiddenOrInjectedElement(el) || isNoiseElement(el)) return [];
-    return isListItem(el) || isListElement(el) || !el.querySelector('li') ? [el] : listEntries(el);
+    return isItemEntry(el) || isListElement(el) || !el.querySelector('li') ? [el] : listEntries(el);
   });
 }
 
@@ -611,7 +660,7 @@ export function listToMarkdown(listEl: Element, indent = 0): string {
   const isOrdered = listEl.tagName.toUpperCase() === 'OL';
   const step = isOrdered && listEl.hasAttribute('reversed') ? -1 : 1;
   const startAttr = Number.parseInt(listEl.getAttribute('start') || '', 10);
-  let number = step < 0 ? entries.filter(isListItem).length : 1;
+  let number = step < 0 ? entries.filter(isItemEntry).length : 1;
   if (Number.isFinite(startAttr)) number = startAttr;
   const prefix = ' '.repeat(indent);
   const lines: string[] = [];
@@ -624,7 +673,7 @@ export function listToMarkdown(listEl: Element, indent = 0): string {
       continue;
     }
     let bullet = '-';
-    if (isOrdered && isListItem(entry)) {
+    if (isOrdered && isItemEntry(entry)) {
       const value = Number.parseInt((entry as Element).getAttribute('value') || '', 10);
       if (Number.isFinite(value)) number = value;
       bullet = `${number}.`;
@@ -672,8 +721,11 @@ function linkToMarkdown(el: Element, context: ConversionContext, showBareUrl = t
   const isAnchor = href.startsWith('#');
   const url = isAnchor ? '' : safeMarkdownLinkUrl(href, el.ownerDocument?.baseURI);
   if (!text) return (showBareUrl && url) || (raw && ' ');
-  // Permalink markers are not part of a heading.
-  if (isAnchor && /^[#\u00B6\u00A7]$/.test(text)) return '';
+  // Permalink markers are not content. Outside headings, number and section signs are text.
+  if (
+    isAnchor && /^[#\u00B6\u00A7]$/.test(text)
+    && (el.closest('h1, h2, h3, h4, h5, h6, dt') || (text === '\u00B6' && !el.closest('sup')))
+  ) return '';
   if (!url) return raw;
   return `${raw.startsWith(' ') ? ' ' : ''}[${text}](${url})${raw.endsWith(' ') ? ' ' : ''}`;
 }
@@ -900,12 +952,14 @@ function joinSiblings(nodes: Iterable<Node>, convert: (node: Node) => string): s
       delimiter && delimiter === lastDelimiter
       && last.endsWith(delimiter) && markdown.startsWith(delimiter)
       && !(delimiter === '`' && (last.endsWith('``') || markdown.startsWith('``')))
+      // Bold-italic on both sides would leave an unmatched delimiter.
+      && !(delimiter[0] === '*' && last.endsWith(`*${delimiter}`) && markdown.startsWith(`${delimiter}*`))
     ) {
       parts[parts.length - 1] = last.slice(0, -delimiter.length);
       markdown = markdown.slice(delimiter.length);
     } else if (
       last && (isUrl || lastIsUrl)
-      && !WHITESPACE_CHAR_RE.test(last[last.length - 1]) && !WHITESPACE_CHAR_RE.test(markdown[0])
+      && !/[\s([{"']$/.test(last) && !/^(?:\s|[)\]}.,;:!?"']+(?:\s|$))/.test(markdown)
     ) {
       markdown = ` ${markdown}`;
     }
