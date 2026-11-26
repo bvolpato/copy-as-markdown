@@ -133,9 +133,12 @@ test('the page shows and copies itself as Markdown', () => withHomepage({}, asyn
   assert.match(view, /\| \[Wikipedia article\]\(https:\/\/en\.wikipedia\.org\/wiki\/Markdown\) \|/);
   await page.click('[data-view="page"]');
   await page.waitForFunction(() => !document.documentElement.classList.contains('view-markdown'));
-  await page.click('#copy_as_markdown_btn');
+  const callout = '.try-here';
+  assert.ok(await page.$eval(callout, (label) => label.checkVisibility({ visibilityProperty: true })));
+  await page.click(`${callout} span`);
   await page.waitForSelector('#copy_as_markdown_btn.success');
   assert.equal(await page.evaluate(() => window.__copied), view);
+  assert.equal(await page.$eval(callout, (label) => label.checkVisibility({ visibilityProperty: true })), false);
 }));
 
 test('a #markdown link opens the Markdown view', () => withHomepage({ hash: '#markdown' }, async (page) => {
