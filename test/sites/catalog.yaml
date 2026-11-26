@@ -842,7 +842,9 @@ sites:
       - id: matrix
         url: https://www.imdb.com/title/tt0133093/
         readySelector: h1
-        placement: floating
+        placement: anchor
+        anchorSelector: '[data-testid="hero__pageTitle"], h1[data-testid="hero-title-block__title"], main h1, h1'
+        anchorPosition: after
         minChars: 150
         maxChars: 3000000
         contentRequired:

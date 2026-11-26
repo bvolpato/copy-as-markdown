@@ -211,6 +211,57 @@ export function tableToMarkdown(tableEl: Element): string {
   return lines.join('\n');
 }
 
+function isHiddenOrInjectedElement(el: Element): boolean {
+  if (el.hasAttribute('data-cam-instance')) return true;
+  if ((el as HTMLElement).hidden || el.getAttribute('aria-hidden') === 'true') return true;
+  if (el.tagName === 'DIALOG' && !el.hasAttribute('open')) return true;
+  const style = (el as HTMLElement).style;
+  if (style && (style.display === 'none' || style.visibility === 'hidden')) return true;
+  return false;
+}
+
+const NOISE_TAGS = new Set([
+  'SCRIPT', 'STYLE', 'NOSCRIPT', 'IFRAME', 'SVG', 'NAV', 'FOOTER',
+]);
+
+const CELL_BLOCK_TAGS = new Set([
+  'DIV', 'P', 'BLOCKQUOTE', 'SECTION', 'ARTICLE', 'HEADER', 'H1', 'H2', 'H3', 'H4', 'H5', 'H6',
+]);
+
+function wrapInlineDelimiter(raw: string, delimiter: string): string {
+  const leading = /^\s/.test(raw) ? ' ' : '';
+  const trailing = /\s$/.test(raw) ? ' ' : '';
+  const inner = raw.trim();
+  return inner ? `${leading}${delimiter}${inner}${delimiter}${trailing}` : '';
+}
+
+function detectCodeLanguage(preEl: Element, codeEl: Element | null): string {
+  const candidates = [
+    codeEl?.getAttribute('data-language'),
+    codeEl?.getAttribute('data-lang'),
+    codeEl?.className,
+    preEl.getAttribute('data-language'),
+    preEl.getAttribute('data-lang'),
+    preEl.className,
+  ];
+  for (const candidate of candidates) {
+    if (typeof candidate !== 'string' || !candidate) continue;
+    const prefixed = candidate.match(/\b(?:language|lang)-([\w.+#-]+)/i);
+    if (prefixed) return prefixed[1];
+  }
+  const explicit = codeEl?.getAttribute('data-language')
+    || codeEl?.getAttribute('data-lang')
+    || preEl.getAttribute('data-language')
+    || preEl.getAttribute('data-lang');
+  if (explicit && /^[\w.+#-]+$/.test(explicit.trim())) return explicit.trim();
+
+  const syntaxParams = preEl.getAttribute('data-syntaxhighlighter-params') || '';
+  const brushMatch = syntaxParams.match(/\bbrush\s*:\s*([\w.+#-]+)/i);
+  if (brushMatch) return brushMatch[1];
+
+  return '';
+}
+
 /**
  * Convert the inner content of a table cell to inline Markdown.
  * Handles links, bold, italic, line breaks, and nested text.
@@ -220,10 +271,12 @@ function cellToMarkdown(cell: Element): string {
   cell.childNodes.forEach((node) => {
     if (node.nodeType === Node.TEXT_NODE) {
       const text = node.textContent || '';
-      parts.push(normalizeWhitespace(text));
+      parts.push(normalizeUnicodeText(text).replace(/[\s\n\r]+/g, ' '));
     } else if (node.nodeType === Node.ELEMENT_NODE) {
       const el = node as HTMLElement;
       const tag = el.tagName;
+
+      if (isHiddenOrInjectedElement(el) || NOISE_TAGS.has(tag)) return;
 
       if (tag === 'BR') {
         parts.push('; ');
@@ -236,9 +289,7 @@ function cellToMarkdown(cell: Element): string {
         } else {
           parts.push(text);
         }
-      } else if (tag === 'STRONG' || tag === 'B') {
-        parts.push(nodeToMarkdown(el));
-      } else if (tag === 'EM' || tag === 'I') {
+      } else if (tag === 'STRONG' || tag === 'B' || tag === 'EM' || tag === 'I' || tag === 'DEL' || tag === 'S' || tag === 'STRIKE') {
         parts.push(nodeToMarkdown(el));
       } else if (tag === 'IMG') {
         parts.push(elementToMarkdown(el).trim());
@@ -247,17 +298,18 @@ function cellToMarkdown(cell: Element): string {
       } else if (tag === 'PRE') {
         parts.push(inlineCodeToMarkdown(el.textContent || ''));
       } else if (tag === 'UL' || tag === 'OL') {
-        // Flatten list items inline
-        const items = Array.from(el.querySelectorAll('li'));
+        // Flatten direct list items inline without duplicating nested lists.
+        const items = Array.from(el.querySelectorAll(':scope > li'));
         const listText = items
           .map((li) => cellToMarkdown(li))
           .filter(Boolean)
           .join('; ');
-        if (listText) parts.push(listText);
-      } else if (tag === 'SCRIPT' || tag === 'STYLE' || tag === 'SVG') {
-        // skip
+        if (listText) parts.push(` ${listText} `);
+      } else if (CELL_BLOCK_TAGS.has(tag)) {
+        const inner = cellToMarkdown(el);
+        if (inner) parts.push(` ${inner} `);
       } else {
-        // Recurse into child element
+        // Recurse into child inline element
         parts.push(cellToMarkdown(el));
       }
     }
@@ -274,11 +326,13 @@ export function listToMarkdown(listEl: Element, indent = 0): string {
     (el) => el.tagName === 'LI',
   );
   const isOrdered = listEl.tagName === 'OL';
+  const startAttr = isOrdered ? Number.parseInt(listEl.getAttribute('start') || '1', 10) : 1;
+  const startIndex = Number.isFinite(startAttr) ? startAttr : 1;
   const prefix = ' '.repeat(indent);
   const lines: string[] = [];
 
   items.forEach((li, index) => {
-    const bullet = isOrdered ? `${index + 1}.` : '-';
+    const bullet = isOrdered ? `${startIndex + index}.` : '-';
     const childLists = li.querySelectorAll(':scope > ul, :scope > ol');
 
     let text = '';
@@ -294,19 +348,20 @@ export function listToMarkdown(listEl: Element, indent = 0): string {
         text += nodeToMarkdown(node);
       }
     });
-    const hasCodeBlock = Array.from(li.querySelectorAll('pre'))
-      .some((pre) => pre.closest('li') === li);
-    text = hasCodeBlock ? cleanMarkdown(text) : normalizeMarkdownWhitespace(text);
+    const hasBlockContent = Array.from(li.querySelectorAll('pre, blockquote, table, ul, ol'))
+      .some((el) => el.closest('li') === li);
+    text = hasBlockContent ? cleanMarkdown(text) : normalizeMarkdownWhitespace(text);
+    const childIndent = indent + bullet.length + 1;
     if (text) {
-      const continuation = prefix + ' '.repeat(bullet.length + 1);
+      const continuation = ' '.repeat(childIndent);
       const content = text.split('\n')
-        .map((line, index) => index && line ? continuation + line : line)
+        .map((line, lineIdx) => lineIdx && line ? continuation + line : line)
         .join('\n');
       lines.push(`${prefix}${bullet} ${content}`);
     }
 
     childLists.forEach((subList) => {
-      lines.push(listToMarkdown(subList, indent + 2));
+      lines.push(listToMarkdown(subList, childIndent));
     });
   });
 
@@ -339,27 +394,20 @@ export function nodeToMarkdown(
   const el = node as HTMLElement;
   const tag = el.tagName;
 
-  if (el.hasAttribute('data-cam-instance')) return '';
-  if (el.hidden || el.getAttribute('aria-hidden') === 'true') return '';
-  const style = el.style;
-  if (
-    style &&
-    (style.display === 'none' || style.visibility === 'hidden')
-  )
-    return '';
-
-  const noiseTags = [
-    'SCRIPT', 'STYLE', 'NOSCRIPT', 'IFRAME', 'SVG', 'NAV', 'FOOTER',
-  ];
-  if (noiseTags.includes(tag)) return '';
+  if (isHiddenOrInjectedElement(el)) return '';
+  if (NOISE_TAGS.has(tag)) return '';
 
   switch (tag) {
-    case 'H1': return `\n# ${childrenToMarkdown(el, context).trim()}\n`;
-    case 'H2': return `\n## ${childrenToMarkdown(el, context).trim()}\n`;
-    case 'H3': return `\n### ${childrenToMarkdown(el, context).trim()}\n`;
-    case 'H4': return `\n#### ${childrenToMarkdown(el, context).trim()}\n`;
-    case 'H5': return `\n##### ${childrenToMarkdown(el, context).trim()}\n`;
-    case 'H6': return `\n###### ${childrenToMarkdown(el, context).trim()}\n`;
+    case 'H1':
+    case 'H2':
+    case 'H3':
+    case 'H4':
+    case 'H5':
+    case 'H6': {
+      const level = Number(tag[1]);
+      const inner = childrenToMarkdown(el, context).replace(/\s*\n+\s*/g, ' ').trim();
+      return inner ? `\n${'#'.repeat(level)} ${inner}\n` : '';
+    }
 
     case 'P':
       return `\n${childrenToMarkdown(el, context).trim()}\n`;
@@ -371,16 +419,12 @@ export function nodeToMarkdown(
       return '\n---\n';
 
     case 'STRONG':
-    case 'B': {
-      const inner = childrenToMarkdown(el, context).trim();
-      return inner ? `**${inner}**` : '';
-    }
+    case 'B':
+      return wrapInlineDelimiter(childrenToMarkdown(el, context), '**');
 
     case 'EM':
-    case 'I': {
-      const inner = childrenToMarkdown(el, context).trim();
-      return inner ? `*${inner}*` : '';
-    }
+    case 'I':
+      return wrapInlineDelimiter(childrenToMarkdown(el, context), '*');
 
     case 'SUP': {
       const inner = childrenToMarkdown(el, context).trim();
@@ -394,10 +438,8 @@ export function nodeToMarkdown(
 
     case 'DEL':
     case 'S':
-    case 'STRIKE': {
-      const inner = childrenToMarkdown(el, context).trim();
-      return inner ? `~~${inner}~~` : '';
-    }
+    case 'STRIKE':
+      return wrapInlineDelimiter(childrenToMarkdown(el, context), '~~');
 
     case 'CODE': {
       if (
@@ -410,19 +452,18 @@ export function nodeToMarkdown(
     }
 
     case 'PRE': {
-      const codeEl = el.querySelector('code');
-      const code = codeEl
-        ? codeEl.textContent || ''
+      const codeEls = el.querySelectorAll('code');
+      const singleCode = codeEls.length === 1 ? codeEls[0] : null;
+      const code = singleCode
+        ? singleCode.textContent || ''
         : el.textContent || '';
-      const lang = codeEl
-        ? (codeEl.className.match(/language-([\w.+#-]+)/) || ['', ''])[1]
-        : '';
+      const lang = detectCodeLanguage(el, singleCode || codeEls[0] || null);
       return `\n${fencedCodeToMarkdown(code, lang)}\n`;
     }
 
     case 'A': {
       const href = el.getAttribute('href');
-      const text = childrenToMarkdown(el, context).trim();
+      const text = childrenToMarkdown(el, context).replace(/\s*\n+\s*/g, ' ').trim();
       if (!text && !href) return '';
       if (!href) return text;
       // Skip internal anchor-only links (e.g. [1], [2] footnotes)
@@ -441,6 +482,7 @@ export function nodeToMarkdown(
 
     case 'BLOCKQUOTE': {
       const inner = childrenToMarkdown(el, context).trim();
+      if (!inner) return '';
       return (
         '\n' +
         inner
@@ -667,14 +709,14 @@ function normalizeMarkdownWhitespace(value: string): string {
 }
 
 /**
- * Post-process Markdown: collapse excessive blank lines, fix spacing, trim.
+ * Post-process Markdown: collapse excessive blank lines, fix link spacing, trim.
  */
 export function cleanMarkdown(md: string): string {
   return withPreservedCode(md, (prose) => normalizeUnicodeText(prose)
-    // Fix link spacing: ensure space before [ if preceded by a word char
-    .replace(/(\w)\[/g, '$1 [')
-    // Fix link spacing: ensure space after ) if followed by a word char
-    .replace(/\)(\w)/g, ') $1')
+    // Add space around Markdown links glued to adjacent words without mangling array indexing,
+    // URL query params (?filter[a]=1), (s)he, or H_(2)O subscripts.
+    .replace(/(\w)(\[[^\]\n]+\]\((?:https?:|mailto:)[^)\s]+\))/g, '$1 $2')
+    .replace(/(\[[^\]\n]+\]\((?:https?:|mailto:)[^)\s]+\))(\w)/g, '$1 $2')
     // Collapse 3+ newlines to 2
     .replace(/\n{3,}/g, '\n\n')
     // Remove leading/trailing whitespace on lines
@@ -696,11 +738,43 @@ function isPlaceholderImage(src: string): boolean {
 
 function pickSrcsetUrl(srcset: string | null): string {
   if (!srcset) return '';
-  const candidates = srcset
-    .split(',')
-    .map((entry) => entry.trim().split(/\s+/)[0])
-    .filter((candidate) => candidate && !isPlaceholderImage(candidate));
-  return candidates[candidates.length - 1] || '';
+  // Follow the HTML srcset parsing algorithm so commas inside CDN transformation URLs
+  // (e.g. `https://cdn.example/w_800,f_auto,q_auto/pic.jpg 800w`) are preserved intact.
+  const candidates: Array<{ url: string; weight: number; order: number }> = [];
+  const len = srcset.length;
+  let i = 0;
+  let order = 0;
+
+  while (i < len) {
+    while (i < len && (/\s/.test(srcset[i]) || srcset[i] === ',')) i += 1;
+    if (i >= len) break;
+
+    const urlStart = i;
+    while (i < len && !/\s/.test(srcset[i])) i += 1;
+    let rawUrl = srcset.slice(urlStart, i);
+    let descriptor = '';
+
+    if (rawUrl.endsWith(',')) {
+      rawUrl = rawUrl.replace(/,+$/, '');
+    } else {
+      while (i < len && /\s/.test(srcset[i])) i += 1;
+      const descStart = i;
+      while (i < len && srcset[i] !== ',') i += 1;
+      descriptor = srcset.slice(descStart, i).trim();
+      if (i < len && srcset[i] === ',') i += 1;
+    }
+
+    if (!rawUrl || isPlaceholderImage(rawUrl)) continue;
+    const descMatch = descriptor.match(/^([0-9]+(?:\.[0-9]+)?)(w|x)$/i);
+    const num = descMatch ? Number(descMatch[1]) : 1;
+    const unit = descMatch ? descMatch[2].toLowerCase() : '';
+    const weight = unit === 'w' ? num : unit === 'x' ? num * 1000 : 1;
+    candidates.push({ url: rawUrl, weight, order: order++ });
+  }
+
+  if (candidates.length === 0) return '';
+  candidates.sort((a, b) => (b.weight - a.weight) || (b.order - a.order));
+  return candidates[0].url;
 }
 
 function resolveImageSource(el: HTMLElement): string {
@@ -957,10 +1031,11 @@ export function buildPageMarkdown(
   metadata: PageMetadata,
   bodyMarkdown: string,
 ): string {
+  const cleanedBody = cleanMarkdown(bodyMarkdown);
   const parts: string[] = [];
   if (metadata && Object.keys(metadata).length > 0) {
-    parts.push(formatMetadata(metadata, bodyMarkdown));
+    parts.push(formatMetadata(metadata, cleanedBody));
   }
-  parts.push(bodyMarkdown);
-  return cleanMarkdown(parts.join('\n\n'));
+  if (cleanedBody) parts.push(cleanedBody);
+  return parts.join('\n\n').trim();
 }

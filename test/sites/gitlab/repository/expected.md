@@ -126,7 +126,7 @@ FIXTURE_P_0448 [`FIXTURE_CODE_0449`](https://example.invalid/fixture-link-0223) 
 
 FIXTURE_P_0452 [FIXTURE_A_0453](https://example.invalid/fixture-link-0225) FIXTURE_P_0454 [FIXTURE_A_0455](https://example.invalid/fixture-link-0226) FIXTURE_P_0456
 
-```
+```shell
 FIXTURE_SPAN_0457FIXTURE_SPAN_0458
 ```
 

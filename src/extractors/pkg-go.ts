@@ -27,15 +27,23 @@ export const pkgGoExtractor = register({
       document.querySelector('.go-Main-headerTitle h1, .go-Main-header h1, main h1')?.textContent
         || Utils.getPageTitle().replace(/\s*-\s*Go Packages$/i, ''),
     );
-    const version = Markdown.normalizeWhitespace(
-      document.querySelector('.go-Main-headerDetails [data-test-id="UnitHeader-version"], .go-Main-headerDetailItem a[href*="?tab=versions"]')?.textContent || '',
+    const versionEl = document.querySelector(
+      '.go-Main-headerDetails [data-test-id="UnitHeader-version"] a, .go-Main-headerDetailItem a[href*="?tab=versions"], .go-Main-headerDetails [data-test-id="UnitHeader-version"]',
     );
+    const rawVersion = versionEl
+      ? Utils.removeNoise(versionEl, ['.go-ScreenReaderOnly', '[aria-hidden="true"]', 'img', 'svg']).textContent || ''
+      : '';
+    const version = Markdown.normalizeWhitespace(rawVersion)
+      .replace(/^Version:\s*/i, '')
+      .replace(/\s+Opens a new window.*$/i, '')
+      .replace(/\s+Latest\b.*$/i, '')
+      .trim();
     const published = Markdown.normalizeWhitespace(
       document.querySelector('[data-test-id="UnitHeader-commitTime"]')?.textContent || '',
-    );
+    ).replace(/^Published:\s*/i, '').trim();
     const license = Markdown.normalizeWhitespace(
       document.querySelector('[data-test-id="UnitHeader-licenses"] a, [data-test-id="UnitHeader-licenses"]')?.textContent || '',
-    );
+    ).replace(/^License:\s*/i, '').trim();
 
     const metadata: PageMetadata = {
       source: 'pkg.go.dev',

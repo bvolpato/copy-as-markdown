@@ -8,19 +8,28 @@ import * as Utils from '../core/utils';
 import { addExtractionMetadata, limitMarkdown } from '../core/context';
 import type { PageMetadata } from '../core/types';
 
+function isSelfHostedSentryIssue(contextDocument: Document = document): boolean {
+  if (!contextDocument.querySelector('[data-test-id="group-header"], [data-test-id="issue-details"], [data-test-id="event-section-breadcrumbs"]')) {
+    return false;
+  }
+  const href = contextDocument.location?.href || contextDocument.baseURI || '';
+  return /\/(?:organizations\/[^/]+\/)?issues\/\d+/i.test(href) || /\bsentry\b/i.test(contextDocument.title || '');
+}
+
 export const sentryExtractor = register({
   name: 'Sentry',
   matches: [
     '*://*.sentry.io/issues/*',
+    '*://*.sentry.io/organizations/*/issues/*',
     '*://sentry.io/organizations/*/issues/*',
   ],
   pathnameRegex: /^\/(?:organizations\/[^/]+\/)?issues\/\d+/i,
+  detect: isSelfHostedSentryIssue,
   buttonPlacement: 'anchor',
   anchor: {
     selector: '[data-test-id="group-header"] h1, [data-test-id="issue-header"] h1, main h1',
-    position: 'after',
+    position: 'overlay',
     style: 'pill',
-    css: { marginLeft: '10px' },
   },
 
   async extract() {
@@ -48,29 +57,41 @@ export const sentryExtractor = register({
       parts.push('\n## Tags\n\n' + [...new Set(tags)].map((t) => `- ${t}`).join('\n'));
     }
 
+    let hasTrace = false;
     const frames = Array.from(document.querySelectorAll('[data-test-id="frame"], .traceback li.frame, ul.traceback > li'));
     if (frames.length > 0) {
-      parts.push('\n## Stack Trace\n');
       const traceLines: string[] = [];
       for (const frame of frames) {
-        const line = Markdown.normalizeWhitespace(frame.querySelector('.title, [data-test-id="frame-title"]')?.textContent || frame.textContent || '');
+        const titleEl = frame.querySelector('.title, [data-test-id="frame-title"]');
+        const cleanedFrame = titleEl || Utils.removeNoise(frame, ['button', 'svg', '[aria-hidden="true"]']);
+        const line = Markdown.normalizeWhitespace(cleanedFrame.textContent || '');
         if (line) traceLines.push(line);
       }
       if (traceLines.length > 0) {
+        hasTrace = true;
+        parts.push('\n## Stack Trace\n');
         parts.push(Markdown.fencedCodeToMarkdown(traceLines.join('\n'), 'text'));
       }
     }
 
+    let hasBreadcrumbs = false;
     const breadcrumbs = document.querySelector('[data-test-id="event-section-breadcrumbs"], [data-test-id="breadcrumbs"]');
     if (breadcrumbs) {
       const cleaned = Utils.removeNoise(breadcrumbs, [...Utils.NOISE_SELECTORS, 'button', 'input']);
       const crumbsMd = Markdown.elementToMarkdown(cleaned);
-      if (crumbsMd) parts.push('\n## Breadcrumbs\n\n' + crumbsMd);
+      if (crumbsMd) {
+        hasBreadcrumbs = true;
+        parts.push('\n## Breadcrumbs\n\n' + crumbsMd);
+      }
     }
 
-    if (parts.length <= 2) {
+    if (!hasTrace && !hasBreadcrumbs) {
       const main = document.querySelector('[data-test-id="issue-details"], main') || document.body;
-      parts.push('\n' + Markdown.elementToMarkdown(Utils.removeNoise(main, [...Utils.NOISE_SELECTORS, 'button'])));
+      if (main) {
+        const cleaned = Utils.removeNoise(main, [...Utils.NOISE_SELECTORS, 'button', '[data-test-id="group-header"] h1', '[data-test-id="issue-title"]']);
+        const fallbackMd = Markdown.elementToMarkdown(cleaned);
+        if (fallbackMd) parts.push('\n' + fallbackMd);
+      }
     }
 
     const limited = limitMarkdown(parts.join('\n'));

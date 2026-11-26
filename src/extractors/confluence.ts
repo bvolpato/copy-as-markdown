@@ -32,11 +32,20 @@ type ConfluenceApiExtraction = {
   contentSource: string;
 };
 
+function isSelfHostedConfluencePage(contextDocument: Document = document): boolean {
+  const hasPageId = Boolean(contextDocument.querySelector('meta[name="ajs-page-id"]')?.getAttribute('content')?.trim());
+  const hasSpaceKey = Boolean(contextDocument.querySelector('meta[name="ajs-space-key"]')?.getAttribute('content')?.trim());
+  if (hasPageId && hasSpaceKey) return true;
+  const appName = contextDocument.querySelector('meta[name="application-name"]')?.getAttribute('content') || '';
+  return /^confluence$/i.test(appName.trim()) && Boolean(contextDocument.querySelector('#main-content, .wiki-content, [data-testid="ak-renderer-document"]'));
+}
+
 export const confluenceExtractor = register({
   name: 'Confluence',
   matches: ['*://*.atlassian.net/wiki/*'],
   regex: CUSTOM_CONFLUENCE_URL,
   pathnameRegex: /^(?:\/wiki\/(?:spaces\/[^/]+\/(?:pages\/(?:edit-v2\/)?\d+|blog\/\d{4}\/\d{2}\/\d{2}\/\d+|overview)|display\/[^/]+\/|pages\/viewpage\.action|x\/[^/?#]+)|\/(?:display\/[^/]+\/|pages\/viewpage\.action|spaces\/[^/]+\/(?:pages\/(?:edit-v2\/)?\d+|blog\/)|x\/[^/?#]+)|\/confluence\/(?:display\/[^/]+\/|pages\/viewpage\.action|spaces\/[^/]+\/(?:pages\/(?:edit-v2\/)?\d+|blog\/)|x\/[^/?#]+))/i,
+  detect: isSelfHostedConfluencePage,
   buttonPlacement: 'anchor',
   anchor: {
     selector: [

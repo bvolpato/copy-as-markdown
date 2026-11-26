@@ -139,16 +139,20 @@ function extractNotebookChild(
   seriesCandidates: Map<string, DatadogSeriesCandidate[]>,
   isVisible: VisibilityCheck,
 ): string {
-  if (child.matches('.react-renderer.node-widget') || child.querySelector('[data-qa="cell"]')) {
+  if (
+    child.matches('.react-renderer.node-widget, [data-qa="cell"]')
+    || child.querySelector('[data-qa="cell"]')
+  ) {
     return summarizeNotebookCell(child, seriesCandidates, isVisible);
   }
 
   if (
     child.matches(
-      'p, h1, h2, h3, h4, h5, h6, ul, ol, blockquote, pre, table, hr',
+      'p, h1, h2, h3, h4, h5, h6, ul, ol, blockquote, pre, table, hr, div, section',
     )
   ) {
-    return Markdown.elementToMarkdown(child);
+    const cleaned = Utils.removeNoise(child, ['button', 'svg', '[data-cam-instance]']);
+    return Markdown.elementToMarkdown(cleaned);
   }
 
   return '';
@@ -159,8 +163,10 @@ function summarizeNotebookCell(
   seriesCandidates: Map<string, DatadogSeriesCandidate[]>,
   isVisible: VisibilityCheck,
 ): string {
-  const cell = container.querySelector<HTMLElement>('[data-qa="cell"][data-cell]')
-    || container.querySelector<HTMLElement>('[data-qa="cell"]');
+  const cell = container.matches('[data-qa="cell"]')
+    ? container as HTMLElement
+    : (container.querySelector<HTMLElement>('[data-qa="cell"][data-cell]')
+      || container.querySelector<HTMLElement>('[data-qa="cell"]'));
   if (!cell) return '';
 
   const typedCell = cell.querySelector<HTMLElement>('[data-cell-id][data-test-cell-type]');
@@ -445,7 +451,11 @@ function uniqueVisibleTexts(
 }
 
 function textOf(element: Element | null): string {
-  return (element?.textContent || '').replace(/\s+/g, ' ').trim();
+  if (!element) return '';
+  if (element instanceof HTMLInputElement || element instanceof HTMLTextAreaElement) {
+    return element.value.replace(/\s+/g, ' ').trim();
+  }
+  return (element.textContent || '').replace(/\s+/g, ' ').trim();
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

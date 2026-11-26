@@ -206,7 +206,8 @@ function labelCanvasSeries(
     return {
       label: candidate.label,
       sparkline: series[seriesIndex].sparkline,
-      stats: series[seriesIndex].stats,
+      stats: series[seriesIndex].stats
+        || (candidate.values.length > 0 ? summarizeExactStats(candidate.values) : undefined),
     };
   });
 }
@@ -331,9 +332,12 @@ function getAxisScale(container: Element, canvas: HTMLCanvasElement): AxisScale 
 
 function parseAxisNumber(value: string): number | null {
   const cleaned = value.replace(/[$,%]/g, '').replace(/,/g, '').trim();
-  const match = cleaned.match(/^([-+]?(?:\d+(?:\.\d+)?|\.\d+))\s*(k|m|g|t|kb|mb|gb|tb|kib|mib|gib|tib|b|ms|s|us|ns|req\/s)?$/i);
+  const match = cleaned.match(/^([-+]?(?:\d+(?:\.\d+)?|\.\d+))\s*(k|K|m|M|g|G|t|T|kb|mb|gb|tb|kib|mib|gib|tib|b|ms|s|us|µs|μs|ns|req\/s)?$/i);
   if (!match) return null;
-  const unit = (match[2] || '').toLowerCase();
+  const rawUnit = match[2] || '';
+  const unitLower = rawUnit.toLowerCase();
+  // Distinguish SI milli (`m` = 1e-3) from mega (`M` = 1e6), and normalize sub-second time units to seconds.
+  if (rawUnit === 'm') return Number(match[1]) * 1e-3;
   const multipliers: Record<string, number> = {
     k: 1e3,
     m: 1e6,
@@ -347,8 +351,14 @@ function parseAxisNumber(value: string): number | null {
     mib: 1024 ** 2,
     gib: 1024 ** 3,
     tib: 1024 ** 4,
+    ns: 1e-9,
+    us: 1e-6,
+    'µs': 1e-6,
+    'μs': 1e-6,
+    ms: 1e-3,
+    s: 1,
   };
-  return Number(match[1]) * (multipliers[unit] || 1);
+  return Number(match[1]) * (multipliers[unitLower] ?? 1);
 }
 
 function getAxisUnit(axis: Element): string {

@@ -405,7 +405,7 @@ function injectStyles(): void {
   const style = document.createElement('style');
   style.id = STYLE_ID;
   style.textContent = css;
-  document.head.appendChild(style);
+  (document.head || document.documentElement).appendChild(style);
 }
 
 const TOAST_STYLE_ID = 'cam-toast-styles';
@@ -456,7 +456,7 @@ function injectToastStyles(): void {
   const style = document.createElement('style');
   style.id = TOAST_STYLE_ID;
   style.textContent = css;
-  document.head.appendChild(style);
+  (document.head || document.documentElement).appendChild(style);
 }
 
 
@@ -571,6 +571,52 @@ const STYLE_CLASS: Record<AnchorStyle, string> = {
 // Anchor placement helpers
 // ----------------------------------------------------------------
 
+function splitSelectorList(selector: string): string[] {
+  const parts: string[] = [];
+  let current = '';
+  let parenDepth = 0;
+  let bracketDepth = 0;
+  let quote: string | null = null;
+  for (let i = 0; i < selector.length; i += 1) {
+    const ch = selector[i];
+    if (quote) {
+      current += ch;
+      if (ch === '\\' && i + 1 < selector.length) {
+        i += 1;
+        current += selector[i];
+      } else if (ch === quote) {
+        quote = null;
+      }
+      continue;
+    }
+    if (ch === '"' || ch === "'") {
+      quote = ch;
+      current += ch;
+    } else if (ch === '(') {
+      parenDepth += 1;
+      current += ch;
+    } else if (ch === ')') {
+      parenDepth = Math.max(0, parenDepth - 1);
+      current += ch;
+    } else if (ch === '[') {
+      bracketDepth += 1;
+      current += ch;
+    } else if (ch === ']') {
+      bracketDepth = Math.max(0, bracketDepth - 1);
+      current += ch;
+    } else if (ch === ',' && parenDepth === 0 && bracketDepth === 0) {
+      const trimmed = current.trim();
+      if (trimmed) parts.push(trimmed);
+      current = '';
+    } else {
+      current += ch;
+    }
+  }
+  const tail = current.trim();
+  if (tail) parts.push(tail);
+  return parts;
+}
+
 /**
  * Try to find the anchor element. The anchor `selector` can be a
  * comma-separated list; we try each in order and return the first hit.
@@ -578,7 +624,7 @@ const STYLE_CLASS: Record<AnchorStyle, string> = {
 function findAnchorTarget(selector: string): Element | null {
   // querySelectorAll already handles comma-separated selectors,
   // but we want the *first match in selector order*, not DOM order.
-  const selectors = selector.split(',').map((s) => s.trim());
+  const selectors = splitSelectorList(selector);
   for (const sel of selectors) {
     try {
       for (const el of document.querySelectorAll(sel)) {
@@ -762,7 +808,9 @@ function isOverlaySpaceClear(rect: DOMRect): boolean {
   }
 
   const range = document.createRange();
-  const text = document.createTreeWalker(document.body, NodeFilter.SHOW_ELEMENT | NodeFilter.SHOW_TEXT, {
+  const walkerRoot = document.body || document.documentElement;
+  if (!walkerRoot) return true;
+  const text = document.createTreeWalker(walkerRoot, NodeFilter.SHOW_ELEMENT | NodeFilter.SHOW_TEXT, {
     acceptNode(node) {
       if (node instanceof Element) {
         if (
@@ -955,10 +1003,13 @@ function clearInjectedUi(): void {
   cancelAnchorObserver();
   cancelWatchdog();
   activeOptionCancel?.();
+  const existingBtn = document.getElementById(BUTTON_ID);
+  if (existingBtn) cancelFlashSuccess(existingBtn);
   document.querySelectorAll('.cam-overlay-container').forEach(cleanupOverlay);
   document.querySelectorAll(`[${WRAPPER_ATTR}]`).forEach((el) => el.remove());
   document.querySelectorAll('.cam-floating-wrapper').forEach(cleanupFloatingWrapper);
-  document.getElementById(BUTTON_ID)?.remove();
+  document.querySelectorAll('.cam-dismiss-prompt').forEach((el) => el.remove());
+  existingBtn?.remove();
 }
 
 export function hideButton(): void {
@@ -980,6 +1031,7 @@ export function chooseExtractionOption(
       : null;
     const overlay = document.createElement('div');
     overlay.id = OPTION_DIALOG_ID;
+    overlay.setAttribute(UI_INSTANCE_ATTR, 'option-dialog');
     overlay.setAttribute('role', 'presentation');
 
     const panel = document.createElement('div');
@@ -1069,6 +1121,7 @@ function attachToAnchor(
   const target = findAnchorTarget(anchor.selector);
   if (!target) return false;
 
+  cancelFlashSuccess(btn);
   // Use the extractor's preferred style, defaulting to icon-only
   const styleKey = anchor.style || 'icon';
   btn.className = STYLE_CLASS[styleKey] || 'cam-icon-btn';
@@ -1094,7 +1147,7 @@ function attachToAnchor(
     overlay.setAttribute(WRAPPER_ATTR, 'true');
     markInjected(overlay, instanceId);
     overlay.appendChild(btn);
-    document.body.appendChild(overlay);
+    (document.body || document.documentElement).appendChild(overlay);
 
     let active = true;
     let repositionFrame: number | null = null;
@@ -1213,10 +1266,12 @@ function attachToAnchor(
       target.prepend(insertionNode);
       break;
     case 'before':
-      target.parentElement?.insertBefore(insertionNode, target);
+      if (!target.parentElement) return false;
+      target.parentElement.insertBefore(insertionNode, target);
       break;
     case 'after':
-      target.parentElement?.insertBefore(insertionNode, target.nextSibling);
+      if (!target.parentElement) return false;
+      target.parentElement.insertBefore(insertionNode, target.nextSibling);
       break;
     case 'append':
     default:
@@ -1375,7 +1430,9 @@ function enableFloatingDrag(btn: HTMLButtonElement, wrapper: FloatingWrapperElem
     startTop = rect.top;
     dragged = false;
     wrapper.setAttribute('data-cam-pointer-active', 'true');
-    btn.setPointerCapture(event.pointerId);
+    try {
+      btn.setPointerCapture(event.pointerId);
+    } catch { /* synthetic or cancelled pointer */ }
   });
 
   wrapper.addEventListener('pointermove', (event) => {
@@ -1452,9 +1509,10 @@ function dismissForCurrentPage(): void {
  */
 function showFloating(btn: HTMLButtonElement, instanceId: string): void {
   if (!isActiveInstance(instanceId)) return;
+  cancelFlashSuccess(btn);
+  detachButtonPlacement(btn);
   if (isDismissedForCurrentPage()) return;
 
-  detachButtonPlacement(btn);
   btn.className = 'cam-floating';
   btn.removeAttribute('style');
   btn.title = FLOATING_BUTTON_TITLE;
@@ -1482,6 +1540,7 @@ function showFloating(btn: HTMLButtonElement, instanceId: string): void {
     const host = window.location.hostname;
     const prompt = document.createElement('div');
     prompt.className = 'cam-dismiss-prompt';
+    markInjected(prompt, instanceId);
     const msg = document.createElement('span');
     msg.textContent = `Never show on ${host}?`;
     const actions = document.createElement('div');
@@ -1534,6 +1593,10 @@ export function showButton(
   onClick: () => Promise<string | null>,
   anchor?: AnchorConfig | null,
 ): HTMLButtonElement | null {
+  if (isDismissedForCurrentPage()) {
+    hideButton();
+    return null;
+  }
   injectStyles();
 
   clearInjectedUi();
@@ -1546,10 +1609,13 @@ export function showButton(
   btn.setAttribute('aria-label', 'Copy this page as Markdown');
   markInjected(btn, instanceId);
 
-  // Wire up click handler
+  // Wire up click handler with in-flight guard against double-clicks
+  let isCopying = false;
   btn.addEventListener('click', async (e) => {
     e.preventDefault();
     e.stopPropagation();
+    if (isCopying) return;
+    isCopying = true;
     try {
       const md = await onClick();
       if (md) {
@@ -1560,6 +1626,8 @@ export function showButton(
     } catch (err) {
       console.error('[Copy as Markdown]', err);
       showToast('Error copying — see console');
+    } finally {
+      isCopying = false;
     }
   });
 
@@ -1644,7 +1712,10 @@ function observeForAnchor(
     checkFrame = window.requestAnimationFrame(checkAnchor);
   });
 
-  observer.observe(document.body, { childList: true, subtree: true });
+  const observeRoot = document.body || document.documentElement;
+  if (observeRoot) {
+    observer.observe(observeRoot, { childList: true, subtree: true });
+  }
   activeAnchorObserver = observer;
 
   // Stop observing after timeout
@@ -1681,9 +1752,10 @@ export async function copyToClipboard(text: string): Promise<void> {
   }
 
   const textarea = document.createElement('textarea');
+  textarea.setAttribute(UI_INSTANCE_ATTR, 'clipboard');
   textarea.value = text;
   textarea.style.cssText = 'position:fixed;opacity:0;left:-9999px';
-  document.body.appendChild(textarea);
+  (document.body || document.documentElement).appendChild(textarea);
 
   try {
     textarea.select();
@@ -1697,31 +1769,68 @@ export async function copyToClipboard(text: string): Promise<void> {
   }
 }
 
+type FlashState = {
+  timer: ReturnType<typeof setTimeout>;
+  savedNodes: Node[];
+};
+
+const activeFlashes = new WeakMap<HTMLElement, FlashState>();
+
+function cancelFlashSuccess(btn: HTMLElement): void {
+  const existing = activeFlashes.get(btn);
+  if (!existing) return;
+  clearTimeout(existing.timer);
+  activeFlashes.delete(btn);
+  btn.textContent = '';
+  existing.savedNodes.forEach((node) => btn.appendChild(node));
+  btn.classList.remove('cam-success');
+}
+
 function flashSuccess(btn: HTMLElement): void {
-  const savedNodes = Array.from(btn.childNodes).map(n => n.cloneNode(true));
-  const wasIcon = btn.classList.contains('cam-icon-btn');
-  setButtonContent(btn, createCheckIconElement(), wasIcon ? undefined : 'Copied!');
+  const existing = activeFlashes.get(btn);
+  const savedNodes = existing
+    ? existing.savedNodes
+    : Array.from(btn.childNodes).map((n) => n.cloneNode(true));
+  if (existing) clearTimeout(existing.timer);
+
+  const iconOnly = btn.classList.contains('cam-icon-btn') || btn.classList.contains('cam-floating');
+  setButtonContent(btn, createCheckIconElement(), iconOnly ? undefined : 'Copied!');
   btn.classList.add('cam-success');
-  setTimeout(() => {
+  const timer = setTimeout(() => {
+    activeFlashes.delete(btn);
     btn.textContent = '';
-    savedNodes.forEach(n => btn.appendChild(n));
+    savedNodes.forEach((n) => btn.appendChild(n));
     btn.classList.remove('cam-success');
   }, 2000);
+  activeFlashes.set(btn, { timer, savedNodes });
 }
 
 export function showToast(message: string): void {
   injectToastStyles();
-  let toast = document.getElementById(TOAST_ID) as HTMLElement | null;
+  let toast = document.getElementById(TOAST_ID) as (HTMLElement & {
+    _timer?: ReturnType<typeof setTimeout>;
+    _removeTimer?: ReturnType<typeof setTimeout>;
+  }) | null;
   if (!toast) {
     toast = document.createElement('div');
     toast.id = TOAST_ID;
+    toast.setAttribute(UI_INSTANCE_ATTR, 'toast');
+  }
+  if (!toast.hasAttribute(UI_INSTANCE_ATTR)) {
+    toast.setAttribute(UI_INSTANCE_ATTR, 'toast');
   }
   getFloatingParent().appendChild(toast);
   toast.textContent = message;
   toast.classList.add('cam-visible');
 
-  clearTimeout((toast as any)._timer);
-  (toast as any)._timer = setTimeout(() => {
-    toast!.classList.remove('cam-visible');
+  if (toast._timer) clearTimeout(toast._timer);
+  if (toast._removeTimer) clearTimeout(toast._removeTimer);
+  toast._timer = setTimeout(() => {
+    toast?.classList.remove('cam-visible');
+    if (toast) {
+      toast._removeTimer = setTimeout(() => {
+        if (toast && !toast.classList.contains('cam-visible')) toast.remove();
+      }, 350);
+    }
   }, 3000);
 }

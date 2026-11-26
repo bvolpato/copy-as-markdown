@@ -11,6 +11,7 @@ register({
   name: 'Weights & Biases',
   matches: [
     '*://wandb.ai/*/*/runs/*',
+    '*://*.wandb.ai/*/*/runs/*',
   ],
   pathnameRegex: /^\/[^/]+\/[^/]+\/runs\/[^/?#]+(?:\/.*)?$/,
   detect: isWandbRunPage,

@@ -7,9 +7,12 @@ export const mistralVibeExtractor = registerAiConversationExtractor({
   source: 'Mistral Vibe',
   assistantLabel: 'Mistral',
   matches: [
+    '*://chat.mistral.ai/',
+    '*://chat.mistral.ai/chat',
     '*://chat.mistral.ai/chat/*',
+    '*://chat.mistral.ai/share/*',
   ],
-  pathnameRegex: /^\/chat\/[^/]+(?:\/|$)/i,
+  pathnameRegex: /^\/(?:$|chat(?:\/[^/]+)?(?:\/|$)|share\/[^/]+(?:\/|$))/i,
   route() {
     return 'chat';
   },

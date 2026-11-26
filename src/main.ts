@@ -80,49 +80,75 @@ function readSchemaInfo(): SchemaInfo {
   return info;
 }
 
-function findBestFallbackContent(): Element {
-  const semantic = document.querySelector('article, main, [role="main"]');
-  if (semantic && (semantic.textContent || '').trim().length >= 200) {
-    return semantic;
+const FALLBACK_CONTENT_NOISE = [
+  'script', 'style', 'noscript', 'iframe',
+  'nav', 'footer', 'aside',
+  '.ad', '.ads', '.advertisement', '.social-share',
+  '.cookie-banner', '.cookie-consent',
+  '.popup', '.modal', '.overlay',
+  '.sidebar', '.related', '.recommended',
+  '.newsletter', '.subscribe',
+  '[role="banner"]', '[role="navigation"]', '[role="complementary"]',
+  '[aria-hidden="true"]', '[data-cam-instance]',
+];
+
+function findBestFallbackContent(): Element | null {
+  const isVisible = Utils.createVisibilityChecker();
+
+  // Bottom-up Readability-style scoring from visible prose nodes to avoid O(N^2) DOM scans
+  // and prevent outer app wrappers (#__next, #root) from outscoring the actual article container.
+  const scores = new Map<Element, number>();
+  const leafNodes = document.querySelectorAll('p, pre, li');
+  for (const node of leafNodes) {
+    if (!isVisible(node)) continue;
+    if (node.closest('nav, header, footer, aside, [data-cam-instance]')) continue;
+    // Skip outer <li> that merely wraps nested <li> items to avoid double-counting.
+    if (node.tagName === 'LI' && node.querySelector('li')) continue;
+    const textLen = (node.textContent || '').trim().length;
+    if (textLen < 25) continue;
+
+    let parent = node.parentElement;
+    for (let depth = 0; parent && depth < 4 && parent !== document.body && parent !== document.documentElement; depth += 1) {
+      if (parent.matches('article, main, [role="main"], section, div')) {
+        if (!parent.closest('nav, header, footer, aside, [data-cam-instance]')) {
+          const weight = depth === 0 ? 1 : depth === 1 ? 0.65 : 1 / (depth * 1.5);
+          scores.set(parent, (scores.get(parent) || 0) + textLen * weight);
+        }
+      }
+      parent = parent.parentElement;
+    }
   }
 
-  // Readability-style lightweight candidate scoring when no rich <article>/<main> exists.
-  const candidates = Array.from(document.querySelectorAll('article, main, [role="main"], section, div'));
-  let best: Element | null = semantic;
-  let bestScore = semantic ? scoreFallbackCandidate(semantic) : 0;
+  for (const semantic of document.querySelectorAll('article, main, [role="main"]')) {
+    if (!isVisible(semantic) || semantic.closest('[data-cam-instance]')) continue;
+    const textLen = (semantic.textContent || '').trim().length;
+    if (textLen >= 160 && !scores.has(semantic)) {
+      scores.set(semantic, textLen * 0.6);
+    }
+  }
 
-  for (const el of candidates) {
-    if (el.matches('nav, header, footer, aside') || el.closest('[data-cam-instance]')) continue;
-    const textLen = (el.textContent || '').trim().length;
-    if (textLen < 160) continue;
-    const score = scoreFallbackCandidate(el);
+  let best: Element | null = null;
+  let bestScore = 0;
+  for (const [el, rawScore] of scores) {
+    const totalLen = Math.max(1, (el.textContent || '').trim().length);
+    if (totalLen < 160) continue;
+    let linkChars = 0;
+    for (const a of el.querySelectorAll('a')) {
+      linkChars += (a.textContent || '').trim().length;
+    }
+    const linkDensity = linkChars / totalLen;
+    let score = rawScore * (1 - Math.min(0.85, linkDensity));
+    if (el.matches('article, main, [role="main"]')) score *= 1.3;
+    const idClass = `${el.id} ${typeof el.className === 'string' ? el.className : ''}`;
+    if (/(?:article|content|post|entry|story|body|prose|markdown)/i.test(idClass)) score *= 1.2;
+    if (/(?:nav|menu|sidebar|footer|header|comment|banner|cookie|modal|popup|related)/i.test(idClass)) score *= 0.25;
     if (score > bestScore) {
       bestScore = score;
       best = el;
     }
   }
 
-  return best || document.body;
-}
-
-function scoreFallbackCandidate(el: Element): number {
-  const paragraphs = el.querySelectorAll('p, pre, li');
-  let textChars = 0;
-  let linkChars = 0;
-  for (const p of paragraphs) {
-    const len = (p.textContent || '').trim().length;
-    if (len >= 25) textChars += len;
-  }
-  for (const a of el.querySelectorAll('a')) {
-    linkChars += (a.textContent || '').trim().length;
-  }
-  const totalLen = Math.max(1, (el.textContent || '').trim().length);
-  const linkDensity = linkChars / totalLen;
-  let score = textChars * (1 - Math.min(0.85, linkDensity));
-  const idClass = `${el.id} ${typeof el.className === 'string' ? el.className : ''}`;
-  if (/(?:article|content|post|entry|story|body|prose|markdown)/i.test(idClass)) score *= 1.25;
-  if (/(?:nav|menu|sidebar|footer|header|comment|banner|cookie|modal|popup|related)/i.test(idClass)) score *= 0.25;
-  return score;
+  return best || document.body || document.documentElement;
 }
 
 function extractSelectionMarkdown(sourceName: string): string | null {
@@ -130,11 +156,34 @@ function extractSelectionMarkdown(sourceName: string): string | null {
   if (!selection || selection.rangeCount === 0 || selection.isCollapsed) return null;
   if (!selection.toString().trim()) return null;
 
+  const anchorEl = selection.anchorNode instanceof Element
+    ? selection.anchorNode
+    : selection.anchorNode?.parentElement;
+  if (anchorEl?.closest('[data-cam-instance]')) return null;
+
   const container = document.createElement('div');
   for (let i = 0; i < selection.rangeCount; i += 1) {
     const range = selection.getRangeAt(i);
     if (range.collapsed) continue;
-    container.appendChild(range.cloneContents());
+    const commonEl = range.commonAncestorContainer instanceof Element
+      ? range.commonAncestorContainer
+      : range.commonAncestorContainer.parentElement;
+    if (commonEl?.closest('[data-cam-instance]')) continue;
+
+    const fragment = range.cloneContents();
+    const enclosingPre = commonEl?.closest('pre');
+    if (enclosingPre && !fragment.querySelector('pre')) {
+      const pre = document.createElement('pre');
+      const code = document.createElement('code');
+      const enclosingCode = commonEl?.closest('code');
+      if (enclosingCode?.className) code.className = enclosingCode.className;
+      else if (enclosingPre.className) pre.className = enclosingPre.className;
+      code.appendChild(fragment);
+      pre.appendChild(code);
+      container.appendChild(pre);
+    } else {
+      container.appendChild(fragment);
+    }
   }
   const body = elementToMarkdown(container);
   if (!body) return null;
@@ -175,9 +224,14 @@ function extractSelectionMarkdown(sourceName: string): string | null {
 
           // Otherwise, find the richest content container on the page
           const contentEl = findBestFallbackContent();
-          const cleaned = contentEl === document.body
-            ? Utils.removeNoise(contentEl, Utils.NOISE_SELECTORS)
-            : contentEl;
+          const cleaned = contentEl
+            ? Utils.removeNoise(
+              contentEl,
+              contentEl === document.body || contentEl === document.documentElement
+                ? Utils.NOISE_SELECTORS
+                : FALLBACK_CONTENT_NOISE,
+            )
+            : null;
           const schema = readSchemaInfo();
           const metadata: PageMetadata = {
             source: 'Fallback',
@@ -189,7 +243,7 @@ function extractSelectionMarkdown(sourceName: string): string | null {
             rating: schema.rating,
             scope: 'detected main content',
           };
-          const limited = limitMarkdown(elementToMarkdown(cleaned));
+          const limited = limitMarkdown(cleaned ? elementToMarkdown(cleaned) : '');
           addExtractionMetadata(metadata, {
             contentSource: 'live page DOM',
             truncated: limited.truncated,
@@ -252,11 +306,16 @@ function extractSelectionMarkdown(sourceName: string): string | null {
   // Userscripts show page UI everywhere. Extension builds opt in narrowly.
   const isUserscript = typeof __IS_USERSCRIPT__ !== 'undefined' && __IS_USERSCRIPT__;
   const shouldMonitorPageUi =
-    (isUserscript || !!findExtensionPageButtonCandidate(window.location.href));
+    isUserscript
+    || !!findExtensionPageButtonCandidate(window.location.href)
+    || !!findDetectedExtractor()?.extensionPageButton;
   if (shouldMonitorPageUi && window.self === window.top) {
     function hasPageButtonOptOut(): boolean {
       return !!document.getElementById(PAGE_BUTTON_OPTOUT_ID);
     }
+
+    let checkTimer: number | null = null;
+    let syncTimer: number | null = null;
 
     function syncPageButton(): void {
       if (hasPageButtonOptOut()) {
@@ -276,22 +335,24 @@ function extractSelectionMarkdown(sourceName: string): string | null {
 
       const extractor = registeredExtractor || getExtractor()!;
       const anchor = extractor.buttonPlacement === 'anchor' ? extractor.anchor : null;
-      const button = showButton(() => extractWithOptions(extractor), anchor);
+      // Resolve the active extractor at click time so SPA route transitions never invoke a stale closure.
+      const button = showButton(() => extractWithOptions(getExtractor() as Extractor), anchor);
       if (button) button.dataset.camExtractor = extractor.name;
     }
 
     if (document.readyState === 'loading') {
       document.addEventListener('DOMContentLoaded', syncPageButton);
     } else {
-      setTimeout(syncPageButton, 500);
+      syncTimer = window.setTimeout(() => {
+        syncTimer = null;
+        syncPageButton();
+      }, 500);
     }
 
     // Re-detect on SPA navigation and page-owned opt-out changes (debounced to avoid mutation storms).
     let lastUrl = window.location.href;
     let lastPageButtonOptOut = hasPageButtonOptOut();
     let lastExtractorName = (findExtractor(lastUrl) || findDetectedExtractor())?.name || '';
-    let checkTimer: number | null = null;
-    let syncTimer: number | null = null;
 
     function runCheck(): void {
       checkTimer = null;
@@ -346,6 +407,24 @@ function extractSelectionMarkdown(sourceName: string): string | null {
     window.addEventListener('hashchange', () => scheduleCheck(true));
     const navApi = (window as unknown as { navigation?: EventTarget }).navigation;
     navApi?.addEventListener?.('navigatesuccess', () => scheduleCheck(true));
+
+    // In userscript mode (runs in page context or with History access), hook pushState/replaceState
+    // so SPAs on Firefox/Safari without the Navigation API re-detect immediately.
+    if (isUserscript && typeof history !== 'undefined') {
+      const wrapHistory = (method: 'pushState' | 'replaceState') => {
+        const original = history[method];
+        if (typeof original !== 'function') return;
+        try {
+          history[method] = function (this: History, ...args: Parameters<History['pushState']>) {
+            const ret = original.apply(this, args);
+            scheduleCheck(true);
+            return ret;
+          } as History[typeof method];
+        } catch { /* read-only history in restricted environments */ }
+      };
+      wrapHistory('pushState');
+      wrapHistory('replaceState');
+    }
 
     const observer = new MutationObserver((records) => {
       // Fast-path: immediate hide if page-owned opt-out marker was inserted.

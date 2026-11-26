@@ -121,9 +121,9 @@ function collectTurns(): Turn[] {
   const result: Turn[] = [];
   const roots = firstElements([
     '[data-message-id]',
-    '[data-testid="message"]',
-    '[data-testid*="message"]',
     '[data-role="user"], [data-role="assistant"]',
+    '[data-testid="message"]',
+    '[data-testid*="user-message"], [data-testid*="assistant-message"], [data-testid*="meta-ai-message"]',
     '[role="article"]',
   ]);
 

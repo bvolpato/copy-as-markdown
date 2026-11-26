@@ -117,6 +117,23 @@ const MESSAGE_LIST_CONTAINER_SELECTOR = [
 
 let isVisible: (element: Element | null) => boolean = Utils.createVisibilityChecker();
 
+function isRenderedTeamsRootApp(contextDocument: Document = document): boolean {
+  const href = contextDocument.location?.href || contextDocument.baseURI || '';
+  if (!href) return false;
+  try {
+    const url = new URL(href);
+    if (!/^teams\.(?:microsoft\.com|cloud\.microsoft|live\.com|microsoft\.us)$/i.test(url.hostname)) {
+      return false;
+    }
+    if (url.pathname !== '/') return false;
+  } catch {
+    return false;
+  }
+  return Boolean(contextDocument.querySelector(
+    '[data-tid="chat-pane-message"], [data-tid="channel-pane-message"], [data-tid="message-pane-list-viewport"], [data-tid="message-pane-layout"]',
+  ));
+}
+
 export const microsoftTeamsExtractor = register({
   name: 'Microsoft Teams',
   matches: [
@@ -143,6 +160,7 @@ export const microsoftTeamsExtractor = register({
     '*://teams.microsoft.us/l/team/*',
   ],
   pathnameRegex: /^\/(?:v2(?:\/|$)|l\/(?:chat|channel|message|team)(?:\/|$)|_)/,
+  detect: isRenderedTeamsRootApp,
 
   async extract() {
     isVisible = Utils.createVisibilityChecker();
