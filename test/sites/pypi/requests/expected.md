@@ -10,7 +10,7 @@ FIXTURE_P_0007
 
 ## Description
 
-# https://example.invalid/fixture-link-0010FIXTURE_H1_0013
+# https://example.invalid/fixture-link-0010 FIXTURE_H1_0013
 
 https://example.invalid/fixture-link-0011 https://example.invalid/fixture-link-0012 https://example.invalid/fixture-link-0013 https://example.invalid/fixture-link-0014 https://example.invalid/fixture-link-0015
 
@@ -35,7 +35,7 @@ FIXTURE_P_0070`FIXTURE_CODE_0071`FIXTURE_P_0072`FIXTURE_CODE_0073`FIXTURE_P_0074
 
 FIXTURE_P_0077`FIXTURE_CODE_0078`FIXTURE_P_0079 [FIXTURE_A_0080](https://example.invalid/fixture-link-0016) FIXTURE_P_0081`FIXTURE_CODE_0082`FIXTURE_P_0083
 
-## https://example.invalid/fixture-link-0017FIXTURE_H2_0084
+## https://example.invalid/fixture-link-0017 FIXTURE_H2_0084
 
 FIXTURE_P_0085
 
@@ -45,7 +45,7 @@ FIXTURE_SPAN_0086FIXTURE_PRE_0087 FIXTURE_PRE_0088 FIXTURE_PRE_0089 FIXTURE_PRE_
 
 FIXTURE_P_0092
 
-## https://example.invalid/fixture-link-0018FIXTURE_H2_0093
+## https://example.invalid/fixture-link-0018 FIXTURE_H2_0093
 
 FIXTURE_P_0094
 
@@ -63,7 +63,7 @@ FIXTURE_P_0094
 - FIXTURE_LI_0108`FIXTURE_CODE_0109`
 - FIXTURE_LI_0110
 
-## https://example.invalid/fixture-link-0019FIXTURE_H2_0111
+## https://example.invalid/fixture-link-0019 FIXTURE_H2_0111
 
 FIXTURE_P_0112`FIXTURE_CODE_0113`FIXTURE_P_0114 [FIXTURE_A_0115](https://example.invalid/fixture-link-0020) FIXTURE_P_0116
 
@@ -83,7 +83,8 @@ https://example.invalid/fixture-link-0021 https://example.invalid/fixture-link-0
 
 ## FIXTURE_H2_0130
 
-  FIXTURE_SUMMARY_0131
+FIXTURE_SUMMARY_0131
+
 FIXTURE_DIV_0132
 
 - [FIXTURE_A_0133](https://example.invalid/fixture-link-0023)
@@ -92,15 +93,18 @@ FIXTURE_DIV_0132
 
 ## FIXTURE_H2_0135
 
-  FIXTURE_SUMMARY_0136
+FIXTURE_SUMMARY_0136
+
 FIXTURE_DIV_0137
 
 - **FIXTURE_STRONG_0138** FIXTURE_TIME_0139
+
  FIXTURE_SPAN_0140
 
 ## FIXTURE_H2_0141
 
-  FIXTURE_SUMMARY_0142
+FIXTURE_SUMMARY_0142
+
 FIXTURE_DIV_0143
 
  [FIXTURE_SPAN_0144](https://example.invalid/fixture-link-0025) [FIXTURE_SPAN_0145](https://example.invalid/fixture-link-0026) [FIXTURE_SPAN_0146](https://example.invalid/fixture-link-0027)
@@ -113,7 +117,8 @@ FIXTURE_DIV_0143
 
 ## FIXTURE_H2_0152
 
-  FIXTURE_SUMMARY_0153
+FIXTURE_SUMMARY_0153
+
 FIXTURE_DIV_0154
 
 - [FIXTURE_A_0155](https://example.invalid/fixture-link-0030)

@@ -2930,7 +2930,7 @@ async function runExpandedPlatformChecks(browser, scriptContent) {
       url: 'https://huggingface.co/datasets/HuggingFaceFW/fineweb/tree/main',
       html: `<main><div data-target="ViewerIndexTreeList" data-props='${JSON.stringify({
         entries: [
-          { path: 'data', type: 'directory', lastCommit: { date: '2026-08-20' } },
+          { path: 'data', type: 'directory', size: 0, lastCommit: { date: '2026-08-20' } },
           { path: 'README.md', type: 'file', size: 2048, lastCommit: { date: '2026-08-21' } },
           { path: 'notes\\unsafe|name.md', type: 'file', size: 8 },
           { path: 'a)b.md', type: 'file', size: 4 },
@@ -2946,6 +2946,27 @@ async function runExpandedPlatformChecks(browser, scriptContent) {
         '[bad name.md](https://huggingface.co/datasets/HuggingFaceFW/fineweb/blob/main/bad%0Aname.md)',
         '2.05 kB', 'Listing includes current directory entries exposed by rendered page',
       ],
+      excluded: ['0 B'],
+    },
+    {
+      name: 'Hugging Face file',
+      extractor: 'Hugging Face',
+      url: 'https://huggingface.co/fixture/model/blob/main/config.json',
+      html: `<main><div>HF_FILE_TOOLBAR_NOISE</div><div class="blob-content"><table><tbody>
+        <tr id="L1"><td></td><td><span>{</span></td></tr><tr id="L2"><td></td><td>  <span>"size"</span>: 1</td></tr><tr id="L3"><td></td><td>}</td></tr>
+      </tbody></table></div></main>`,
+      expected: ['# fixture/model: config.json', '```json\n{\n  "size": 1\n}\n```'],
+      excluded: ['HF_FILE_TOOLBAR_NOISE'],
+    },
+    {
+      name: 'Hugging Face commit',
+      extractor: 'Hugging Face',
+      url: 'https://huggingface.co/fixture/model/commit/abc123',
+      html: `<main><table class="d2h-diff-table"><tbody>
+        <tr><td></td><td><div class="d2h-code-side-line">@@ -1 +1 @@</div></td></tr>
+        <tr><td>1</td><td><div class="d2h-code-side-line"><span class="d2h-code-line-prefix">+</span><span class="d2h-code-line-ctn">    indented()</span></div></td></tr>
+      </tbody></table></main>`,
+      expected: ['```diff\n@@ -1 +1 @@\n+    indented()\n```'],
     },
     {
       name: 'Artificial Analysis',
@@ -3113,6 +3134,25 @@ async function runExpandedPlatformChecks(browser, scriptContent) {
       exactOccurrences: { '### Intelligence': 1 },
     },
     {
+      name: 'Artificial Analysis leaderboard',
+      extractor: 'Artificial Analysis',
+      url: 'https://artificialanalysis.ai/leaderboards/models',
+      html: `<main><section><h1>LLM Leaderboard</h1><p>Compare fixture models.</p></section><table>
+        <thead><tr><th><button><span>Model</span></button></th><th><button><span><span>Cost</span><span>USD</span></span></button></th></tr></thead>
+        <tbody><tr><td><button>Fixture Frontier</button></td><td>$4.00</td></tr></tbody></table></main>
+        <script type="application/ld+json">{"@type":"Dataset","name":"Intelligence","data":null}</script>
+        <script type="application/ld+json">{"@type":"FAQPage","mainEntity":[{"name":"Which model leads?","acceptedAnswer":{"text":"Fixture Frontier leads."}}]}</script>`,
+      expected: ['| Model | Cost USD |', '| Fixture Frontier | $4.00 |', '### Which model leads?'],
+    },
+    {
+      name: 'Artificial Analysis article',
+      extractor: 'Artificial Analysis',
+      url: 'https://artificialanalysis.ai/insights/fixture-article',
+      html: `<main><article><h1>Fixture article</h1><p>Fixture finding.</p>
+        <table><tbody><tr><th><button>Model</button></th></tr><tr><td>Fixture Frontier</td></tr></tbody></table><p>Fixture conclusion.</p></article></main>`,
+      expected: ['Fixture finding.', '| Model |', 'Fixture conclusion.'],
+    },
+    {
       name: 'OpenRouter',
       extractor: 'OpenRouter',
       url: 'https://openrouter.ai/fixture/model-v1',
@@ -3181,6 +3221,7 @@ async function runExpandedPlatformChecks(browser, scriptContent) {
                   completion: '0.000001875',
                   input_cache_read: '0.0000000375',
                   web_search: '0.014',
+                  image: '-1',
                 },
                 top_provider: {
                   context_length: 1048576,
@@ -3222,7 +3263,7 @@ async function runExpandedPlatformChecks(browser, scriptContent) {
         '# Fixture: Model V1', 'Fixture model description from JSON-LD.',
         '| Model ID | fixture/model-v1 |', '| Canonical slug | fixture/model-v1-20260814 |',
         '| input_modalities | text, image |',
-        '| prompt | 0.000000375 | $0.375 / 1M input tokens |',
+        '| prompt | 0.000000375 | $0.375 / 1M input tokens |', '| image | -1 | Variable |',
         'structured_outputs', '| supported_efforts | low, high |',
         '| artificial_analysis.intelligence_index | 88.5 |',
         '| future_definition.routing_class | exact |',
@@ -3348,13 +3389,15 @@ async function runExpandedPlatformChecks(browser, scriptContent) {
             <div class="sm:hidden"><span>74%±4%</span><span>Avg cost $11.84</span><span>Out tok 118k</span><span>Steps 99</span></div>
             <div class="hidden sm:block"><span>74%±4%</span><span>$11.84</span><span>118k</span><span>99</span></div>
           </div>
+          <div data-chart-pin-source><span class="font-medium text-foreground">fixture-large-model</span><span>70%±1%</span>
+            <span>Avg cost $1,234.50</span><span>Out tok 1.2M</span><span>Steps <span>1,024</span></span><span>70%±1%</span></div>
           <svg role="img"><text>FALLBACK_SVG_NOISE</text></svg>
         </section>
       </main>`,
       expected: [
         '# DeepSWE', '| Version | v1.1 |',
         '| fixture-fallback-model | high | 74% | 70% to 78%',
-        '| $11.84 | 118,000 | 99 |',
+        '| $11.84 | 118,000 | 99 |', '| $1,234.50 | 1,200,000 | 1,024 |',
       ],
       excluded: ['FALLBACK_SVG_NOISE', '74%±4%74%±4%'],
       exactOccurrences: { 'fixture-fallback-model': 1, '$11.84': 1, '118,000': 1 },
@@ -3488,6 +3531,15 @@ async function runExpandedPlatformChecks(browser, scriptContent) {
           <a data-print-reference data-reference-title="Markdown guide" href="https://example.com/markdown-guide">Reference</a></div>
       </article></main>`,
       expected: ['LeetLLM lesson fixture body.', 'print("hello")', 'Markdown guide'],
+    },
+    {
+      name: 'LeetLLM blog index',
+      extractor: 'LeetLLM',
+      url: 'https://www.leetllm.com/blog',
+      html: `<meta name="description" content="Practical fixture notes."><main><header><h1>Fixture Blog</h1><p>Practical fixture notes.</p></header>
+        <section><a href="/blog/first"><article><h2>First post</h2></article></a></section>
+        <section><a href="/blog/second"><article><h3>Second post about <span class="katex"><math><semantics><mi>x2</mi><annotation encoding="application/x-tex">x^2</annotation></semantics></math></span></h3></article></a></section></main>`,
+      expected: ['# Fixture Blog', 'Practical fixture notes.', 'First post', 'Second post about $x^2$'],
     },
     {
       name: 'WhatsApp',
@@ -3759,6 +3811,8 @@ async function runExpandedPlatformChecks(browser, scriptContent) {
     ['Notion public settings', 'https://workspace.notion.site/settings'],
     ['Notion private settings', 'https://www.notion.so/settings'],
     ['OpenRouter models index', 'https://openrouter.ai/models'],
+    ['OpenRouter blog', 'https://openrouter.ai/blog/announcements'],
+    ['Hugging Face profile tab', 'https://huggingface.co/google/models'],
   ];
   for (const [name, url] of nonContentRoutes) {
     const page = await createFixturePage(browser, scriptContent, {
