@@ -23,8 +23,9 @@ register({
   async extract() {
     const route = routeKind(window.location.pathname);
     const root = findContentRoot(route);
+    const h1El = root?.querySelector('h1[itemprop="headline"], h1');
     const title = cleanTitle(
-      root?.querySelector('h1[itemprop="headline"], h1')?.textContent?.trim()
+      (h1El ? Markdown.normalizeWhitespace(Markdown.elementToMarkdown(h1El).replace(/^#+\s*/, '')) : '')
       || Utils.getMeta('title')
       || Utils.getPageTitle(),
     ) || 'LeetLLM';

@@ -18,6 +18,8 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createRequire } from 'node:module';
+import '../src/catalog';
+import { getAll as getAllRegisteredExtractors } from '../src/core/registry';
 
 const require = createRequire(import.meta.url);
 
@@ -159,19 +161,19 @@ function bundleLibraryGlobal(): string {
   return result.outputFiles![0].text;
 }
 
-// ---------- Collect @match patterns from TS source ----------
+// ---------- Collect @match patterns from registered catalog ----------
+
+function sanitizeManifestPattern(pattern: string): string {
+  // Chrome/Firefox manifest match patterns do not allow explicit port specifiers in the host.
+  return pattern.replace(/^(\*|https?):\/\/([^/]+?)(?::\d+|:\*)\//i, '$1://$2/');
+}
 
 function collectMatchPatterns(extensionPageButtonOnly = false): string[] {
   const patterns = new Set<string>();
-  const extractorDir = path.join(SRC, 'extractors');
-  const files = fs.readdirSync(extractorDir).filter((f) => f.endsWith('.ts'));
-
-  for (const file of files) {
-    const content = fs.readFileSync(path.join(extractorDir, file), 'utf-8');
-    if (extensionPageButtonOnly && !/extensionPageButton\s*:\s*true/.test(content)) continue;
-    for (const matchBlock of content.matchAll(/matches:\s*\[([\s\S]*?)\]/g)) {
-      const items = matchBlock[1].match(/['"]([^'"]+)['"]/g);
-      if (items) items.forEach((item) => patterns.add(item.slice(1, -1)));
+  for (const extractor of getAllRegisteredExtractors()) {
+    if (extensionPageButtonOnly && !extractor.extensionPageButton) continue;
+    for (const pattern of extractor.matches) {
+      patterns.add(extensionPageButtonOnly ? sanitizeManifestPattern(pattern) : pattern);
     }
   }
   return [...patterns];

@@ -51,9 +51,7 @@ FIXTURE_SPAN_0048
 
 FIXTURE_DIV_0051FIXTURE_SPAN_0052FIXTURE_DIV_0053
 
-[FIXTURE_SPAN_0054
-
-FIXTURE_DIV_0055](https://example.invalid/fixture-link-0017)
+[FIXTURE_SPAN_0054 FIXTURE_DIV_0055](https://example.invalid/fixture-link-0017)
 
 FIXTURE_DIV_0056 [FIXTURE_SPAN_0057](https://example.invalid/fixture-link-0018) FIXTURE_DIV_0058
 
@@ -79,15 +77,11 @@ FIXTURE_SPAN_0068
 
 FIXTURE_SPAN_0070
 
-[FIXTURE_SPAN_0071
-
-FIXTURE_DIV_0072](https://example.invalid/fixture-link-0021)
+[FIXTURE_SPAN_0071 FIXTURE_DIV_0072](https://example.invalid/fixture-link-0021)
 
 FIXTURE_DIV_0073
 
-[FIXTURE_SPAN_0074
-
-FIXTURE_DIV_0075](https://example.invalid/fixture-link-0022)
+[FIXTURE_SPAN_0074 FIXTURE_DIV_0075](https://example.invalid/fixture-link-0022)
 
 FIXTURE_SPAN_0076
 
@@ -97,17 +91,13 @@ FIXTURE_SPAN_0078
 
 ### FIXTURE_H3_0079
 
-[FIXTURE_SPAN_0080
-
-FIXTURE_DIV_0081](https://example.invalid/fixture-link-0023)
+[FIXTURE_SPAN_0080 FIXTURE_DIV_0081](https://example.invalid/fixture-link-0023)
 
 FIXTURE_DIV_0082
 
 FIXTURE_SPAN_0083
 
-[FIXTURE_SPAN_0084
-
-FIXTURE_DIV_0085](https://example.invalid/fixture-link-0024)
+[FIXTURE_SPAN_0084 FIXTURE_DIV_0085](https://example.invalid/fixture-link-0024)
 
 FIXTURE_DIV_0086
 
@@ -115,25 +105,19 @@ FIXTURE_SPAN_0087
 
 ### FIXTURE_H3_0088
 
-[FIXTURE_SPAN_0089
-
-FIXTURE_DIV_0090](https://example.invalid/fixture-link-0025)
+[FIXTURE_SPAN_0089 FIXTURE_DIV_0090](https://example.invalid/fixture-link-0025)
 
 FIXTURE_DIV_0091
 
 FIXTURE_SPAN_0092
 
-[FIXTURE_SPAN_0093
-
-FIXTURE_DIV_0094](https://example.invalid/fixture-link-0026)
+[FIXTURE_SPAN_0093 FIXTURE_DIV_0094](https://example.invalid/fixture-link-0026)
 
 FIXTURE_DIV_0095
 
 FIXTURE_SPAN_0096
 
-[FIXTURE_SPAN_0097
-
-FIXTURE_DIV_0098](https://example.invalid/fixture-link-0027)
+[FIXTURE_SPAN_0097 FIXTURE_DIV_0098](https://example.invalid/fixture-link-0027)
 
 FIXTURE_SPAN_0099
 

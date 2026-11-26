@@ -316,10 +316,12 @@ function roleFor(element: Element): Role | null {
     element.tagName,
     typeof element.className === 'string' ? element.className : '',
   ].filter(Boolean).join(' ').toLowerCase();
-  if (/(?:^|[\s_-])(user|human|you|prompt|query)(?:$|[\s_-])/.test(value)) return 'user';
-  if (/(?:^|[\s_-])(assistant|bot|copilot|model|response|answer|output)(?:$|[\s_-])/.test(value)) {
-    return 'assistant';
-  }
+  const isExplicitUser = /(?:^|[\s_-])(user|human|you)(?:$|[\s_-])/.test(value);
+  const isAssistant = /(?:^|[\s_-])(assistant|bot|copilot|model|response|answer|output)(?:$|[\s_-])/.test(value);
+  if (isExplicitUser && !isAssistant) return 'user';
+  if (isAssistant && !isExplicitUser) return 'assistant';
+  if (isExplicitUser) return 'user';
+  if (/(?:^|[\s_-])(prompt|query)(?:$|[\s_-])/.test(value)) return 'user';
   return null;
 }
 

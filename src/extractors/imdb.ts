@@ -30,6 +30,7 @@ export const imdbExtractor = register({
     '*://m.imdb.com/title/*',
   ],
   pathnameRegex: /^\/title\/tt\d+/i,
+  buttonPlacement: 'anchor',
   anchor: {
     selector: '[data-testid="hero__pageTitle"], h1[data-testid="hero-title-block__title"], main h1, h1',
     position: 'after',

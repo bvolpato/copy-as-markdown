@@ -13,17 +13,26 @@ export function waitForElement(
     const el = document.querySelector(selector);
     if (el) return resolve(el);
 
+    const root = document.body || document.documentElement;
+    let settled = false;
     const observer = new MutationObserver(() => {
-      const el = document.querySelector(selector);
-      if (el) {
+      if (settled) return;
+      const found = document.querySelector(selector);
+      if (found) {
+        settled = true;
+        clearTimeout(timer);
         observer.disconnect();
-        resolve(el);
+        resolve(found);
       }
     });
 
-    observer.observe(document.body, { childList: true, subtree: true });
+    if (root) {
+      observer.observe(root, { childList: true, subtree: true });
+    }
 
-    setTimeout(() => {
+    const timer = setTimeout(() => {
+      if (settled) return;
+      settled = true;
       observer.disconnect();
       reject(new Error(`Timeout waiting for: ${selector}`));
     }, timeout);

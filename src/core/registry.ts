@@ -151,7 +151,7 @@ export function getAll(): Extractor[] {
   return [...extractors];
 }
 
-const REGEX_META_CHARS = new Set('.+?^${}()|[]\\');
+const REGEX_META_CHARS = new Set('.+*?^${}()|[]\\');
 
 function escapeRegexLiteral(value: string): string {
   let escaped = '';
@@ -166,33 +166,42 @@ export function matchPatternToRegex(pattern: string): RegExp {
   const cached = patternRegexCache.get(pattern);
   if (cached) return cached;
 
-  const match = pattern.match(/^(\*|https?|file):\/\/([^/]*)(\/.*)$/);
+  const match = pattern.match(/^(\*|https?|file):\/\/([^/]*)(\/.*)$/i);
   if (!match) {
     const never = /$a/;
     patternRegexCache.set(pattern, never);
     return never;
   }
   const [, rawScheme, authority, path] = match;
-  const scheme = rawScheme === '*'
-    ? 'https?'
-    : rawScheme === 'https'
-      ? 'https'
-      : rawScheme === 'http'
-        ? 'http'
-        : 'file';
+  const schemeLower = rawScheme.toLowerCase();
+  const scheme = schemeLower === '*'
+    ? '[hH][tT][tT][pP][sS]?'
+    : schemeLower === 'https'
+      ? '[hH][tT][tT][pP][sS]'
+      : schemeLower === 'http'
+        ? '[hH][tT][tT][pP]'
+        : '[fF][iI][lL][eE]';
   const portMatch = authority.match(/^(.*?)(:\d+|:\*)?$/)!;
-  const hostname = portMatch[1];
+  const hostname = portMatch[1].toLowerCase();
   const host = hostname === '*'
     ? '[^/?#:@]+'
     : hostname.startsWith('*.')
-      ? `(?:[^/?#:@]+\\.)?${escapeRegexLiteral(hostname.slice(2))}`
-      : escapeRegexLiteral(hostname);
-  const port = scheme === 'file' ? '' : portMatch[2] && portMatch[2] !== ':*'
+      ? `(?:[^/?#:@]+\\.)?${hostname.slice(2).split('*').map(escapeRegexLiteral).join('[^/?#:@]*')}`
+      : hostname.split('*').map(escapeRegexLiteral).join('[^/?#:@]*');
+  const port = schemeLower === 'file' ? '' : portMatch[2] && portMatch[2] !== ':*'
     ? escapeRegexLiteral(portMatch[2]) : '(?::\\d+)?';
   const pathname = path.split('*').map(escapeRegexLiteral).join('.*');
   const compiled = new RegExp(`^${scheme}://${host}${port}${pathname}$`);
   patternRegexCache.set(pattern, compiled);
   return compiled;
+}
+
+function normalizeUrlSchemeAndHost(href: string): string {
+  const idx = href.indexOf('://');
+  if (idx < 0) return href;
+  const pathStart = href.indexOf('/', idx + 3);
+  const end = pathStart >= 0 ? pathStart : href.length;
+  return href.slice(0, end).toLowerCase() + href.slice(end);
 }
 
 function testRegex(regex: RegExp | null, value: string): boolean {
@@ -205,8 +214,9 @@ export function matchesExtractorUrl(extractor: Extractor, href: string): boolean
   if (extractor.variants) {
     return extractor.variants.some((variant) => matchesExtractorUrl(variant, href));
   }
+  const normalized = normalizeUrlSchemeAndHost(href);
   return testRegex(extractor.regex, href) ||
-    getCompiledPatterns(extractor).some((compiled) => compiled.test(href));
+    getCompiledPatterns(extractor).some((compiled) => compiled.test(normalized));
 }
 
 export function matchesPathname(regex: RegExp | null, href: string): boolean {

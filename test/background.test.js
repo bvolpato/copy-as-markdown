@@ -14,6 +14,7 @@ const AUTOMATIC_PAGE_BUTTON_MATCHES = [
   '*://*.datadoghq.eu/notebook/*',
   '*://*.ddog-gov.com/notebook/*',
   '*://wandb.ai/*/*/runs/*',
+  '*://*.wandb.ai/*/*/runs/*',
 ];
 
 function createAction() {

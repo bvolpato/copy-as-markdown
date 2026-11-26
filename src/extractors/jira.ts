@@ -71,6 +71,16 @@ const JIRA_OPAQUE_FIELD_VALUE = /(?:\b(?:cachedValue|devSummaryJson|summaryBean)
 
 let isVisible: (element: Element | null) => boolean = Utils.createVisibilityChecker();
 
+function isSelfHostedJiraIssue(contextDocument: Document = document): boolean {
+  const appName = contextDocument.querySelector('meta[name="application-name"]')?.getAttribute('content') || '';
+  const hasJiraMarker = /^jira$/i.test(appName.trim())
+    || Boolean(contextDocument.querySelector('#jira, meta[name="ajs-remote-user"], [data-testid="issue.views.issue-base.foundation.summary.heading"]'));
+  if (!hasJiraMarker) return false;
+  return Boolean(
+    contextDocument.querySelector('#key-val, [data-testid="issue.views.issue-base.foundation.breadcrumbs.current-issue.item"], #issue-content'),
+  );
+}
+
 export const jiraExtractor = register({
   name: 'Jira',
   matches: [
@@ -79,6 +89,7 @@ export const jiraExtractor = register({
     '*://*.atlassian.net/secure/RapidBoard.jspa*',
   ],
   regex: CUSTOM_JIRA_URL,
+  detect: isSelfHostedJiraIssue,
   buttonPlacement: 'anchor',
   anchor: {
     selector: [
@@ -86,6 +97,9 @@ export const jiraExtractor = register({
       '[data-testid="issue.views.issue-base.foundation.actions"] > :last-child',
       '[data-testid="issue.views.issue-base.foundation.quick-add.quick-add-items-compact"] > :last-child',
       '#opsbar-opsbar-transitions + .aui-toolbar2-secondary > :first-child',
+      '.ops-menus .aui-toolbar2-secondary > :first-child',
+      '#opsbar-opsbar-operations',
+      '.ops-menus .aui-toolbar2-primary',
     ].join(', '),
     position: 'before',
     style: 'pill',

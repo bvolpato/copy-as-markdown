@@ -723,6 +723,72 @@ try {
   assert.match(threadMarkdown, /\[Title fallback\.pdf\]\(https:\/\/files\.example\.com\/title-fallback\.pdf\)/);
   assert.match(threadMarkdown, /\[Empty-anchor fallback\.pdf\]\(https:\/\/files\.example\.com\/empty-anchor-fallback\.pdf\)/);
   assert.doesNotMatch(threadMarkdown, /\]\(https:\/\/teams\.cloud\.microsoft\/v2\/#?\)/);
+
+  // Verify Markdown clean/table/srcset/frontmatter regressions and route fixes.
+  const coreMdChecks = await page.evaluate(() => {
+    const tableHtml = `
+      <table>
+        <thead><tr><th>Field</th><th>Details</th></tr></thead>
+        <tbody>
+          <tr>
+            <td>See <strong>important</strong> <code>arr[0]</code> details</td>
+            <td><div>First</div><div>Second</div><span hidden>secret</span><span data-cam-instance="1">UI</span></td>
+          </tr>
+        </tbody>
+      </table>
+      <p>Water is H<sub>2</sub>O and (s)he checked arr[0] at <a href="https://example.com/?filter[status]=open">API</a>.</p>
+      <img alt="Photo" srcset="https://cdn.example.com/w_800,f_auto,q_auto/pic.jpg 800w, https://cdn.example.com/w_1600,f_auto,q_auto/pic.jpg 1600w" />
+      <dialog>Closed dialog text</dialog>
+      <pre data-syntaxhighlighter-params="brush: java; gutter: false">class A {}</pre>
+    `;
+    const body = CopyAsMarkdown.htmlToMarkdown(tableHtml);
+    const full = CopyAsMarkdown.buildPageMarkdown(
+      { title: 'API arr[0]', url: 'https://example.com/?filter[status]=open' },
+      body,
+    );
+    return { body, full };
+  });
+  assert.match(coreMdChecks.body, /\| See \*\*important\*\* `arr\[0\]` details \| First Second \|/);
+  assert.doesNotMatch(coreMdChecks.body, /secret|Closed dialog text|\bUI\b/);
+  assert.match(coreMdChecks.body, /H_\(2\)O/);
+  assert.match(coreMdChecks.body, /\(s\)he checked arr\[0\]/);
+  assert.match(coreMdChecks.body, /\[API\]\(https:\/\/example\.com\/\?filter\[status\]=open\)/);
+  assert.match(coreMdChecks.full, /url: "https:\/\/example\.com\/\?filter\[status\]=open"/);
+  assert.match(coreMdChecks.body, /!\[Photo\]\(https:\/\/cdn\.example\.com\/w_1600,f_auto,q_auto\/pic\.jpg\)/);
+  assert.match(coreMdChecks.body, /```java\nclass A \{\}\n```/);
+
+  // Verify linear-time link spacing without polynomial backtracking on repeated unclosed brackets/links.
+  const linkSpacingChecks = await page.evaluate(() => {
+    const glued = CopyAsMarkdown.cleanMarkdown('see[docs](https://example.com)now and mail[team](mailto:a@b.com)today');
+    const repeatedOpen = '0['.repeat(20000);
+    const repeatedLink = '0[a](http:'.repeat(10000);
+    const start = performance.now();
+    const openOut = CopyAsMarkdown.cleanMarkdown(repeatedOpen);
+    const linkOut = CopyAsMarkdown.cleanMarkdown(repeatedLink);
+    const elapsedMs = performance.now() - start;
+    return {
+      glued,
+      openMatches: openOut === repeatedOpen,
+      linkMatches: linkOut === repeatedLink,
+      elapsedMs,
+    };
+  });
+  assert.equal(linkSpacingChecks.glued, 'see [docs](https://example.com) now and mail [team](mailto:a@b.com) today');
+  assert.equal(linkSpacingChecks.openMatches, true);
+  assert.equal(linkSpacingChecks.linkMatches, true);
+  assert.ok(linkSpacingChecks.elapsedMs < 1000, `Expected linear-time cleanMarkdown, took ${linkSpacingChecks.elapsedMs}ms`);
+
+  // Verify catalog routing fixes (Microsoft Copilot not shadowed by Microsoft 365, Sentry EU orgs, W&B subdomains).
+  const routedExtractors = await library.loadExtractors([
+    'microsoft-office',
+    'microsoft-copilot',
+    'sentry',
+    'wandb',
+  ]);
+  const fullMatcher = library.createExtractorMatcher({ extractors: routedExtractors });
+  assert.equal(fullMatcher.match({ url: 'https://m365.cloud.microsoft/chat' })?.name, 'Microsoft Copilot');
+  assert.equal(fullMatcher.match({ url: 'https://de.sentry.io/organizations/acme/issues/12345/' })?.name, 'Sentry');
+  assert.equal(fullMatcher.match({ url: 'https://acme.wandb.ai/team/proj/runs/abc123' })?.name, 'Weights & Biases');
 } finally {
   await browser.close();
 }

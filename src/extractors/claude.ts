@@ -216,6 +216,7 @@ function collectTurns(): Turn[] {
     if (!role) continue;
     result.push(buildTurn(role, element, closestTurn(element)));
   }
+  result.sort((a, b) => compareDomOrder(a.element, b.element));
   return dedupeTurns(result);
 }
 

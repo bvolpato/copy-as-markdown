@@ -451,6 +451,20 @@ function removeNotionNoise(root: Element): void {
     '[data-testid*="page-controls"]',
     '.notion-selectable-halo',
   ].join(', ')).forEach((element) => element.remove());
+  root.querySelectorAll<HTMLElement>('.notion-code-block').forEach((block) => {
+    const codeEl = block.querySelector('code');
+    const preEl = block.querySelector('pre');
+    if (codeEl && !/\b(?:language|lang)-/i.test(codeEl.className)) {
+      const langButton = Array.from(block.querySelectorAll<HTMLElement>('button, [role="button"]'))
+        .map((btn) => normalize(btn.textContent || ''))
+        .find((label) => label && !/^(?:copy|copy code|copied|wrap|unwrap|caption|mermaid|code|preview|split|more)$/i.test(label) && /^[a-z0-9.+# -]{1,24}$/i.test(label));
+      if (langButton) {
+        const slug = langButton.toLowerCase().replace(/\s+/g, '-');
+        codeEl.setAttribute('data-language', slug);
+        if (preEl) preEl.setAttribute('data-language', slug);
+      }
+    }
+  });
   root.querySelectorAll<HTMLElement>('.notion-code-block button, .notion-code-block [role="button"], pre button').forEach((button) => {
     button.remove();
   });

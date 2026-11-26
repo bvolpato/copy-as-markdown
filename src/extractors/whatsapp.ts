@@ -56,7 +56,9 @@ register({
         const time = msg.querySelector('[data-testid="msg-time"], time')?.textContent?.trim()
           || parsed?.[1]?.trim() || '';
         const bodyElement = findWhatsAppBodyElement(msg);
-        const body = bodyElement ? Markdown.elementToMarkdown(bodyElement).trim() : '';
+        const body = bodyElement
+          ? Markdown.elementToMarkdown(Utils.removeNoise(bodyElement, ['button', '[role="button"]', '[aria-hidden="true"]'])).trim()
+          : '';
         const quote = msg.querySelector('[data-testid="quoted-message-text"], [data-testid="quoted-message"], .quoted-mention, [aria-label*="Quoted message"]')
           ?.textContent?.replace(/\s+/g, ' ').trim() || '';
         const attachment = attachmentLabel(msg);

@@ -602,7 +602,7 @@ function appendJsonSection(parts: string[], heading: string, value: unknown): vo
   const formatted = formatValue(value);
   if (!formatted || formatted === '{}' || formatted === '[]') return;
   const json = JSON.stringify(value, null, 2);
-  parts.push(`## ${heading}\n\n\`\`\`json\n${json}\n\`\`\``);
+  parts.push(`## ${heading}\n\n${Markdown.fencedCodeToMarkdown(json, 'json')}`);
 }
 
 function formatTimestamp(value: number | undefined): string | undefined {
