@@ -129,12 +129,11 @@ export const confluenceExtractor = register({
 
 async function fetchConfluencePage(pageId: string): Promise<ConfluenceApiExtraction | null> {
   const cloud = window.location.hostname.toLowerCase().endsWith('.atlassian.net');
-  const url = cloud
-    ? buildConfluenceCloudApiUrl(pageId)
-    : buildConfluenceServerApiUrl(pageId);
 
   try {
-    const payload = await fetchAtlassianJson(url);
+    const payload = await fetchAtlassianJson(cloud
+      ? buildConfluenceCloudApiUrl(pageId)
+      : buildConfluenceServerApiUrl(pageId));
     return cloud
       ? parseConfluenceCloudPage(payload, pageId)
       : parseConfluenceServerPage(payload, pageId);
@@ -157,7 +156,7 @@ function buildConfluenceServerApiUrl(pageId: string): string {
     ?? window.location.pathname.match(/^\/(?:confluence|wiki)(?=\/)/i)?.[0]
     ?? '';
   const url = new URL(
-    `${contextPath}/rest/api/content/${encodeURIComponent(pageId)}`,
+    `${contextPath.replace(/\/+$/, '')}/rest/api/content/${encodeURIComponent(pageId)}`,
     window.location.origin,
   );
   url.searchParams.set('expand', 'body.view,version,space,metadata.labels,history');

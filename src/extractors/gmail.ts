@@ -94,7 +94,7 @@ const GMAIL_TWO_SEGMENT_VIEWS = new Set([
 ]);
 
 function getThreadId(): string {
-  const rawHash = decodeHash(window.location.hash).replace(/^#/, '');
+  const rawHash = decodeText(window.location.hash).replace(/^#/, '');
   const cleanHash = rawHash.split('?')[0];
   const segments = cleanHash.split('/').filter(Boolean);
   if (segments.length < 2) return '';
@@ -106,11 +106,11 @@ function getThreadId(): string {
   return candidate;
 }
 
-function decodeHash(hash: string): string {
+function decodeText(value: string): string {
   try {
-    return decodeURIComponent(hash);
+    return decodeURIComponent(value);
   } catch {
-    return hash;
+    return value;
   }
 }
 
@@ -373,7 +373,7 @@ function collectAttachments(root: ParentNode): string[] {
     const chip = element.closest('[download_url]');
     const chipName = chip?.getAttribute('download_url')?.match(/^[^:]*:(.+?):https?:/)?.[1] || '';
     if (chip && (chip === element) !== Boolean(chipName)) return;
-    const value = chipName
+    const value = decodeText(chipName)
       || element.getAttribute('download')
       || element.getAttribute('aria-label')
       || element.getAttribute('data-tooltip')

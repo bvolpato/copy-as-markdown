@@ -429,10 +429,17 @@ function rebuildLists(root: Element): void {
       item.append(checked ? '[x] ' : '[ ] ');
     }
     item.append(...leaf.childNodes);
-    const children = Array.from(block.querySelectorAll('ul, ol, [data-block-id]'));
-    item.append(...children.filter((child) =>
-      !children.some((other) => other !== child && other.contains(child)),
-    ));
+    const descendants = Array.from(block.querySelectorAll('ul, ol, [data-block-id]'));
+    const children = descendants.filter((child) =>
+      !descendants.some((other) => other !== child && other.contains(child)),
+    );
+    if (children.some((child) => !lists.has(child))) {
+      // List conversion keeps the paragraphs of an item apart only when the item has block content.
+      const text = doc.createElement('p');
+      text.append(...item.childNodes);
+      item.append(text, doc.createElement('blockquote'));
+    }
+    item.append(...children);
     list.append(item);
     lists.add(list);
     block.replaceWith(list);
@@ -451,6 +458,7 @@ function rebuildLists(root: Element): void {
 
 function prepareNotionText(root: Element): void {
   root.querySelectorAll('.notion-inline-code-container').forEach((container) => {
+    if (container.querySelector('a[href]')) return;
     const code = container.ownerDocument.createElement('code');
     code.textContent = container.textContent;
     container.replaceWith(code);

@@ -1,11 +1,14 @@
 /** Shared conversion helpers for Atlassian REST payloads. */
 
 import * as Markdown from './markdown';
+import { removeSessionCredentials } from './session-urls';
 import * as Utils from './utils';
 
 type JsonObject = Record<string, unknown>;
 
 export async function fetchAtlassianJson(url: string): Promise<JsonObject> {
+  // A page path or a declared context path can name another host.
+  if (new URL(url).origin !== window.location.origin) throw new Error('Atlassian request left the page origin');
   const response = await Utils.fetchWithTimeout(url, {
     credentials: 'same-origin',
     headers: { Accept: 'application/json' },
@@ -46,7 +49,7 @@ export function prepareAtlassianContent(root: Element): void {
 
   // Jira renders inline code as teletype text.
   root.querySelectorAll('tt').forEach((teletype) => {
-    if (teletype.querySelector('a, img')) return;
+    if (teletype.closest('pre') || teletype.querySelector('a, img, br, p, div, ul, ol, pre, table')) return;
     const code = doc.createElement('code');
     code.textContent = teletype.textContent;
     teletype.replaceWith(code);
@@ -95,26 +98,9 @@ export function prepareAtlassianContent(root: Element): void {
     emoji.replaceWith(text.replace(/\\u([0-9a-f]{4})/gi, (_, code: string) => String.fromCharCode(parseInt(code, 16))));
   });
 
-  root.querySelectorAll<HTMLElement>('img[src], a[href]').forEach((element) => {
-    const attribute = element.tagName === 'IMG' ? 'src' : 'href';
-    const url = signedMediaUrl(element.getAttribute(attribute) || '');
-    if (!url) return;
-    // Media URLs carry bearer tokens for the signed-in viewer.
-    element.setAttribute(attribute, url.origin + url.pathname);
-    element.removeAttribute('srcset');
-    if (attribute === 'src' && !element.getAttribute('alt')) {
-      element.setAttribute('alt', element.closest<HTMLElement>('[data-file-name]')?.dataset.fileName || '');
-    }
+  root.querySelectorAll<HTMLImageElement>('[data-file-name] img[src^="http"]').forEach((image) => {
+    if (!image.alt) image.alt = image.closest<HTMLElement>('[data-file-name]')?.dataset.fileName || '';
   });
-}
-
-function signedMediaUrl(value: string): URL | null {
-  try {
-    const url = new URL(value, document.baseURI);
-    return /^(?:media-cdn|(?:[\w-]+\.)?media)\.atlassian\.com$/i.test(url.hostname) ? url : null;
-  } catch {
-    return null;
-  }
 }
 
 export function adfToMarkdown(value: unknown): string {
@@ -328,6 +314,9 @@ function codeBlockText(content: JsonObject[]): string {
   return content.map((child) => stringValue(child.text)).join('');
 }
 
+// Spans only add empty cells, so limit the columns that they can create.
+const MAX_SPANNED_COLUMNS = 100;
+
 function renderTable(rows: JsonObject[]): string {
   const values: string[][] = rows.map(() => []);
   rows.forEach((row, rowIndex) => {
@@ -335,8 +324,11 @@ function renderTable(rows: JsonObject[]): string {
     objectArray(row.content).forEach((cell) => {
       while (values[rowIndex][column] !== undefined) column += 1;
       const attrs = asObject(cell.attrs) || {};
-      const columnSpan = Math.min(1000, Math.max(1, Math.trunc(numberValue(attrs.colspan))));
-      const rowSpan = Math.min(rows.length - rowIndex, Math.max(1, Math.trunc(numberValue(attrs.rowspan))));
+      const spannable = MAX_SPANNED_COLUMNS - column;
+      const columnSpan = Math.max(1, Math.min(spannable, Math.trunc(numberValue(attrs.colspan))));
+      const rowSpan = spannable > 0
+        ? Math.min(rows.length - rowIndex, Math.max(1, Math.trunc(numberValue(attrs.rowspan))))
+        : 1;
       for (let rowOffset = 0; rowOffset < rowSpan; rowOffset += 1) {
         for (let columnOffset = 0; columnOffset < columnSpan; columnOffset += 1) {
           values[rowIndex + rowOffset][column + columnOffset] = rowOffset || columnOffset ? '' : renderTableCell(cell);
@@ -383,7 +375,7 @@ function safeUrl(value: string): string {
   try {
     const url = new URL(value, document.baseURI);
     return /^(?:https?|mailto):$/.test(url.protocol)
-      ? url.href.replace(/\(/g, '%28').replace(/\)/g, '%29')
+      ? removeSessionCredentials(url).replace(/\(/g, '%28').replace(/\)/g, '%29')
       : '';
   } catch {
     return '';

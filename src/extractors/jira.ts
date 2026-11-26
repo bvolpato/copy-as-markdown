@@ -362,7 +362,7 @@ function isJiraCoreField(fieldId: string): boolean {
 }
 
 // Plain text such as "Map<String, Integer>" is not markup.
-const RAW_FIELD_HTML = /<\/(?:a|b|code|div|em|h[1-6]|i|li|ol|p|pre|span|strong|table|td|th|tr|ul)>|<br\s*\/?>/i;
+const RAW_FIELD_HTML = /<\/(?:a|b|blockquote|code|dd|del|div|dl|dt|em|font|h[1-6]|i|ins|li|ol|p|pre|s|small|span|strong|sub|sup|table|td|th|tr|tt|u|ul)>|<(?:br|hr|img|script|style|iframe)\b[^>]*>/i;
 
 function formatJiraField(value: unknown, rendered = false): string {
   if (value === null || value === undefined) return '';
@@ -553,7 +553,7 @@ function extractComments(): JiraComment[] {
   document.querySelectorAll<HTMLElement>(selector).forEach((container) => {
     if (!isVisible(container)) return;
     // Data Center nests the action body inside the comment that owns its author.
-    if (container.matches('.action-body') && container.closest('.activity-comment')) return;
+    if (container.matches('.action-body') && container.closest('#activitymodule .issue-data-block.activity-comment')) return;
     const bodyElement = container.matches('.action-body')
       ? container
       : container.querySelector(

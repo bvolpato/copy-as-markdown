@@ -273,7 +273,8 @@ function getAttachments(root: Element): string[] {
     );
     const href = safeHttpUrl(link?.href || candidate.querySelector<HTMLImageElement>('img[src]')?.src || '');
     const key = href || name;
-    const value = href ? `[${escapeLabel(name)}](${href})` : name;
+    // The URL of an image preview is a signed link, so its file name stands for it.
+    const value = href && link !== candidate ? `[${escapeLabel(name)}](${href})` : name;
     if (key && (!attachments.has(key) || name !== 'Attachment')) attachments.set(key, value);
   });
   return Array.from(attachments.values()).filter(Boolean);
@@ -285,7 +286,7 @@ function getLinks(root: ParentNode, attachments: string[], bodyMarkdown = ''): s
   );
   const links = new Set<string>();
   root.querySelectorAll<HTMLAnchorElement>('a[href]').forEach((link) => {
-    if (link.closest('[class*="repliedMessage"], [class*="attachment" i], [class*="fileWrapper"], [class*="embedWrapper"]')) return;
+    if (link.closest('[class*="repliedMessage"], [class*="attachment" i], [class*="originalLink"], [class*="fileWrapper"], [class*="embedWrapper"]')) return;
     const href = safeHttpUrl(link.href);
     if (!href || attachmentUrls.has(href) || isDiscordUiLink(href)) return;
     const encodedHref = href.replace(/\(/g, '%28').replace(/\)/g, '%29');

@@ -4,6 +4,7 @@
  * into clean, well-structured Markdown — optimized for LLM context sharing.
  */
 
+import { removeSessionCredentials } from './session-urls';
 import { PageMetadata } from './types';
 
 /**
@@ -889,7 +890,7 @@ function safeMarkdownLinkUrl(value: string, baseUrl?: string, allowMailto = true
   try {
     const url = new URL(value, baseUrl);
     if (!/^https?:$/.test(url.protocol) && !(allowMailto && url.protocol === 'mailto:')) return '';
-    return url.href.replace(/\(/g, '%28').replace(/\)/g, '%29');
+    return removeSessionCredentials(url).replace(/\(/g, '%28').replace(/\)/g, '%29');
   } catch {
     return '';
   }

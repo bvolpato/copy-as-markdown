@@ -60,7 +60,6 @@ export const outlookExtractor = register({
       );
       const bodyEl = container.querySelector('[aria-label="Message body"], .UniqueMessageBody, [id^="UniqueMessageBody"]') || container;
       const cleaned = Utils.removeNoise(bodyEl, [...Utils.NOISE_SELECTORS, 'button', '[role="toolbar"]']);
-      removeSessionUrls(cleaned);
       const body = Markdown.elementToMarkdown(cleaned);
       if (!body) continue;
 
@@ -70,7 +69,6 @@ export const outlookExtractor = register({
 
     if (messageCount === 0 && readingPane) {
       const cleaned = Utils.removeNoise(readingPane, [...Utils.NOISE_SELECTORS, 'button', '[role="toolbar"]']);
-      removeSessionUrls(cleaned);
       const body = Markdown.elementToMarkdown(cleaned);
       if (body) parts.push('\n' + body);
     }
@@ -85,19 +83,3 @@ export const outlookExtractor = register({
     return Markdown.buildPageMarkdown(metadata, limited.markdown);
   },
 });
-
-/** Attachment URLs carry the access token and anti-forgery value of the signed-in session. */
-function removeSessionUrls(root: Element): void {
-  root.querySelectorAll<HTMLElement>('img, a[href]').forEach((element) => {
-    const attribute = element.tagName === 'IMG' ? 'src' : 'href';
-    try {
-      const url = new URL(element.getAttribute(attribute) || '', document.baseURI);
-      const microsoftHost = /(?:^|\.)(?:office\.net|office\.com|office365\.com|live\.com|cloud\.microsoft)$/i.test(url.hostname);
-      if (!microsoftHost || !(url.searchParams.has('token') || url.searchParams.has('X-OWA-CANARY'))) return;
-      element.removeAttribute(attribute);
-      element.removeAttribute('srcset');
-    } catch {
-      // keep unparseable values
-    }
-  });
-}

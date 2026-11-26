@@ -51,10 +51,13 @@ register({
 
         const preamble = msg.querySelector('[data-pre-plain-text]')?.getAttribute('data-pre-plain-text') || '';
         const parsed = preamble.match(/^\[([^\]]+)]\s*(.+?):\s*$/);
+        // An empty labelled element names the sender of a message without text.
         const explicitSender = msg.querySelector('[data-testid="msg-author"] span, [data-testid="msg-author"], [data-testid="author"]')
-          ?.textContent?.trim() || parsed?.[2]?.trim() || '';
+          ?.textContent?.trim() || parsed?.[2]?.trim()
+          || msg.querySelector('span[aria-label$=":"]:empty')?.getAttribute('aria-label')?.slice(0, -1).trim() || '';
         const incoming = Boolean(msg.closest('.message-in'));
-        // A group chat names the sender only on the first message of a run.
+        // A group chat names the sender only on the first message of a run, which has the bubble tail.
+        if (msg.querySelector('[data-icon="tail-in"], [data-testid="tail-in"]')) incomingSender = '';
         const sender = explicitSender || (incoming && incomingSender) || fallbackSender(msg, chatName);
         incomingSender = incoming ? sender : '';
         // The preamble also has the date.

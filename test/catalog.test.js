@@ -106,6 +106,28 @@ try {
   for (const fixtureCase of [...DISCUSSION_CASES, ...BITBUCKET_CASES, ...GITHUB_CASES, ...WORKSPACE_CASES]) {
     await check(fixtureCase.id, () => fixture(fixtureCase));
   }
+  await check('Selection copies drop session credentials from links, images, and link text', async () => {
+    const context = await browser.createBrowserContext();
+    const page = await context.newPage();
+    try {
+      await page.setRequestInterception(true);
+      page.on('request', request => request.isNavigationRequest() ? request.respond({ contentType: 'text/html', body: `<!doctype html><title>Selection</title><main>
+        <p>Selected <img alt="chart" src="https://media-cdn.atlassian.com/file/1/image?token=SECRET" srcset="https://media-cdn.atlassian.com/file/1/image?token=SECRET 2x"></p>
+        <p><a href="https://attachment.outlook.live.net/s/GetFileAttachment?id=1&amp;token=SECRET">https://attachment.outlook.live.net/s/GetFileAttachment?id=1&amp;token=SECRET</a></p></main>` }) : request.abort());
+      await page.goto('https://acme.atlassian.net/wiki/spaces/ENG/pages/6/Selection');
+      await page.evaluate(() => {
+        window.chrome = { runtime: { onMessage: { addListener: listener => { window.copyListener = listener; } } } };
+        Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText: async text => { window.copied = text; } } });
+        getSelection().selectAllChildren(document.querySelector('main'));
+      });
+      await page.addScriptTag({ content: fs.readFileSync(new URL('../dist/chrome/content.js', import.meta.url), 'utf8') });
+      await page.evaluate(() => new Promise(resolve => window.copyListener({ action: 'copy-as-markdown' }, null, resolve)));
+      const copied = await page.evaluate(() => window.copied);
+      assert.ok(copied.includes('![chart](https://media-cdn.atlassian.com/file/1/image)'), copied);
+      assert.equal(copied.split('\n').at(-1), 'https://attachment.outlook.live.net/s/GetFileAttachment');
+      assert.ok(!copied.includes('SECRET'), copied);
+    } finally { await context.close(); }
+  });
   await check('Reddit includes sibling comment threads and excludes sidebar comments', () => fixture({
     name: 'Reddit', url: 'https://www.reddit.com/r/markdown/comments/abc123/thread/',
     html: `<main><shreddit-post data-post-id="t3_abc123" author="poster" score="42" comment-count="2">

@@ -188,6 +188,30 @@ test('ADF keeps inline media, card data, and the text of unknown nodes', () => {
   );
 });
 
+test('ADF links, cards, and media drop session credentials', (t) => {
+  t.after(() => Reflect.deleteProperty(globalThis, 'document'));
+  Object.assign(globalThis, { document: { baseURI: 'https://acme.atlassian.net/' } });
+  const link = (href: string) => text('link', { type: 'link', attrs: { href } });
+  const token = '?token=SECRET&Signature=SECRET#clientId=SECRET';
+  assert.equal(
+    adfToMarkdown(doc(
+      { type: 'paragraph', content: [link(`https://media-cdn.atlassian.com/file/1/image${token}`)] },
+      { type: 'paragraph', content: [link('https://media.atlassian.net/browse/A-1?focusedId=2&atl_token=SECRET')] },
+      { type: 'blockCard', attrs: { data: { name: 'Plan', url: `https://api.media.atlassian-us-gov-mod.com/file/2${token}` } } },
+      { type: 'media', attrs: { alt: 'shot.png', url: 'https://attachment.outlook.live.net/s/GetFileAttachment?id=3&token=SECRET' } },
+    )),
+    '[link](https://media-cdn.atlassian.com/file/1/image)\n\n[link](https://media.atlassian.net/browse/A-1?focusedId=2)\n\n'
+      + '[Plan](https://api.media.atlassian-us-gov-mod.com/file/2)\n\nshot.png',
+  );
+});
+
+test('ADF tables limit the empty cells that spans create', () => {
+  const row = { type: 'tableRow', content: [{ ...cell('x'), attrs: { colspan: 1000, rowspan: 1000 } }] };
+  const markdown = adfToMarkdown(doc({ type: 'table', content: Array.from({ length: 50 }, () => row) }));
+  assert.equal(markdown.split('x').length - 1, 50);
+  assert.ok(markdown.length < 50_000, `${markdown.length} characters`);
+});
+
 test('ADF tables process long whitespace runs within a bounded child deadline', () => {
   const result = spawnSync(process.execPath, ['--import', 'tsx', '--input-type=module', '-e', `
     import assert from 'node:assert/strict';
