@@ -52,13 +52,19 @@ async function main(): Promise<void> {
     const message = error instanceof Error ? error.message : String(error);
     if (!message.includes('Localhost capture')) throw error;
   }
-  try {
-    await assertPublicUrl('http://[::ffff:7f00:1]/private');
-    throw new Error('Expected IPv4-mapped loopback rejection');
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    if (!message.includes('public addresses')) throw error;
+  for (const host of [
+    '[::ffff:7f00:1]', '[::127.0.0.1]', '[::ffff:0:7f00:1]', '[64:ff9b::a00:1]', '[2002:a00:1::1]', '[fe80::1]',
+    '100.100.100.200',
+  ]) {
+    try {
+      await assertPublicUrl(`http://${host}/private`);
+      throw new Error(`Expected private address rejection: ${host}`);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      if (!message.includes('public addresses')) throw error;
+    }
   }
+  await assertPublicUrl('http://8.8.8.8/');
   console.log('✓ fixture privacy and public-network guards');
 }
 

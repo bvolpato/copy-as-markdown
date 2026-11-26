@@ -165,6 +165,50 @@ test('install.sh runs through a symlinked checkout', async (context) => {
   assert.match(result.stdout, /^Usage: \.\/install\.sh/);
 });
 
+test('install.sh runs through a symlink to the script', async (context) => {
+  const temp = await fs.mkdtemp(path.join(os.tmpdir(), 'copy-as-markdown-script link-'));
+  context.after(() => fs.rm(temp, { recursive: true, force: true }));
+  await fs.symlink(path.join(REPO_ROOT, 'install.sh'), path.join(temp, 'target'));
+  await fs.symlink('target', path.join(temp, 'install'));
+
+  const result = spawnSync(path.join(temp, 'install'), ['--help'], { cwd: os.tmpdir(), encoding: 'utf8' });
+  assert.equal(result.status, 0, result.stderr);
+  assert.match(result.stdout, /^Usage: \.\/install\.sh/);
+});
+
+test('install.sh rejects an unsupported Node.js version', async (context) => {
+  const temp = await fs.mkdtemp(path.join(os.tmpdir(), 'copy-as-markdown-node-'));
+  context.after(() => fs.rm(temp, { recursive: true, force: true }));
+  const preload = path.join(temp, 'version.cjs');
+  for (const [version, status] of [['20.19.5', 1], ['22.22.1', 1], ['22.22.2', 0], ['24.2.0', 0]]) {
+    await fs.writeFile(preload, `Object.defineProperty(process, 'versions', { value: { ...process.versions, node: '${version}' } });`);
+    const result = spawnSync(path.join(REPO_ROOT, 'install.sh'), ['--help'], {
+      encoding: 'utf8',
+      env: { ...process.env, NODE_OPTIONS: `--require "${preload}"` },
+    });
+    assert.equal(result.status, status, `${version}: ${result.stderr}`);
+    if (status) assert.match(result.stderr, /Node\.js 22\.22\.2 or newer is required/);
+  }
+});
+
+test('--copy-to resolves a relative path from the current directory', async (context) => {
+  const temp = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), 'copy-as-markdown-relative-')));
+  context.after(() => fs.rm(temp, { recursive: true, force: true }));
+  const installer = path.join(temp, 'checkout', 'build', 'install.mjs');
+  const manifest = path.join(temp, 'checkout', 'dist', 'chrome', 'manifest.json');
+  const cwd = path.join(temp, 'user directory');
+  await Promise.all([path.dirname(installer), path.dirname(manifest), cwd].map((dir) => fs.mkdir(dir, { recursive: true })));
+  await fs.copyFile(INSTALLER, installer);
+  await fs.writeFile(manifest, '{"name":"test"}');
+
+  const result = spawnSync(process.execPath, [installer, '--browser', 'chrome', '--copy-to', 'my extension', '--skip-build', '--no-open'], {
+    cwd,
+    encoding: 'utf8',
+  });
+  assert.equal(result.status, 0, result.stderr);
+  assert.equal(await fs.readFile(path.join(cwd, 'my extension', 'manifest.json'), 'utf8'), '{"name":"test"}');
+});
+
 test('importing the installer from stdin does not start the CLI', () => {
   const result = spawnSync(process.execPath, ['--input-type=module', '-'], {
     cwd: os.tmpdir(),

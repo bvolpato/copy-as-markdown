@@ -36,6 +36,24 @@ await check('Subdomain patterns include the base host and arbitrary ports', () =
     assert.equal(matcher.match({ url }), null, url);
   }
 });
+await check('URL patterns ignore fragments and match IPv6 hosts', () => {
+  const match = (pattern, url) => {
+    const extractor = library.defineExtractor({ name: 'Pattern', matches: [pattern], extract: async () => '' });
+    const custom = library.defineExtractor({ name: 'Restricted', matches: [], regex: /./, extract: async () => '' });
+    const results = [
+      library.createExtractorMatcher({ extractors: [extractor] }).match({ url }),
+      library.createExtractorMatcher({ extractors: [custom], urlPatterns: [pattern] }).match({ url }),
+    ].map(Boolean);
+    assert.equal(results[0], results[1], `${pattern} ${url}`);
+    return results[0];
+  };
+  assert.equal(match('https://example.test/page', 'https://example.test/page#section'), true);
+  assert.equal(match('https://example.test/page', 'https://example.test/page?query#section'), false);
+  assert.equal(match('https://example.test/#/issues/*', 'https://example.test/#/issues/1'), true);
+  assert.equal(match('*://*/*', 'http://[::1]:5000/page'), true);
+  assert.equal(match('http://[::1]:5000/*', 'http://[::1]:5000/page'), true);
+  assert.equal(match('*://*/*', 'https://[::1]@unrelated.example/page'), false);
+});
 await check('X and Hacker News reject unrelated route suffixes', async () => {
   const x = await library.loadExtractor('x-twitter');
   const hn = await library.loadExtractor('hackernews');
