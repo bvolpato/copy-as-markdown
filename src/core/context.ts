@@ -1,3 +1,4 @@
+import { removeSessionCredentialsFromText } from './session-urls';
 import { PageMetadata } from './types';
 
 export type LimitedCollection<T> = {
@@ -23,7 +24,7 @@ export function limitMarkdown(
   markdown: string,
   _maxChars?: number,
 ): { markdown: string; truncated: boolean } {
-  return { markdown, truncated: false };
+  return { markdown: removeSessionCredentialsFromText(markdown), truncated: false };
 }
 
 export function addExtractionMetadata(
@@ -36,6 +37,9 @@ export function addExtractionMetadata(
     complete?: boolean;
   },
 ): void {
+  Object.entries(metadata).forEach(([key, value]) => {
+    if (typeof value === 'string') metadata[key] = removeSessionCredentialsFromText(value);
+  });
   metadata.content_source = details.contentSource;
   if (details.total !== undefined) metadata.items_total = details.total;
   if (details.included !== undefined) metadata.items_included = details.included;

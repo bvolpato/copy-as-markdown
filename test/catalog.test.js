@@ -5,6 +5,7 @@ import * as library from '../dist/library/index.js';
 import { DISCUSSION_CASES } from './fixtures/discussion-cases.js';
 import { BITBUCKET_CASES } from './fixtures/bitbucket-cases.js';
 import { GITHUB_CASES } from './fixtures/github-cases.js';
+import { WORKSPACE_CASES } from './fixtures/workspace-cases.js';
 
 await library.loadAllExtractors();
 const failures = [];
@@ -84,7 +85,7 @@ const browser = await puppeteer.launch({ headless: 'shell', args: ['--no-sandbox
 const browserCode = fs.readFileSync(new URL('../dist/library/browser.js', import.meta.url), 'utf8');
 const userscript = fs.readFileSync(new URL('../dist/userscript/copy-as-markdown.user.js', import.meta.url), 'utf8');
 const repeat = (count, make) => Array.from({ length: count }, (_, index) => make(index)).join('');
-async function fixture({ url, name, html, head = '<title>Catalog fixture</title>', resources = {}, expected = [], excluded = [], ordered = [], occurrences = {}, ui = false, afterLoad }) {
+async function fixture({ url, name, html, option, head = '<title>Catalog fixture</title>', resources = {}, expected = [], excluded = [], ordered = [], occurrences = {}, ui = false, afterLoad }) {
   const context = await browser.createBrowserContext();
   const page = await context.newPage();
   try {
@@ -99,12 +100,12 @@ async function fixture({ url, name, html, head = '<title>Catalog fixture</title>
     await page.addScriptTag({ content: browserCode });
     if (ui) await page.addScriptTag({ content: userscript });
     if (afterLoad) await afterLoad(page);
-    const output = await page.evaluate(async ({ name }) => {
+    const output = await page.evaluate(async ({ name, option }) => {
       await CopyAsMarkdown.loadAllExtractors();
       const match = CopyAsMarkdown.createExtractorMatcher().match({ url: location.href, document });
       if (match?.name !== name) throw new Error(`Expected ${name}, got ${match?.name}`);
-      return match.extract();
-    }, { name });
+      return match.extract(option);
+    }, { name, option });
     for (const value of expected) assert.ok(output.includes(value), `Missing ${JSON.stringify(value)}`);
     for (const value of excluded) assert.ok(!output.includes(value), `Unexpected ${JSON.stringify(value)}`);
     let previous = -1;
@@ -120,9 +121,31 @@ async function fixture({ url, name, html, head = '<title>Catalog fixture</title>
 }
 
 try {
-  for (const fixtureCase of [...DISCUSSION_CASES, ...BITBUCKET_CASES, ...GITHUB_CASES]) {
+  for (const fixtureCase of [...DISCUSSION_CASES, ...BITBUCKET_CASES, ...GITHUB_CASES, ...WORKSPACE_CASES]) {
     await check(fixtureCase.id, () => fixture(fixtureCase));
   }
+  await check('Selection copies drop session credentials from links, images, and link text', async () => {
+    const context = await browser.createBrowserContext();
+    const page = await context.newPage();
+    try {
+      await page.setRequestInterception(true);
+      page.on('request', request => request.isNavigationRequest() ? request.respond({ contentType: 'text/html', body: `<!doctype html><title>Selection</title><main>
+        <p>Selected <img alt="chart" src="https://media-cdn.atlassian.com/file/1/image?token=SECRET" srcset="https://media-cdn.atlassian.com/file/1/image?token=SECRET 2x"></p>
+        <p><a href="https://attachment.outlook.live.net/s/GetFileAttachment?id=1&amp;token=SECRET">https://attachment.outlook.live.net/s/GetFileAttachment?id=1&amp;token=SECRET</a></p></main>` }) : request.abort());
+      await page.goto('https://acme.atlassian.net/wiki/spaces/ENG/pages/6/Selection');
+      await page.evaluate(() => {
+        window.chrome = { runtime: { onMessage: { addListener: listener => { window.copyListener = listener; } } } };
+        Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText: async text => { window.copied = text; } } });
+        getSelection().selectAllChildren(document.querySelector('main'));
+      });
+      await page.addScriptTag({ content: fs.readFileSync(new URL('../dist/chrome/content.js', import.meta.url), 'utf8') });
+      await page.evaluate(() => new Promise(resolve => window.copyListener({ action: 'copy-as-markdown' }, null, resolve)));
+      const copied = await page.evaluate(() => window.copied);
+      assert.ok(copied.includes('![chart](https://media-cdn.atlassian.com/file/1/image)'), copied);
+      assert.equal(copied.split('\n').at(-1), 'https://attachment.outlook.live.net/s/GetFileAttachment');
+      assert.ok(!copied.includes('SECRET'), copied);
+    } finally { await context.close(); }
+  });
   await check('Reddit includes sibling comment threads and excludes sidebar comments', () => fixture({
     name: 'Reddit', url: 'https://www.reddit.com/r/markdown/comments/abc123/thread/',
     html: `<main><shreddit-post data-post-id="t3_abc123" author="poster" score="42" comment-count="2">

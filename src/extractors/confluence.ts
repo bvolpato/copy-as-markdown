@@ -4,7 +4,7 @@
  */
 
 import { addExtractionMetadata, limitCollection, limitMarkdown } from '../core/context';
-import { fetchAtlassianJson } from '../core/atlassian';
+import { fetchAtlassianJson, prepareAtlassianContent } from '../core/atlassian';
 import * as Markdown from '../core/markdown';
 import { register } from '../core/registry';
 import { PageMetadata } from '../core/types';
@@ -129,12 +129,11 @@ export const confluenceExtractor = register({
 
 async function fetchConfluencePage(pageId: string): Promise<ConfluenceApiExtraction | null> {
   const cloud = window.location.hostname.toLowerCase().endsWith('.atlassian.net');
-  const url = cloud
-    ? buildConfluenceCloudApiUrl(pageId)
-    : buildConfluenceServerApiUrl(pageId);
 
   try {
-    const payload = await fetchAtlassianJson(url);
+    const payload = await fetchAtlassianJson(cloud
+      ? buildConfluenceCloudApiUrl(pageId)
+      : buildConfluenceServerApiUrl(pageId));
     return cloud
       ? parseConfluenceCloudPage(payload, pageId)
       : parseConfluenceServerPage(payload, pageId);
@@ -153,11 +152,11 @@ function buildConfluenceCloudApiUrl(pageId: string): string {
 }
 
 function buildConfluenceServerApiUrl(pageId: string): string {
-  const contextPath = window.location.pathname.toLowerCase().startsWith('/confluence/')
-    ? '/confluence'
-    : '';
+  const contextPath = document.querySelector('meta[name="ajs-context-path"]')?.getAttribute('content')
+    ?? window.location.pathname.match(/^\/(?:confluence|wiki)(?=\/)/i)?.[0]
+    ?? '';
   const url = new URL(
-    `${contextPath}/rest/api/content/${encodeURIComponent(pageId)}`,
+    `${contextPath.replace(/\/+$/, '')}/rest/api/content/${encodeURIComponent(pageId)}`,
     window.location.origin,
   );
   url.searchParams.set('expand', 'body.view,version,space,metadata.labels,history');
@@ -169,6 +168,7 @@ function parseConfluenceHtmlBody(html: string): { markdown: string; tables: numb
   const tables = parsed.querySelectorAll('table').length;
   const codeBlocks = parsed.querySelectorAll('pre, [data-node-type="codeBlock"]').length;
   parsed.querySelectorAll('script, style, noscript, template').forEach((element) => element.remove());
+  prepareAtlassianContent(parsed.body);
   return {
     markdown: Markdown.elementToMarkdown(parsed.body).trim(),
     tables,
@@ -315,6 +315,7 @@ function markdownFromPageBody(element: Element): string {
     p.appendChild(strong);
     button.replaceWith(p);
   });
+  prepareAtlassianContent(clone);
   return Markdown.elementToMarkdown(Utils.removeNoise(clone, CONFLUENCE_BODY_NOISE)).trim();
 }
 
@@ -327,6 +328,7 @@ function extractComments(pageBody: Element | null): ConfluenceComment[] {
     '[data-testid="page-comment"]',
     '[data-testid="inline-comment"]',
     '[data-testid*="comment-item"]',
+    '[data-comment-id][role="article"]',
   ].join(', ');
   const comments: ConfluenceComment[] = [];
   const seen = new Set<string>();
@@ -339,21 +341,26 @@ function extractComments(pageBody: Element | null): ConfluenceComment[] {
       + '.comment-body, .wiki-content, .ak-renderer-document',
     );
     if (!bodyElement) return;
-    const body = Markdown.elementToMarkdown(Utils.removeNoise(bodyElement, [
+    const bodyClone = bodyElement.cloneNode(true) as Element;
+    prepareAtlassianContent(bodyClone);
+    const body = Markdown.elementToMarkdown(Utils.removeNoise(bodyClone, [
       ...Utils.NOISE_SELECTORS,
       'button',
       '[role="toolbar"]',
       '[data-testid*="action"]',
     ])).trim();
     if (!body) return;
-    const author = textOf(container.querySelector(
+    // The Cloud author box holds the profile link and an unlabelled date.
+    const authorBox = container.querySelector('[data-testid="comment-author-box"]');
+    const author = textOf(authorBox?.querySelector('a[href*="/people/"]') || container.querySelector(
       '[data-testid*="comment-author"], [data-testid*="user-avatar"], '
       + '.comment-user-logo + a, .author, [rel="author"]',
     ));
-    const dateElement = container.querySelector('time, [data-testid*="comment-date"], .date');
+    const dateElement = container.querySelector('time, [data-testid*="comment-date"], .date, .comment-date');
     const date = dateElement?.getAttribute('datetime')
       || dateElement?.getAttribute('title')
-      || textOf(dateElement);
+      || textOf(dateElement)
+      || (authorBox ? textOf(authorBox).replace(author, '').trim() : '');
     const signature = `${author}\n${date}\n${body}`;
     if (!seen.has(signature)) {
       seen.add(signature);
@@ -412,7 +419,8 @@ function getUpdated(): string {
 function isInsideComment(element: Element): boolean {
   return Boolean(element.closest(
     '#comments-section, #page-comments, .comment, .comments, .comment-thread, '
-    + '[data-testid="comment"], [data-testid="page-comment"], [data-testid="inline-comment"]',
+    + '[data-testid="comment"], [data-testid="page-comment"], [data-testid="inline-comment"], '
+    + '[data-comment-id]',
   ));
 }
 
