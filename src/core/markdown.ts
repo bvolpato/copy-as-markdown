@@ -708,15 +708,97 @@ function normalizeMarkdownWhitespace(value: string): string {
   return withPreservedCode(value, normalizeWhitespace);
 }
 
+const WHITESPACE_CHAR_RE = /\s/;
+
+function isAsciiWordChar(ch: string | undefined): boolean {
+  if (!ch) return false;
+  const code = ch.charCodeAt(0);
+  return (code >= 48 && code <= 57)
+    || (code >= 65 && code <= 90)
+    || (code >= 97 && code <= 122)
+    || code === 95;
+}
+
+function matchLinkSchemeLength(text: string, start: number): number {
+  if (text.startsWith('https:', start)) return 6;
+  if (text.startsWith('http:', start)) return 5;
+  if (text.startsWith('mailto:', start)) return 7;
+  return 0;
+}
+
+/**
+ * Insert spaces around `[label](http(s):...|mailto:...)` links glued to adjacent word
+ * characters, without mangling array indexing, query params, `(s)he`, or `H_(2)O`,
+ * and in linear O(n) time without backtracking regexes.
+ */
+function addSpacesAroundMarkdownLinks(text: string): string {
+  const len = text.length;
+  let out = '';
+  let lastCopied = 0;
+  let openBracket = -1;
+  let i = 0;
+
+  while (i < len) {
+    const ch = text[i];
+    if (ch === '\n') {
+      openBracket = -1;
+      i += 1;
+      continue;
+    }
+    if (ch === '[') {
+      openBracket = i;
+      i += 1;
+      continue;
+    }
+    if (ch === ']') {
+      if (openBracket >= 0 && i > openBracket + 1 && text[i + 1] === '(') {
+        const urlStart = i + 2;
+        const schemeLen = matchLinkSchemeLength(text, urlStart);
+        if (schemeLen > 0) {
+          let j = urlStart + schemeLen;
+          let pendingOpen = -1;
+          while (j < len && text[j] !== ')' && !WHITESPACE_CHAR_RE.test(text[j])) {
+            if (text[j] === '[') pendingOpen = j;
+            else if (text[j] === ']') pendingOpen = -1;
+            j += 1;
+          }
+          if (j < len && text[j] === ')' && j > urlStart + schemeLen) {
+            const needBefore = openBracket > 0 && isAsciiWordChar(text[openBracket - 1]);
+            const needAfter = j + 1 < len && isAsciiWordChar(text[j + 1]);
+            if (needBefore || needAfter) {
+              if (needBefore) {
+                out += `${text.slice(lastCopied, openBracket)} ${text.slice(openBracket, j + 1)}`;
+              } else {
+                out += text.slice(lastCopied, j + 1);
+              }
+              if (needAfter) out += ' ';
+              lastCopied = j + 1;
+            }
+            openBracket = -1;
+            i = j + 1;
+            continue;
+          }
+          openBracket = pendingOpen;
+          i = j;
+          continue;
+        }
+      }
+      openBracket = -1;
+      i += 1;
+      continue;
+    }
+    i += 1;
+  }
+
+  if (lastCopied === 0) return text;
+  return out + text.slice(lastCopied);
+}
+
 /**
  * Post-process Markdown: collapse excessive blank lines, fix link spacing, trim.
  */
 export function cleanMarkdown(md: string): string {
-  return withPreservedCode(md, (prose) => normalizeUnicodeText(prose)
-    // Add space around Markdown links glued to adjacent words without mangling array indexing,
-    // URL query params (?filter[a]=1), (s)he, or H_(2)O subscripts.
-    .replace(/(\w)(\[[^\]\n]+\]\((?:https?:|mailto:)[^)\s]+\))/g, '$1 $2')
-    .replace(/(\[[^\]\n]+\]\((?:https?:|mailto:)[^)\s]+\))(\w)/g, '$1 $2')
+  return withPreservedCode(md, (prose) => addSpacesAroundMarkdownLinks(normalizeUnicodeText(prose))
     // Collapse 3+ newlines to 2
     .replace(/\n{3,}/g, '\n\n')
     // Remove leading/trailing whitespace on lines

@@ -757,6 +757,27 @@ try {
   assert.match(coreMdChecks.body, /!\[Photo\]\(https:\/\/cdn\.example\.com\/w_1600,f_auto,q_auto\/pic\.jpg\)/);
   assert.match(coreMdChecks.body, /```java\nclass A \{\}\n```/);
 
+  // Verify linear-time link spacing without polynomial backtracking on repeated unclosed brackets/links.
+  const linkSpacingChecks = await page.evaluate(() => {
+    const glued = CopyAsMarkdown.cleanMarkdown('see[docs](https://example.com)now and mail[team](mailto:a@b.com)today');
+    const repeatedOpen = '0['.repeat(20000);
+    const repeatedLink = '0[a](http:'.repeat(10000);
+    const start = performance.now();
+    const openOut = CopyAsMarkdown.cleanMarkdown(repeatedOpen);
+    const linkOut = CopyAsMarkdown.cleanMarkdown(repeatedLink);
+    const elapsedMs = performance.now() - start;
+    return {
+      glued,
+      openMatches: openOut === repeatedOpen,
+      linkMatches: linkOut === repeatedLink,
+      elapsedMs,
+    };
+  });
+  assert.equal(linkSpacingChecks.glued, 'see [docs](https://example.com) now and mail [team](mailto:a@b.com) today');
+  assert.equal(linkSpacingChecks.openMatches, true);
+  assert.equal(linkSpacingChecks.linkMatches, true);
+  assert.ok(linkSpacingChecks.elapsedMs < 1000, `Expected linear-time cleanMarkdown, took ${linkSpacingChecks.elapsedMs}ms`);
+
   // Verify catalog routing fixes (Microsoft Copilot not shadowed by Microsoft 365, Sentry EU orgs, W&B subdomains).
   const routedExtractors = await library.loadExtractors([
     'microsoft-office',
