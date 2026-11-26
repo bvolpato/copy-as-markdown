@@ -16,7 +16,7 @@ const TYPES = {
 };
 
 let browser;
-before(async () => { browser = await puppeteer.launch({ headless: 'shell' }); });
+before(async () => { browser = await puppeteer.launch({ headless: 'shell', args: ['--no-sandbox', '--disable-setuid-sandbox'] }); });
 after(async () => { await browser?.close(); });
 
 /** Serve docs/ from one origin. Every other request is recorded and blocked. */
