@@ -26,6 +26,11 @@ type SchemaInfo = {
   rating?: string;
 };
 
+/** Read a scalar JSON-LD value. Null, objects, and lists have no usable text. */
+function schemaText(value: unknown): string {
+  return typeof value === 'string' || typeof value === 'number' ? String(value).trim() : '';
+}
+
 function readSchemaInfo(): SchemaInfo {
   const info: SchemaInfo = {};
   const scripts = document.querySelectorAll('script[type="application/ld+json"]');
@@ -38,6 +43,10 @@ function readSchemaInfo(): SchemaInfo {
       while (queue.length > 0) {
         const item = queue.shift();
         if (!item || typeof item !== 'object') continue;
+        if (Array.isArray(item)) {
+          queue.push(...item);
+          continue;
+        }
         const record = item as Record<string, unknown>;
         if (Array.isArray(record['@graph'])) queue.push(...record['@graph']);
         const typeRaw = record['@type'];
@@ -52,24 +61,23 @@ function readSchemaInfo(): SchemaInfo {
         if (!info.description && typeof record.description === 'string') info.description = record.description.trim();
         if (!info.datePublished && typeof record.datePublished === 'string') info.datePublished = record.datePublished.trim();
         if (!info.author && record.author) {
-          const authorObj = Array.isArray(record.author) ? record.author[0] : record.author;
-          if (typeof authorObj === 'string') info.author = authorObj.trim();
-          else if (authorObj && typeof authorObj === 'object' && typeof (authorObj as Record<string, unknown>).name === 'string') {
-            info.author = ((authorObj as Record<string, unknown>).name as string).trim();
-          }
+          const authors = Array.isArray(record.author) ? record.author.flat() : [record.author];
+          info.author = authors
+            .map((author) => schemaText(author) || schemaText((author as Record<string, unknown> | null)?.name))
+            .filter(Boolean)
+            .join(', ');
         }
         if (!info.price && record.offers && typeof record.offers === 'object') {
-          const offer = (Array.isArray(record.offers) ? record.offers[0] : record.offers) as Record<string, unknown> | undefined;
-          if (offer?.price !== undefined) {
-            const currency = typeof offer.priceCurrency === 'string' ? `${offer.priceCurrency} ` : '';
-            info.price = `${currency}${offer.price}`.trim();
-          }
+          const offer = (Array.isArray(record.offers) ? record.offers[0] : record.offers) as Record<string, unknown> | null;
+          const price = schemaText(offer?.price);
+          if (price) info.price = `${schemaText(offer?.priceCurrency)} ${price}`.trim();
         }
         if (!info.rating && record.aggregateRating && typeof record.aggregateRating === 'object') {
           const rating = record.aggregateRating as Record<string, unknown>;
-          if (rating.ratingValue !== undefined) {
-            const count = rating.reviewCount || rating.ratingCount;
-            info.rating = count ? `${rating.ratingValue}/5 (${count} reviews)` : String(rating.ratingValue);
+          const value = schemaText(rating.ratingValue);
+          if (value) {
+            const count = schemaText(rating.reviewCount || rating.ratingCount);
+            info.rating = count ? `${value}/${schemaText(rating.bestRating) || 5} (${count} reviews)` : value;
           }
         }
       }
@@ -92,6 +100,17 @@ const FALLBACK_CONTENT_NOISE = [
   '[aria-hidden="true"]', '[data-cam-instance]',
 ];
 
+const CONSENT_PROMPT = ['div', 'section', 'dialog']
+  .flatMap((tag) => ['cookie', 'consent'].map((name) => `${tag}[id*="${name}" i], ${tag}[class*="${name}" i]`))
+  .join(', ');
+
+/** Page wrappers and recipes can also have "cookie" in a class name, so require a short block without page structure. */
+function isConsentPrompt(element: Element | null): boolean {
+  return !!element
+    && !element.querySelector('main, article, h1')
+    && (element.textContent || '').length < 1500;
+}
+
 function findBestFallbackContent(): Element | null {
   const isVisible = Utils.createVisibilityChecker();
 
@@ -102,6 +121,8 @@ function findBestFallbackContent(): Element | null {
   for (const node of leafNodes) {
     if (!isVisible(node)) continue;
     if (node.closest('nav, header, footer, aside, [data-cam-instance]')) continue;
+    // A consent prompt can hold the only paragraphs of an app that renders its text in plain blocks.
+    if (isConsentPrompt(node.closest(CONSENT_PROMPT))) continue;
     // Skip outer <li> that merely wraps nested <li> items to avoid double-counting.
     if (node.tagName === 'LI' && node.querySelector('li')) continue;
     const textLen = (node.textContent || '').trim().length;
@@ -148,7 +169,53 @@ function findBestFallbackContent(): Element | null {
     }
   }
 
+  // Repeated blocks such as thread posts belong together, so copy their shared parent.
+  for (let el: Element | null = best; el && scores.has(el); el = el.parentElement) {
+    const current: Element = el;
+    let siblingScore = 0;
+    for (const sibling of current.parentElement?.children || []) {
+      if (sibling !== current && sibling.tagName === current.tagName && sibling.className === current.className) {
+        siblingScore += scores.get(sibling) || 0;
+      }
+    }
+    if (current.className && siblingScore >= scores.get(current)! * 0.2) best = current.parentElement;
+  }
+
   return best || document.body || document.documentElement;
+}
+
+const SELECTION_STRUCTURE = new Set(['UL', 'OL', 'TABLE', 'THEAD', 'TBODY', 'TFOOT', 'TR']);
+
+/**
+ * Rebuild the list or table around items, rows, or cells that a range cloned without it.
+ * Firefox selects table cells as separate ranges, so `shells` keeps them in one table.
+ */
+function appendSelection(
+  block: Element,
+  fragment: DocumentFragment,
+  range: Range,
+  commonEl: Element | null,
+  shells: Map<Element, Element>,
+): void {
+  let content: Node = fragment;
+  for (let el = commonEl; el && SELECTION_STRUCTURE.has(el.tagName); el = el.parentElement) {
+    const existing = shells.get(el);
+    if (existing) {
+      existing.appendChild(content);
+      return;
+    }
+    const shell = el.cloneNode(false) as Element;
+    shell.appendChild(content);
+    if (el instanceof HTMLOListElement) {
+      const items = Array.from(el.children).filter((child) => child.tagName === 'LI');
+      const first = items.findIndex((item) => range.intersectsNode(item));
+      shell.setAttribute('start', String(el.start + Math.max(0, first)));
+    } else {
+      shells.set(el, shell);
+    }
+    content = shell;
+  }
+  block.appendChild(content);
 }
 
 function extractSelectionMarkdown(sourceName: string): string | null {
@@ -162,6 +229,7 @@ function extractSelectionMarkdown(sourceName: string): string | null {
   if (anchorEl?.closest('[data-cam-instance]')) return null;
 
   const container = document.createElement('div');
+  const shells = new Map<Element, Element>();
   for (let i = 0; i < selection.rangeCount; i += 1) {
     const range = selection.getRangeAt(i);
     if (range.collapsed) continue;
@@ -170,6 +238,8 @@ function extractSelectionMarkdown(sourceName: string): string | null {
       : range.commonAncestorContainer.parentElement;
     if (commonEl?.closest('[data-cam-instance]')) continue;
 
+    // Firefox allows several ranges. Keep each one in its own block.
+    const block = container.appendChild(document.createElement('div'));
     const fragment = range.cloneContents();
     const enclosingPre = commonEl?.closest('pre');
     if (enclosingPre && !fragment.querySelector('pre')) {
@@ -180,9 +250,9 @@ function extractSelectionMarkdown(sourceName: string): string | null {
       else if (enclosingPre.className) pre.className = enclosingPre.className;
       code.appendChild(fragment);
       pre.appendChild(code);
-      container.appendChild(pre);
+      block.appendChild(pre);
     } else {
-      container.appendChild(fragment);
+      appendSelection(block, fragment, range, commonEl, shells);
     }
   }
   const body = elementToMarkdown(container);
@@ -222,6 +292,9 @@ function extractSelectionMarkdown(sourceName: string): string | null {
           const selected = extractSelectionMarkdown('Fallback');
           if (selected) return selected;
 
+          // The browser PDF viewer exposes an empty document to scripts.
+          if (document.contentType === 'application/pdf') throw new Error('The PDF viewer does not expose page content');
+
           // Otherwise, find the richest content container on the page
           const contentEl = findBestFallbackContent();
           const cleaned = contentEl
@@ -259,7 +332,14 @@ function extractSelectionMarkdown(sourceName: string): string | null {
     return extractor;
   }
 
+  /** Identify the open page. Query and fragment updates on the same page do not count. */
+  function getPageRoute(): string {
+    const hashRoute = window.location.hash.match(/^#!?(\/[^?]*)/)?.[1] || '';
+    return `${window.location.origin}${window.location.pathname}#${hashRoute}`;
+  }
+
   async function extractWithOptions(extractor: Extractor): Promise<string | null> {
+    const route = getPageRoute();
     const selected = extractSelectionMarkdown(extractor.name);
     if (selected) return selected;
 
@@ -268,7 +348,13 @@ function extractSelectionMarkdown(sourceName: string): string | null {
       optionId = await chooseExtractionOption(`Copy ${extractor.name}`, extractor.options) || undefined;
       if (!optionId) return null;
     }
-    return extractor.extract(optionId);
+    const markdown = await extractor.extract(optionId);
+    // The result can mix two pages, or replace a newer copy, when an SPA navigates during a slow extraction.
+    if (getPageRoute() !== route) {
+      showToast('Page changed before the copy finished. Copy again.');
+      return null;
+    }
+    return markdown;
   }
 
   async function performCopy(): Promise<boolean> {
@@ -438,9 +524,12 @@ function extractSelectionMarkdown(sourceName: string): string | null {
       });
       if (hasExternalMutation) scheduleCheck(false);
     });
-    observer.observe(document.body || document.documentElement, {
+    // Observe the document because SPAs such as Turbo replace the body element.
+    observer.observe(document, {
       childList: true,
       subtree: true,
+      attributes: true,
+      attributeFilter: ['id'],
     });
   }
 })();

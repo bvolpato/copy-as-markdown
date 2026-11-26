@@ -459,6 +459,44 @@ try {
     },
     expected: ['Newsletter body'],
   }));
+  await check('Floating copy button stays in place when a tooltip popover opens elsewhere', () => fixture({
+    name: 'Substack', url: 'https://newsletter.substack.com/p/tooltip',
+    html: '<div id="tooltip" popover="manual" style="position:fixed;inset:auto;left:0;top:0;margin:0;width:120px;height:24px;overflow:hidden;transform:translate(300px,200px)">Tooltip</div><h1 class="post-title">Newsletter title</h1><div class="body markup"><p>Newsletter body</p></div>',
+    ui: true,
+    afterLoad: async page => {
+      await page.waitForSelector('.cam-floating-wrapper #cam-copy-btn');
+      const placement = () => page.evaluate(() => {
+        const { left, top } = document.querySelector('#cam-copy-btn').getBoundingClientRect();
+        return { left, top, parent: document.querySelector('.cam-floating-wrapper').parentElement.tagName };
+      });
+      const before = await placement();
+      await page.evaluate(() => document.querySelector('#tooltip').showPopover());
+      await new Promise(resolve => setTimeout(resolve, 200));
+      assert.deepEqual(await placement(), before);
+    },
+    expected: ['Newsletter body'],
+  }));
+  await check('Floating copy button stays inside a transformed modal at a saved position', () => fixture({
+    name: 'Substack', url: 'https://newsletter.substack.com/p/transformed-modal',
+    html: '<dialog id="site-dialog" style="position:fixed;left:50%;top:50%;margin:0;width:400px;height:300px;transform:translate(-50%,-50%)"></dialog><script>localStorage.setItem("cam-position:newsletter.substack.com", JSON.stringify({ left: 700, top: 500 }))</script><h1 class="post-title">Newsletter title</h1><div class="body markup"><p>Newsletter body</p></div>',
+    ui: true,
+    afterLoad: async page => {
+      await page.waitForSelector('.cam-floating-wrapper #cam-copy-btn');
+      await page.evaluate(() => document.querySelector('#site-dialog').showModal());
+      await page.waitForSelector('#site-dialog #cam-copy-btn');
+      assert.equal(await page.evaluate(() => {
+        const button = document.querySelector('#cam-copy-btn');
+        const rect = button.getBoundingClientRect();
+        return button.contains(document.elementFromPoint(rect.left + rect.width / 2, rect.top + rect.height / 2));
+      }), true);
+      await page.evaluate(() => document.querySelector('#site-dialog').close());
+      await page.waitForFunction(() => {
+        const rect = document.querySelector('html > .cam-floating-wrapper')?.getBoundingClientRect();
+        return rect?.left === 700 && rect.top === 500;
+      });
+    },
+    expected: ['Newsletter body'],
+  }));
   await check('Floating copy button preserves an active drag while an overlay blocks its anchor', () => fixture({
     name: 'Globo', url: 'https://g1.globo.com/news/noticia/drag.ghtml',
     html: '<article><h1>Article title</h1><p>Article body</p></article>', ui: true,
@@ -626,6 +664,52 @@ try {
     },
     expected: ['Article body'],
   }));
+  await check('Anchored copy control does not take Enter from a host form', () => fixture({
+    name: 'Wikipedia', url: 'https://en.wikipedia.org/wiki/Form', ui: true,
+    html: '<form><nav id="p-views"><ul><li>Read</li></ul></nav><input id="query"><button>Search</button></form><h1 id="firstHeading">Form</h1><div id="mw-content-text"><p>Article body</p></div>',
+    afterLoad: async page => {
+      await page.waitForSelector('form #cam-copy-btn');
+      await page.evaluate(() => document.querySelector('form').addEventListener('submit', event => {
+        event.preventDefault();
+        window.__submitter = event.submitter?.textContent;
+      }));
+      await page.focus('#query');
+      await page.keyboard.press('Enter');
+      assert.equal(await page.evaluate(() => window.__submitter), 'Search');
+    },
+    expected: ['Article body'],
+  }));
+  await check('A copy that finishes after an SPA navigation does not replace the clipboard', () => fixture({
+    name: 'Google Docs', url: 'https://docs.google.com/document/d/slow-doc/edit', ui: true, html: '<main>Canvas editor</main>',
+    afterLoad: async page => {
+      await page.waitForSelector('#cam-copy-btn');
+      await page.evaluate(async () => {
+        window.__clips = [];
+        Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText: async text => { window.__clips.push(text); } } });
+        const slow = new Promise(resolve => { window.__releaseSlowExport = resolve; });
+        window.fetch = async url => {
+          const id = String(url).includes('slow-doc') ? 'slow' : 'next';
+          if (id === 'slow') await slow;
+          return new Response(`<html><body><p>Body of ${id} document</p></body></html>`, { headers: { 'Content-Type': 'text/html' } });
+        };
+        document.querySelector('#cam-copy-btn').click();
+        history.pushState({}, '', '/document/d/next-doc/edit');
+        window.__staleButton = document.querySelector('#cam-copy-btn');
+      });
+      await page.waitForFunction(() => {
+        const button = document.querySelector('#cam-copy-btn');
+        return button && button !== window.__staleButton;
+      });
+      await page.evaluate(() => document.querySelector('#cam-copy-btn').click());
+      await page.waitForFunction(() => window.__clips.length === 1);
+      await page.evaluate(() => window.__releaseSlowExport());
+      await page.waitForFunction(() => document.querySelector('#cam-toast')?.textContent.includes('Page changed'));
+      const clips = await page.evaluate(() => window.__clips);
+      assert.equal(clips.length, 1);
+      assert.ok(clips[0].includes('Body of next document'));
+    },
+    expected: ['Body of next document'],
+  }));
   await check('Crowded overlays use a stable floating control and restore only into free space', () => fixture({
     name: 'YouTube', url: 'https://www.youtube.com/watch?v=placement', ui: true,
     html: '<h1>Video title</h1><div id="actions" style="position:absolute;left:0;top:100px;width:100%;height:40px"><button>Like</button></div><div id="description" style="position:absolute;left:8px;top:148px">Description metadata</div>',
@@ -633,7 +717,9 @@ try {
       await page.setViewport({ width: 390, height: 844 });
       await page.waitForSelector('.cam-floating-wrapper #cam-copy-btn', { timeout: 1500 });
       await page.evaluate(() => { window.__placementWrapper = document.querySelector('.cam-floating-wrapper'); });
+      await page.focus('#cam-copy-btn');
       await new Promise(resolve => setTimeout(resolve, 2200));
+      assert.equal(await page.evaluate(() => document.activeElement?.id), 'cam-copy-btn', 'placement retry dropped keyboard focus');
       assert.equal(await page.evaluate(() => window.__placementWrapper === document.querySelector('.cam-floating-wrapper')), true);
       assert.equal(await page.$('.cam-overlay-container'), null);
       await page.evaluate(() => {
