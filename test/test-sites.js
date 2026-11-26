@@ -1792,9 +1792,9 @@ DD_SITE=datadoghq.com
     assertCheck(rows.endsWith('| A1 | B1 |\n| --- | --- |\n| A2 | B2 |'), `Partial table selection lost its cells: ${JSON.stringify(rows)}`);
     for (const [first, last, expected] of [
       ['tr:first-child > td:last-child', 'tr:last-child > td:last-child', '|  | B1 |\n| --- | --- |\n| A2 | B2 |'],
-      ['#nested > li', '#nested > li:last-child', 'Parent one\n- Nested child\nParent two'],
-      ['#wrapped li', '#wrapped > div:last-child > li', 'wrapped one\n\nwrapped two'],
-      ['#steps td', '#steps tr:last-child > td', '## Step one\n\n```\nmake build\n```\nStep two'],
+      ['#nested > li', '#nested > li:last-child', '- Parent one\n  - Nested child\n- Parent two'],
+      ['#wrapped li', '#wrapped > div:last-child > li', '- wrapped one\n- wrapped two'],
+      ['#steps td', '#steps tr:last-child > td', '## Step one\n\n```\nmake build\n```\n\nStep two'],
     ]) {
       const partial = await copySelection(first, last);
       assertCheck(partial.endsWith(`\n---\n\n${expected}`), `Partial selection of ${first} lost content: ${JSON.stringify(partial)}`);

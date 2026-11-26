@@ -205,10 +205,8 @@ function findBestFallbackContent(): Element | null {
   return best || document.body || document.documentElement;
 }
 
-/** The children that list and table conversion reads. It drops all other children. */
-const SELECTION_CHILDREN: Record<string, RegExp> = {
-  UL: /^LI$/,
-  OL: /^LI$/,
+/** The children that table conversion reads. It drops all other children. */
+const TABLE_CHILDREN: Record<string, RegExp> = {
   TABLE: /^(?:CAPTION|COLGROUP|THEAD|TBODY|TFOOT|TR)$/,
   THEAD: /^TR$/,
   TBODY: /^TR$/,
@@ -220,7 +218,7 @@ const SELECTION_CHILDREN: Record<string, RegExp> = {
 const CELL_BLOCK_CONTENT = 'h1, h2, h3, h4, h5, h6, pre, ul, ol, dl, blockquote, table, p ~ p';
 
 function hasOnlyStructure(tag: string, content: Node): boolean {
-  const allowed = SELECTION_CHILDREN[tag];
+  const allowed = TABLE_CHILDREN[tag];
   return !allowed || Array.from(content.childNodes).every((child) => child instanceof Element
     ? allowed.test(child.tagName) && hasOnlyStructure(child.tagName, child)
     : child.nodeType !== Node.TEXT_NODE || !child.textContent?.trim());
@@ -240,19 +238,12 @@ function appendSelection(
   const tag = commonEl?.tagName || '';
   const table = /^T(?:ABLE|HEAD|BODY|FOOT|R)$/.test(tag) ? commonEl!.closest('table') : null;
   if (
-    !SELECTION_CHILDREN[tag]
+    !(/^[OU]L$/.test(tag) || TABLE_CHILDREN[tag])
     || !hasOnlyStructure(tag, fragment)
     || (table && (/^(?:presentation|none)$/.test(table.getAttribute('role') || '') || fragment.querySelector(CELL_BLOCK_CONTENT)))
   ) {
     block.appendChild(fragment);
     return;
-  }
-
-  // Table conversion does not read the caption.
-  const caption = fragment.querySelector('caption');
-  if (caption) {
-    block.appendChild(document.createElement('p')).append(...caption.childNodes);
-    caption.remove();
   }
 
   // A range that starts inside a row omits the cells before it, and that moves its values to other columns.
@@ -281,7 +272,7 @@ function appendSelection(
       shells.set(el, shell);
     }
     content = shell;
-    if (!SELECTION_CHILDREN[el.parentElement?.tagName || '']?.test(el.tagName)) break;
+    if (!TABLE_CHILDREN[el.parentElement?.tagName || '']?.test(el.tagName)) break;
   }
   block.appendChild(content);
 }

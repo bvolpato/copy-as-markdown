@@ -879,12 +879,15 @@ export function nodeToMarkdown(
     case 'CENTER':
     case 'SEARCH':
     case 'DL':
-    case 'LI':
-    case 'TR': {
+    case 'LI': {
       const inner = childrenToMarkdown(el, context);
       // Add line breaks around block-level wrappers for clean separation
       return `\n${inner}\n`;
     }
+
+    // A row and its cells are outside a table only in a selection.
+    case 'TR':
+      return `\n${childrenToMarkdown(el, context).trim()}\n`;
 
     case 'TD':
     case 'TH':
