@@ -353,6 +353,7 @@
 
   const copyButton = $('#copy_as_markdown_btn');
   copyButton.addEventListener('click', async () => {
+    copyButton.parentElement.classList.add('tried');
     const selection = getSelection();
     let markdown = '';
     if (selection && !selection.isCollapsed && selection.toString().trim()) {
