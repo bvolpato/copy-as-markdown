@@ -20,6 +20,16 @@ export const MATCHER_ROUTE_CASES = [
     extractor: null,
   },
   {
+    id: 'jira-filtered-board-issue',
+    url: 'https://acme.atlassian.net/jira/software/c/projects/API/boards/1?assignee=me&selectedIssue=API-7',
+    extractor: 'Jira',
+  },
+  {
+    id: 'jira-data-center-project-issue',
+    url: 'https://jira.corp.example/projects/API/issues/API-7',
+    extractor: 'Jira',
+  },
+  {
     id: 'duckduckgo-html-host',
     url: 'https://html.duckduckgo.com/html/?q=markdown',
     extractor: 'DuckDuckGo Search', html: searchResult,

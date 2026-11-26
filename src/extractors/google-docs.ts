@@ -269,6 +269,7 @@ function parseGoogleDocHtml(html: string, contentSelector?: string): HTMLElement
 
   unwrapGoogleRedirectLinks(body);
   unwrapSingleCellTables(body);
+  nestExportedLists(body);
   return body;
 }
 
@@ -290,6 +291,44 @@ function unwrapGoogleRedirectLinks(root: ParentNode): void {
       // keep original href
     }
   });
+}
+
+/**
+ * Docs exports each nesting level as a sibling list, with the list and level in
+ * its class name, for example "lst-kix_abc-1".
+ */
+function nestExportedLists(root: ParentNode): void {
+  let open: Array<{ list: Element; id: string; level: number }> = [];
+  root.querySelectorAll('ul[class*="lst-kix_"], ol[class*="lst-kix_"]').forEach((list) => {
+    const match = list.className.match(/\blst-(kix_\S+)-(\d+)(?:\s|$)/);
+    if (!match) return;
+    const entry = { list, id: match[1], level: Number(match[2]) };
+    const followsRun = open.length > 0 && list.previousElementSibling === open[0].list;
+    while (followsRun && open.length > 1 && open[open.length - 1].level > entry.level) open.pop();
+    const current = open[open.length - 1];
+    if (!followsRun || entry.level < current.level) {
+      open = [entry];
+    } else if (entry.level > current.level) {
+      const owner = current.list.lastElementChild;
+      if (!owner) return;
+      owner.append(list);
+      open.push(entry);
+    } else if (current.id === entry.id && current.list.tagName === list.tagName && continuesList(current.list, list)) {
+      current.list.append(...list.children);
+      list.remove();
+    } else if (open.length > 1) {
+      current.list.parentElement?.append(list);
+      open[open.length - 1] = entry;
+    } else {
+      open = [entry];
+    }
+  });
+}
+
+function continuesList(list: Element, next: Element): boolean {
+  if (list.tagName !== 'OL') return true;
+  const start = Number(list.getAttribute('start')) || 1;
+  return (Number(next.getAttribute('start')) || 1) === start + list.children.length;
 }
 
 function unwrapSingleCellTables(root: ParentNode): void {

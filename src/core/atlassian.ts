@@ -22,55 +22,144 @@ export function htmlToMarkdown(html: string): string {
   if (!html.trim()) return '';
   const parsed = Markdown.parseHtmlDocument(html);
   parsed.querySelectorAll('script, style, noscript, template').forEach((element) => element.remove());
+  prepareAtlassianContent(parsed.body);
   return Markdown.elementToMarkdown(parsed.body).trim();
+}
+
+/**
+ * Rewrite Atlassian-specific markup in a detached tree before generic conversion.
+ * Covers both exported REST HTML and the Cloud page renderer.
+ */
+export function prepareAtlassianContent(root: Element): void {
+  const doc = root.ownerDocument;
+
+  root.querySelectorAll<HTMLElement>('[data-ds--code--code-block]').forEach((block) => {
+    block.querySelectorAll('[data-ds--line-number]').forEach((number) => number.remove());
+    const pre = doc.createElement('pre');
+    const code = doc.createElement('code');
+    const language = block.getAttribute('data-code-lang');
+    if (language) code.className = `language-${language}`;
+    code.textContent = block.textContent;
+    pre.append(code);
+    block.replaceWith(pre);
+  });
+
+  // Jira renders inline code as teletype text.
+  root.querySelectorAll('tt').forEach((teletype) => {
+    if (teletype.querySelector('a, img')) return;
+    const code = doc.createElement('code');
+    code.textContent = teletype.textContent;
+    teletype.replaceWith(code);
+  });
+  root.querySelectorAll<HTMLElement>('pre[class^="code-"]').forEach((pre) => {
+    const language = pre.className.match(/^code-([\w+#-]+)$/)?.[1];
+    if (language && language !== 'none') pre.setAttribute('data-language', language);
+  });
+
+  root.querySelectorAll('ul.inline-task-list > li').forEach((item) => {
+    item.prepend(item.classList.contains('checked') ? '[x] ' : '[ ] ');
+  });
+  // REST HTML puts a nested task list beside its owner, where list conversion skips it.
+  root.querySelectorAll('ul.inline-task-list > ul').forEach((list) => {
+    const owner = list.previousElementSibling;
+    if (owner?.tagName === 'LI') owner.append(list);
+  });
+  // Convert nested lists first so that an outer list can adopt them.
+  Array.from(root.querySelectorAll<HTMLElement>('[data-task-list-local-id]')).reverse().forEach((list) => {
+    const replacement = doc.createElement('ul');
+    Array.from(list.children).forEach((child) => {
+      const checkbox = child.querySelector<HTMLInputElement>('input[type="checkbox"]');
+      if (!checkbox && replacement.lastElementChild) {
+        replacement.lastElementChild.append(child);
+        return;
+      }
+      const item = doc.createElement('li');
+      item.append(checkbox ? (checkbox.checked ? '[x] ' : '[ ] ') : '');
+      item.append(...(child.querySelector('[data-component="content"]') || child).childNodes);
+      replacement.append(item);
+    });
+    list.replaceWith(replacement);
+  });
+
+  root.querySelectorAll<HTMLElement>('[data-emoji-id]').forEach((emoji) => {
+    if (emoji.parentElement?.closest('[data-emoji-id]')) return;
+    const names = [emoji, ...emoji.querySelectorAll<HTMLElement>('[data-emoji-id], [data-emoji-text]')]
+      .map((element) => element.dataset.emojiFallback || element.dataset.emojiText || '')
+      .filter(Boolean);
+    const text = names.find((name) => !/^:.+:$/.test(name))
+      || names[0]
+      || emoji.dataset.emojiShortname
+      || emoji.getAttribute('alt')
+      || '';
+    // Some exports escape the fallback character as UTF-16 code units.
+    emoji.replaceWith(text.replace(/\\u([0-9a-f]{4})/gi, (_, code: string) => String.fromCharCode(parseInt(code, 16))));
+  });
+
+  root.querySelectorAll<HTMLElement>('img[src], a[href]').forEach((element) => {
+    const attribute = element.tagName === 'IMG' ? 'src' : 'href';
+    const url = signedMediaUrl(element.getAttribute(attribute) || '');
+    if (!url) return;
+    // Media URLs carry bearer tokens for the signed-in viewer.
+    element.setAttribute(attribute, url.origin + url.pathname);
+    element.removeAttribute('srcset');
+    if (attribute === 'src' && !element.getAttribute('alt')) {
+      element.setAttribute('alt', element.closest<HTMLElement>('[data-file-name]')?.dataset.fileName || '');
+    }
+  });
+}
+
+function signedMediaUrl(value: string): URL | null {
+  try {
+    const url = new URL(value, document.baseURI);
+    return /^(?:media-cdn|(?:[\w-]+\.)?media)\.atlassian\.com$/i.test(url.hostname) ? url : null;
+  } catch {
+    return null;
+  }
 }
 
 export function adfToMarkdown(value: unknown): string {
   const document = asObject(value);
   if (!document) return '';
-  return Markdown.cleanMarkdown(renderNode(document, 0));
+  return Markdown.cleanMarkdown(renderNode(document));
 }
 
-function renderNode(node: JsonObject, depth: number): string {
+function renderNode(node: JsonObject): string {
   const type = stringValue(node.type);
   const content = objectArray(node.content);
   const attrs = asObject(node.attrs) || {};
 
   switch (type) {
-    case 'doc':
-      return content.map((child) => renderNode(child, depth)).filter(Boolean).join('\n\n');
     case 'paragraph':
       return renderInlineChildren(content);
     case 'heading': {
       const level = Math.min(6, Math.max(1, numberValue(attrs.level) || 1));
-      return `${'#'.repeat(level)} ${renderInlineChildren(content)}`.trim();
+      return `${'#'.repeat(level)} ${renderInlineChildren(content).replace(/\s*\n\s*/g, ' ')}`.trim();
     }
     case 'text':
       return renderText(stringValue(node.text), objectArray(node.marks));
     case 'hardBreak':
       return '  \n';
     case 'bulletList':
-      return renderList(content, false, numberValue(attrs.order) || 1, depth);
+      return renderList(content, false, 1);
     case 'orderedList':
-      return renderList(content, true, numberValue(attrs.order) || 1, depth);
-    case 'listItem':
-      return content.map((child) => renderNode(child, depth)).filter(Boolean).join('\n');
+      return renderList(content, true, typeof attrs.order === 'number' ? numberValue(attrs.order) : 1);
     case 'taskList':
-      return content.map((child) => renderNode(child, depth)).filter(Boolean).join('\n');
-    case 'taskItem': {
-      const checked = attrs.state === 'DONE' ? 'x' : ' ';
-      const indent = '  '.repeat(depth);
-      const inner = content.map((child) => renderNode(child, depth + 1)).filter(Boolean).join('\n');
-      const lines = inner.split('\n');
-      return `${indent}- [${checked}] ${lines[0] || ''}${lines.slice(1).map((line) => `\n${indent}  ${line}`).join('')}`;
-    }
-    case 'codeBlock': {
-      const code = content.map((child) => stringValue(child.text)).join('');
-      return Markdown.fencedCodeToMarkdown(code, stringValue(attrs.language));
-    }
+    case 'decisionList':
+      return content.map((child) => {
+        const rendered = renderNode(child);
+        // A nested task list is a sibling of the item that owns it.
+        return child.type === type ? indentLines(rendered, '  ') : rendered;
+      }).filter(Boolean).join('\n');
+    case 'taskItem':
+    case 'blockTaskItem':
+      return renderListItem(`- [${attrs.state === 'DONE' ? 'x' : ' '}]`, content, 2);
+    case 'decisionItem':
+      return renderListItem('-', content);
+    case 'codeBlock':
+      return Markdown.fencedCodeToMarkdown(codeBlockText(content), stringValue(attrs.language));
     case 'blockquote':
     case 'panel': {
-      const inner = content.map((child) => renderNode(child, depth)).filter(Boolean).join('\n\n');
+      const inner = renderFlow(content);
       if (!inner) return '';
       const panelType = type === 'panel' ? stringValue(attrs.panelType).toUpperCase() : '';
       const prefix = panelType ? `> **[${panelType}]**\n` : '';
@@ -80,10 +169,6 @@ function renderNode(node: JsonObject, depth: number): string {
       return '---';
     case 'table':
       return renderTable(content);
-    case 'tableRow':
-    case 'tableHeader':
-    case 'tableCell':
-      return content.map((child) => renderNode(child, depth)).filter(Boolean).join(' ');
     case 'mention':
       return stringValue(attrs.text) || stringValue(attrs.displayName) || '@mention';
     case 'emoji':
@@ -95,10 +180,13 @@ function renderNode(node: JsonObject, depth: number): string {
     case 'inlineCard':
     case 'blockCard':
     case 'embedCard': {
-      const url = safeUrl(stringValue(attrs.url));
-      return url ? `[${url}](${url})` : '';
+      const data = asObject(attrs.data) || {};
+      const url = safeUrl(stringValue(attrs.url) || stringValue(data.url));
+      const label = stringValue(data.name);
+      return url ? `[${label ? escapeLinkLabel(label) : url}](${url})` : escapeMarkdown(label);
     }
-    case 'media': {
+    case 'media':
+    case 'mediaInline': {
       const label = stringValue(attrs.alt) || stringValue(attrs.filename) || 'Attachment';
       const url = safeUrl(stringValue(attrs.url));
       return url ? `[${escapeLinkLabel(label)}](${url})` : escapeMarkdown(label);
@@ -106,23 +194,86 @@ function renderNode(node: JsonObject, depth: number): string {
     case 'expand':
     case 'nestedExpand': {
       const title = stringValue(attrs.title).trim();
-      const body = content.map((child) => renderNode(child, depth)).filter(Boolean).join('\n\n');
+      const body = renderFlow(content);
       return title && body ? `**${escapeMarkdown(title)}**\n\n${body}` : (body || (title ? `**${escapeMarkdown(title)}**` : ''));
     }
-    case 'mediaSingle':
-    case 'mediaGroup':
-    case 'decisionList':
-    case 'decisionItem':
-    case 'layoutSection':
-    case 'layoutColumn':
-      return content.map((child) => renderNode(child, depth)).filter(Boolean).join('\n\n');
     default:
-      return content.map((child) => renderNode(child, depth)).filter(Boolean).join('\n');
+      return renderFlow(content);
   }
 }
 
+const MARK_DELIMITERS = new Map([['strong', '**'], ['em', '*'], ['strike', '~~']]);
+
 function renderInlineChildren(content: JsonObject[]): string {
-  return content.map((child) => renderNode(child, 0)).join('');
+  let output = '';
+  let previous = '';
+  content.forEach((child) => {
+    const part = renderNode(child);
+    const delimiter = outerDelimiter(child);
+    // Adjacent runs with the same mark would otherwise print a literal "****".
+    const adjoins = delimiter && delimiter === previous
+      && output.endsWith(delimiter) && part.startsWith(delimiter);
+    output = adjoins ? output.slice(0, -delimiter.length) + part.slice(delimiter.length) : output + part;
+    previous = delimiter;
+  });
+  return output;
+}
+
+function outerDelimiter(node: JsonObject): string {
+  const outer = objectArray(node.marks)
+    .map((mark) => stringValue(mark.type))
+    .filter((type) => MARK_DELIMITERS.has(type) || type === 'link' || type === 'subsup')
+    .pop();
+  return MARK_DELIMITERS.get(outer || '') || '';
+}
+
+const INLINE_NODES = new Set([
+  'text', 'hardBreak', 'mention', 'emoji', 'status', 'date', 'inlineCard', 'mediaInline',
+  'placeholder', 'inlineExtension',
+]);
+const LIST_NODES = new Set(['bulletList', 'orderedList', 'taskList', 'decisionList']);
+const BLOCK_NODES = new Set([
+  ...LIST_NODES, 'paragraph', 'heading', 'listItem', 'taskItem', 'blockTaskItem', 'decisionItem',
+  'codeBlock', 'blockquote', 'panel', 'rule', 'table', 'tableRow', 'tableHeader', 'tableCell',
+  'media', 'mediaSingle', 'mediaGroup', 'caption', 'expand', 'nestedExpand', 'blockCard', 'embedCard',
+  'layoutSection', 'layoutColumn', 'extension', 'bodiedExtension',
+]);
+
+/** Join inline siblings into one run, and keep block siblings apart. */
+function renderFlow(content: JsonObject[], tight = false): string {
+  let output = '';
+  let previousType = '';
+  let run: JsonObject[] = [];
+  const append = (type: string, text: string) => {
+    if (!text.trim()) return;
+    if (output) {
+      const adjoins = tight && (LIST_NODES.has(type) || type === 'codeBlock' || previousType === 'codeBlock');
+      output += adjoins ? '\n' : '\n\n';
+    }
+    output += text;
+    previousType = type;
+  };
+  const flush = () => {
+    append('paragraph', renderInlineChildren(run));
+    run = [];
+  };
+  content.forEach((child) => {
+    if (isInlineNode(child)) {
+      run.push(child);
+      return;
+    }
+    flush();
+    append(stringValue(child.type), renderNode(child));
+  });
+  flush();
+  return output;
+}
+
+function isInlineNode(node: JsonObject): boolean {
+  if (INLINE_NODES.has(stringValue(node.type))) return true;
+  return !BLOCK_NODES.has(stringValue(node.type))
+    && objectArray(node.content).length > 0
+    && objectArray(node.content).every(isInlineNode);
 }
 
 function renderText(value: string, marks: JsonObject[]): string {
@@ -134,9 +285,9 @@ function renderText(value: string, marks: JsonObject[]): string {
   for (const mark of marks) {
     const type = stringValue(mark.type);
     const attrs = asObject(mark.attrs) || {};
-    if (type === 'strong') rendered = `**${rendered}**`;
-    else if (type === 'em') rendered = `*${rendered}*`;
-    else if (type === 'strike') rendered = `~~${rendered}~~`;
+    const delimiter = MARK_DELIMITERS.get(type);
+    if (delimiter) rendered = wrapMark(rendered, delimiter, delimiter);
+    else if (type === 'subsup') rendered = wrapMark(rendered, attrs.type === 'sub' ? '_(' : '^(', ')');
     else if (type === 'link') {
       const href = safeUrl(stringValue(attrs.href));
       if (href) rendered = `[${rendered}](${href})`;
@@ -145,56 +296,78 @@ function renderText(value: string, marks: JsonObject[]): string {
   return rendered;
 }
 
-function renderList(items: JsonObject[], ordered: boolean, start: number, depth: number): string {
-  return items.map((item, index) => {
-    const blocks = objectArray(item.content);
-    const marker = ordered ? `${start + index}.` : '-';
-    const indent = '  '.repeat(depth);
-    const renderedBlocks = blocks.map((child) => {
-      const childType = stringValue(child.type);
-      const isNestedList = childType === 'bulletList' || childType === 'orderedList' || childType === 'taskList';
-      return { text: renderNode(child, isNestedList ? depth + 1 : 0), isNestedList };
-    }).filter(({ text }) => Boolean(text));
+/** Keep spaces outside the delimiters, where CommonMark requires them. */
+function wrapMark(value: string, open: string, close: string): string {
+  const inner = value.trim();
+  if (!inner) return value;
+  const start = value.indexOf(inner);
+  return `${value.slice(0, start)}${open}${inner}${close}${value.slice(start + inner.length)}`;
+}
 
-    if (renderedBlocks.length === 0) return `${indent}${marker}`;
+function renderList(items: JsonObject[], ordered: boolean, start: number): string {
+  return items
+    .map((item, index) => renderListItem(ordered ? `${start + index}.` : '-', objectArray(item.content)))
+    .join('\n');
+}
 
-    const parts: string[] = [];
-    renderedBlocks.forEach((block, blockIndex) => {
-      const lines = block.text.split('\n');
-      if (blockIndex === 0 && !block.isNestedList) {
-        parts.push(`${indent}${marker} ${lines[0]}${lines.slice(1).map((line) => `\n${indent}  ${line}`).join('')}`);
-      } else if (block.isNestedList) {
-        if (blockIndex === 0) parts.push(`${indent}${marker}`);
-        parts.push(block.text);
-      } else {
-        parts.push(lines.map((line) => `${indent}  ${line}`).join('\n'));
-      }
-    });
-    return parts.join('\n');
-  }).join('\n');
+function renderListItem(marker: string, content: JsonObject[], indent = marker.length + 1): string {
+  const body = renderFlow(content, true);
+  if (!body) return marker;
+  // Continuation lines must reach the content column to stay inside the item.
+  const padded = indentLines(body, ' '.repeat(indent));
+  return LIST_NODES.has(stringValue(content[0]?.type))
+    ? `${marker}\n${padded}`
+    : `${marker} ${padded.trimStart()}`;
+}
+
+function indentLines(value: string, padding: string): string {
+  return value.split('\n').map((line) => (line ? padding + line : line)).join('\n');
+}
+
+function codeBlockText(content: JsonObject[]): string {
+  return content.map((child) => stringValue(child.text)).join('');
 }
 
 function renderTable(rows: JsonObject[]): string {
-  const values = rows.map((row) => objectArray(row.content).map((cell) => {
-    const rendered = objectArray(cell.content)
-      .map((child) => renderNode(child, 0))
-      .join(' ');
-    // Child Markdown already escapes prose; code backslashes must stay literal.
-    const characters: string[] = [];
-    for (const character of rendered) characters.push(character === '|' ? '\\|' : character);
-    return characters.join('')
-      .replace(/\s+/g, (whitespace) => whitespace.includes('\n') ? '<br>' : whitespace)
-      .trim();
-  }));
+  const values: string[][] = rows.map(() => []);
+  rows.forEach((row, rowIndex) => {
+    let column = 0;
+    objectArray(row.content).forEach((cell) => {
+      while (values[rowIndex][column] !== undefined) column += 1;
+      const attrs = asObject(cell.attrs) || {};
+      const columnSpan = Math.min(1000, Math.max(1, Math.trunc(numberValue(attrs.colspan))));
+      const rowSpan = Math.min(rows.length - rowIndex, Math.max(1, Math.trunc(numberValue(attrs.rowspan))));
+      for (let rowOffset = 0; rowOffset < rowSpan; rowOffset += 1) {
+        for (let columnOffset = 0; columnOffset < columnSpan; columnOffset += 1) {
+          values[rowIndex + rowOffset][column + columnOffset] = rowOffset || columnOffset ? '' : renderTableCell(cell);
+        }
+      }
+      column += columnSpan;
+    });
+  });
   if (values.length === 0) return '';
   const width = Utils.safeMax(values.map((row) => row.length));
   if (width <= 0) return '';
-  const normalized = values.map((row) => [...row, ...Array(width - row.length).fill('')]);
+  const normalized = values.map((row) => Array.from({ length: width }, (_, column) => row[column] ?? ''));
   return [
     `| ${normalized[0].join(' | ')} |`,
     `| ${Array(width).fill('---').join(' | ')} |`,
     ...normalized.slice(1).map((row) => `| ${row.join(' | ')} |`),
   ].join('\n');
+}
+
+function renderTableCell(cell: JsonObject): string {
+  const rendered = objectArray(cell.content)
+    .map((child) => child.type === 'codeBlock'
+      ? codeBlockText(objectArray(child.content)).split('\n').map(Markdown.inlineCodeToMarkdown).join('\n')
+      : renderNode(child))
+    .join(' ');
+  // Child Markdown already escapes prose; code backslashes must stay literal.
+  const characters: string[] = [];
+  for (const character of rendered) characters.push(character === '|' ? '\\|' : character);
+  return characters.join('')
+    .replace(/\s+/g, (whitespace) => whitespace.includes('\n') ? '<br>' : whitespace)
+    .trim();
 }
 
 function escapeMarkdown(value: string): string {

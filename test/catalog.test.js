@@ -5,6 +5,7 @@ import * as library from '../dist/library/index.js';
 import { DISCUSSION_CASES } from './fixtures/discussion-cases.js';
 import { BITBUCKET_CASES } from './fixtures/bitbucket-cases.js';
 import { GITHUB_CASES } from './fixtures/github-cases.js';
+import { WORKSPACE_CASES } from './fixtures/workspace-cases.js';
 
 await library.loadAllExtractors();
 const failures = [];
@@ -66,7 +67,7 @@ const browser = await puppeteer.launch({ headless: 'shell', args: ['--no-sandbox
 const browserCode = fs.readFileSync(new URL('../dist/library/browser.js', import.meta.url), 'utf8');
 const userscript = fs.readFileSync(new URL('../dist/userscript/copy-as-markdown.user.js', import.meta.url), 'utf8');
 const repeat = (count, make) => Array.from({ length: count }, (_, index) => make(index)).join('');
-async function fixture({ url, name, html, head = '<title>Catalog fixture</title>', resources = {}, expected = [], excluded = [], ordered = [], occurrences = {}, ui = false, afterLoad }) {
+async function fixture({ url, name, html, option, head = '<title>Catalog fixture</title>', resources = {}, expected = [], excluded = [], ordered = [], occurrences = {}, ui = false, afterLoad }) {
   const context = await browser.createBrowserContext();
   const page = await context.newPage();
   try {
@@ -81,12 +82,12 @@ async function fixture({ url, name, html, head = '<title>Catalog fixture</title>
     await page.addScriptTag({ content: browserCode });
     if (ui) await page.addScriptTag({ content: userscript });
     if (afterLoad) await afterLoad(page);
-    const output = await page.evaluate(async ({ name }) => {
+    const output = await page.evaluate(async ({ name, option }) => {
       await CopyAsMarkdown.loadAllExtractors();
       const match = CopyAsMarkdown.createExtractorMatcher().match({ url: location.href, document });
       if (match?.name !== name) throw new Error(`Expected ${name}, got ${match?.name}`);
-      return match.extract();
-    }, { name });
+      return match.extract(option);
+    }, { name, option });
     for (const value of expected) assert.ok(output.includes(value), `Missing ${JSON.stringify(value)}`);
     for (const value of excluded) assert.ok(!output.includes(value), `Unexpected ${JSON.stringify(value)}`);
     let previous = -1;
@@ -102,7 +103,7 @@ async function fixture({ url, name, html, head = '<title>Catalog fixture</title>
 }
 
 try {
-  for (const fixtureCase of [...DISCUSSION_CASES, ...BITBUCKET_CASES, ...GITHUB_CASES]) {
+  for (const fixtureCase of [...DISCUSSION_CASES, ...BITBUCKET_CASES, ...GITHUB_CASES, ...WORKSPACE_CASES]) {
     await check(fixtureCase.id, () => fixture(fixtureCase));
   }
   await check('Reddit includes sibling comment threads and excludes sidebar comments', () => fixture({

@@ -82,19 +82,20 @@ function extractMessages(root: ParentNode, isThread: boolean): SlackMessage[] {
   let previousAuthor = '';
 
   candidates.forEach((element) => {
-    if (isExcluded(element) || !hasMessageContent(element)) return;
-
-    const bodyElement = findBodyElement(element);
-    const body = bodyElement ? messageBodyToMarkdown(bodyElement) : '';
+    if (isExcluded(element)) return;
     const explicitAuthor = textFrom(element, [
       '[data-qa="message_sender_name"]',
       '[data-qa="message_sender"]',
       '.c-message__sender_button',
       '.c-message_kit__sender',
     ]);
+    // A message without copyable content can still start the author's run.
     const author = explicitAuthor || previousAuthor;
     if (author) previousAuthor = author;
+    if (!hasMessageContent(element)) return;
 
+    const bodyElement = findBodyElement(element);
+    const body = bodyElement ? messageBodyToMarkdown(bodyElement) : '';
     const timestamp = getTimestamp(element);
     const attachments = getAttachments(element);
     const links = getLinks(bodyElement || element, attachments, body);
@@ -200,13 +201,23 @@ function messageBodyToMarkdown(element: HTMLElement): string {
     '[data-qa="message_file"]',
     '[data-qa="file_attachment"]',
   ].join(', ')).forEach((node) => node.remove());
+  // An empty element stands for the blank line between paragraphs.
+  clone.querySelectorAll('[data-stringify-type="paragraph-break"], .c-mrkdwn__br').forEach((paragraphBreak) => {
+    paragraphBreak.replaceWith(document.createElement('br'), document.createElement('br'));
+  });
+  clone.querySelectorAll<HTMLImageElement>('img[data-stringify-emoji], .c-emoji img[alt]').forEach((emoji) => {
+    emoji.replaceWith(emoji.dataset.stringifyEmoji || emoji.alt);
+  });
   return Markdown.elementToMarkdown(clone).trim();
 }
 
 function getTimestamp(element: Element): string {
   const time = element.querySelector<HTMLElement>('time, [data-qa="message_timestamp"], .c-timestamp');
+  // Slack labels are relative, for example "Today at 12:00 PM". The message ID is the send time.
+  const seconds = Number(time?.getAttribute('data-ts'));
   return normalize(
     time?.getAttribute('datetime')
+    || (seconds >= 1e9 && seconds < 1e11 ? new Date(seconds * 1000).toISOString() : '')
     || time?.getAttribute('title')
     || time?.getAttribute('aria-label')
     || time?.textContent

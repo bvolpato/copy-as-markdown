@@ -210,14 +210,14 @@ function extractMessages(scope: ParentNode, context: TeamsContext): TeamsMessage
   roots.forEach((root) => {
     if (isExcluded(root) || !isVisible(root)) return;
 
+    // A message without copyable content can still start the author's run.
+    const author = getAuthor(root) || previousAuthor;
+    if (author) previousAuthor = author;
+
     const bodyElement = findBodyElement(root);
     const body = bodyElement ? messageBodyToMarkdown(bodyElement) : '';
     const attachments = getAttachments(root);
     if (!body && attachments.length === 0) return;
-
-    const explicitAuthor = getAuthor(root);
-    const author = explicitAuthor || previousAuthor;
-    if (author) previousAuthor = author;
 
     const timestamp = getTimestamp(root);
     const replyTo = getReplyContext(root);
@@ -322,6 +322,8 @@ function messageBodyToMarkdown(element: HTMLElement): string {
     '[data-tid*="reaction"]',
     '[data-tid="message-actions"]',
   ].join(', ')).forEach((node) => node.remove());
+  clone.querySelectorAll<HTMLImageElement>('img[itemtype*="emoji" i][alt]')
+    .forEach((emoji) => emoji.replaceWith(emoji.alt));
   return Markdown.elementToMarkdown(clone).trim();
 }
 

@@ -108,6 +108,86 @@ test('ADF nested lists indent by 2 spaces per level and empty dates stay empty',
   assert.equal(md, '- Top item\n  - Level 1\n    - Level 2');
 });
 
+function text(value: string, ...marks: Array<Record<string, unknown>>) {
+  return { type: 'text', text: value, marks };
+}
+
+function doc(...content: unknown[]) {
+  return { type: 'doc', content };
+}
+
+test('ADF task and decision items keep inline content on one line and nest child lists', () => {
+  assert.equal(
+    adfToMarkdown(doc(
+      { type: 'taskList', content: [
+        { type: 'taskItem', attrs: { state: 'TODO' }, content: [
+          text('Ask '), { type: 'mention', attrs: { text: '@Ann' } }, text(' to '), text('deploy', { type: 'strong' }),
+        ] },
+        { type: 'taskList', content: [{ type: 'taskItem', attrs: { state: 'DONE' }, content: [text('Nested')] }] },
+      ] },
+      { type: 'decisionList', content: [
+        { type: 'decisionItem', content: [text('Use '), text('Postgres', { type: 'em' })] },
+      ] },
+    )),
+    '- [ ] Ask @Ann to **deploy**\n  - [x] Nested\n\n- Use *Postgres*',
+  );
+});
+
+test('ADF ordered items indent nested blocks to the content column', () => {
+  const item = (...content: unknown[]) => ({ type: 'listItem', content });
+  assert.equal(
+    adfToMarkdown(doc({ type: 'orderedList', attrs: { order: 10 }, content: [
+      item(paragraph('Ten'), { type: 'bulletList', content: [item(paragraph('child'))] }),
+      item(paragraph('First'), paragraph('Second'), { type: 'codeBlock', content: [text('a\n\n  b')] }),
+    ] })),
+    '10. Ten\n    - child\n11. First\n\n    Second\n    ```\n    a\n\n      b\n    ```',
+  );
+});
+
+test('ADF marks keep spaces outside delimiters and join adjacent runs', () => {
+  const strong = { type: 'strong' };
+  assert.equal(
+    adfToMarkdown(doc({ type: 'paragraph', content: [
+      text('Note: ', strong), text('Triage', strong, { type: 'underline' }), text('-only', strong),
+      text(' 10'), text('2', { type: 'subsup', attrs: { type: 'sup' } }), text(' *'), text('x', { type: 'em' }),
+    ] })),
+    '**Note:** **Triage-only** 10^(2) \\**x*',
+  );
+});
+
+test('ADF tables align spanned cells and keep code indentation', () => {
+  const span = (value: string, attrs: Record<string, number>) => ({ ...cell(value), attrs });
+  assert.equal(
+    adfToMarkdown(doc({ type: 'table', content: [
+      { type: 'tableRow', content: [span('Region', { colspan: 2 }), cell('Total')] },
+      { type: 'tableRow', content: [span('EU', { rowspan: 2 }), cell('FR'), cell('1')] },
+      { type: 'tableRow', content: [
+        { type: 'tableCell', content: [{ type: 'codeBlock', content: [text('if a:\n    b')] }] },
+        cell('2'),
+      ] },
+    ] })),
+    '| Region |  | Total |\n| --- | --- | --- |\n| EU | FR | 1 |\n|  | `if a:`<br>`    b` | 2 |',
+  );
+});
+
+test('ADF keeps inline media, card data, and the text of unknown nodes', () => {
+  assert.equal(
+    adfToMarkdown(doc(
+      { type: 'paragraph', content: [
+        text('See '), { type: 'mediaInline', attrs: { alt: 'report.pdf' } },
+        text(' and '), { type: 'inlineCard', attrs: { data: { name: 'Plan' } } },
+      ] },
+      { type: 'mediaSingle', content: [
+        { type: 'media', attrs: { alt: 'shot.png' } },
+        { type: 'caption', content: [text('The '), text('picture', { type: 'strong' })] },
+      ] },
+      { type: 'futureBlock', content: [paragraph('one'), paragraph('two')] },
+      { type: 'heading', attrs: { level: 2 }, content: [text('A'), { type: 'hardBreak' }, text('B')] },
+    )),
+    'See report.pdf and Plan\n\nshot.png\n\nThe **picture**\n\none\n\ntwo\n\n## A B',
+  );
+});
+
 test('ADF tables process long whitespace runs within a bounded child deadline', () => {
   const result = spawnSync(process.execPath, ['--import', 'tsx', '--input-type=module', '-e', `
     import assert from 'node:assert/strict';

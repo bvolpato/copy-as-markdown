@@ -88,6 +88,15 @@ function extractMessages(scope: ParentNode): DiscordMessage[] {
 
   roots.forEach((root) => {
     if (isExcluded(root)) return;
+    const explicitAuthor = findMessageValue(root, [
+      '[id^="message-username-"]',
+      'h3 [class*="username"]',
+      '[class*="headerText"] [class*="username"]',
+    ]);
+    // A message without copyable content can still start the author's run.
+    const author = explicitAuthor || previousAuthor;
+    if (author) previousAuthor = author;
+
     const bodyElement = findBodyElement(root);
     const rawBody = bodyElement ? messageBodyToMarkdown(bodyElement) : '';
     const embeds = extractEmbeds(root);
@@ -95,13 +104,6 @@ function extractMessages(scope: ParentNode): DiscordMessage[] {
     const attachments = getAttachments(root);
     if (!body && attachments.length === 0) return;
 
-    const explicitAuthor = findMessageValue(root, [
-      '[id^="message-username-"]',
-      'h3 [class*="username"]',
-      '[class*="headerText"] [class*="username"]',
-    ]);
-    const author = explicitAuthor || previousAuthor;
-    if (author) previousAuthor = author;
     const timestamp = getTimestamp(root);
     const replyTo = getReplyContext(root);
     const key = getMessageKey(root, author, timestamp, body, attachments);
@@ -150,15 +152,40 @@ function findBodyElement(root: ParentNode): HTMLElement | null {
 
 function messageBodyToMarkdown(element: HTMLElement): string {
   const clone = element.cloneNode(true) as HTMLElement;
+  preserveLineBreaks(element, clone);
   clone.querySelectorAll('button, script, style, svg, [aria-hidden="true"]')
     .forEach((node) => node.remove());
+  clone.querySelectorAll<HTMLImageElement>('img[class*="emoji"][alt]')
+    .forEach((emoji) => emoji.replaceWith(emoji.alt));
+  clone.querySelectorAll('[class*="edited"]').forEach((label) => label.prepend(' '));
   return Markdown.elementToMarkdown(clone).trim();
+}
+
+/** Message text keeps its line breaks as literal newlines in preformatted elements. */
+function preserveLineBreaks(element: HTMLElement, clone: HTMLElement): void {
+  const originals = textNodes(element);
+  textNodes(clone).forEach((text, index) => {
+    const parent = originals[index].parentElement;
+    if (!parent || !text.data.includes('\n') || parent.closest('pre, code')) return;
+    if (!/^(?:pre|break-spaces)/.test(getComputedStyle(parent).whiteSpace)) return;
+    text.replaceWith(...text.data.split('\n').flatMap((line, lineIndex) =>
+      lineIndex ? [document.createElement('br'), line] : [line],
+    ));
+  });
+}
+
+function textNodes(root: Element): Text[] {
+  const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+  const nodes: Text[] = [];
+  while (walker.nextNode()) nodes.push(walker.currentNode as Text);
+  return nodes;
 }
 
 function getTimestamp(root: Element): string {
   const values = Array.from(root.querySelectorAll<HTMLElement>('time, [class*="timestamp"]'))
     .filter((element) => !element.closest('[class*="repliedMessage"]'));
-  const time = values[0];
+  // The timestamp wrapper precedes the element that has the machine-readable date.
+  const time = values.find((element) => element.hasAttribute('datetime')) || values[0];
   return normalize(
     time?.getAttribute('datetime')
     || time?.getAttribute('title')
@@ -171,10 +198,9 @@ function getTimestamp(root: Element): string {
 function getReplyContext(root: Element): string {
   const reply = root.querySelector<HTMLElement>('[class*="repliedMessage"], [data-role="reply"]');
   if (!reply) return '';
-  const author = findMessageValue(reply, [
-    '[class*="username"]',
-    '[id^="message-username-"]',
-  ]);
+  const author = normalize(reply.querySelector(
+    '[class*="username"], [id^="message-username-"]',
+  )?.textContent || '');
   const excerptElement = reply.querySelector<HTMLElement>(
     '[id^="message-content-"], [class*="repliedTextContent"], [class*="messageContent"]',
   );
@@ -222,8 +248,9 @@ function extractEmbeds(root: Element): string[] {
 function getAttachments(root: Element): string[] {
   const attachments = new Map<string, string>();
   const rawCandidates = Array.from(root.querySelectorAll<HTMLElement>([
-    '[class*="attachment"]',
+    '[class*="attachment" i]',
     '[class*="fileWrapper"]',
+    'a[class*="originalLink"][href]',
   ].join(', '))).filter((candidate) =>
     !candidate.closest('[class*="repliedMessage"], [class*="embedWrapper"]')
     && !/\battachmentsContainer\b/i.test(candidate.className),
@@ -232,13 +259,16 @@ function getAttachments(root: Element): string[] {
     !rawCandidates.some((other) => other !== candidate && candidate.contains(other)),
   );
   candidates.forEach((candidate) => {
-    const link = candidate.querySelector<HTMLAnchorElement>('a[href]');
+    const link = candidate instanceof HTMLAnchorElement
+      ? candidate
+      : candidate.querySelector<HTMLAnchorElement>('a[href]');
     const name = normalize(
       link?.getAttribute('download')
       || candidate.querySelector<HTMLElement>('[class*="filename"]')?.textContent
       || link?.textContent
       || candidate.querySelector<HTMLImageElement>('img[alt]')?.alt
       || candidate.getAttribute('aria-label')
+      || (link === candidate ? link.pathname.split('/').pop() : '')
       || 'Attachment',
     );
     const href = safeHttpUrl(link?.href || candidate.querySelector<HTMLImageElement>('img[src]')?.src || '');
@@ -255,7 +285,7 @@ function getLinks(root: ParentNode, attachments: string[], bodyMarkdown = ''): s
   );
   const links = new Set<string>();
   root.querySelectorAll<HTMLAnchorElement>('a[href]').forEach((link) => {
-    if (link.closest('[class*="repliedMessage"], [class*="attachment"], [class*="fileWrapper"], [class*="embedWrapper"]')) return;
+    if (link.closest('[class*="repliedMessage"], [class*="attachment" i], [class*="fileWrapper"], [class*="embedWrapper"]')) return;
     const href = safeHttpUrl(link.href);
     if (!href || attachmentUrls.has(href) || isDiscordUiLink(href)) return;
     const encodedHref = href.replace(/\(/g, '%28').replace(/\)/g, '%29');
