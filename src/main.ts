@@ -8,7 +8,7 @@
 import { findDetectedExtractor, findExtractor, findExtensionPageButtonCandidate } from './core/registry';
 import { showButton, hideButton, copyToClipboard, showToast, isHostDismissed, chooseExtractionOption } from './core/ui';
 import type { Extractor, PageMetadata } from './core/types';
-import { buildPageMarkdown, elementToMarkdown } from './core/markdown';
+import { buildPageMarkdown, cleanMarkdown, elementToMarkdown } from './core/markdown';
 import { addExtractionMetadata, limitMarkdown } from './core/context';
 import * as Utils from './core/utils';
 import './catalog';
@@ -105,14 +105,29 @@ const CONSENT_PROMPT = ['div', 'section', 'dialog']
   .join(', ');
 
 /** Page wrappers and recipes can also have "cookie" in a class name, so require a short block without page structure. */
-function isConsentPrompt(element: Element | null): boolean {
-  return !!element
-    && !element.querySelector('main, article, h1')
-    && (element.textContent || '').length < 1500;
+function createConsentPromptChecker(): (element: Element) => boolean {
+  const cache = new Map<Element, boolean>();
+  return (element) => {
+    const prompt = element.closest(CONSENT_PROMPT);
+    if (!prompt) return false;
+    let result = cache.get(prompt);
+    if (result === undefined) {
+      result = !prompt.querySelector('main, article, h1') && (prompt.textContent || '').length < 1500;
+      cache.set(prompt, result);
+    }
+    return result;
+  };
+}
+
+/** Lower the score of a block whose ID or class names a part of the page that is not content. */
+function nameWeight(element: Element): number {
+  const idClass = `${element.id} ${typeof element.className === 'string' ? element.className : ''}`;
+  return /(?:nav|menu|sidebar|footer|header|comment|banner|cookie|modal|popup|related)/i.test(idClass) ? 0.25 : 1;
 }
 
 function findBestFallbackContent(): Element | null {
   const isVisible = Utils.createVisibilityChecker();
+  const isConsentPrompt = createConsentPromptChecker();
 
   // Bottom-up Readability-style scoring from visible prose nodes to avoid O(N^2) DOM scans
   // and prevent outer app wrappers (#__next, #root) from outscoring the actual article container.
@@ -121,19 +136,18 @@ function findBestFallbackContent(): Element | null {
   for (const node of leafNodes) {
     if (!isVisible(node)) continue;
     if (node.closest('nav, header, footer, aside, [data-cam-instance]')) continue;
-    // A consent prompt can hold the only paragraphs of an app that renders its text in plain blocks.
-    if (isConsentPrompt(node.closest(CONSENT_PROMPT))) continue;
     // Skip outer <li> that merely wraps nested <li> items to avoid double-counting.
     if (node.tagName === 'LI' && node.querySelector('li')) continue;
     const textLen = (node.textContent || '').trim().length;
     if (textLen < 25) continue;
+    const leafScore = isConsentPrompt(node) ? textLen * 0.5 : textLen;
 
     let parent = node.parentElement;
     for (let depth = 0; parent && depth < 4 && parent !== document.body && parent !== document.documentElement; depth += 1) {
       if (parent.matches('article, main, [role="main"], section, div')) {
         if (!parent.closest('nav, header, footer, aside, [data-cam-instance]')) {
           const weight = depth === 0 ? 1 : depth === 1 ? 0.65 : 1 / (depth * 1.5);
-          scores.set(parent, (scores.get(parent) || 0) + textLen * weight);
+          scores.set(parent, (scores.get(parent) || 0) + leafScore * weight);
         }
       }
       parent = parent.parentElement;
@@ -162,29 +176,55 @@ function findBestFallbackContent(): Element | null {
     if (el.matches('article, main, [role="main"]')) score *= 1.3;
     const idClass = `${el.id} ${typeof el.className === 'string' ? el.className : ''}`;
     if (/(?:article|content|post|entry|story|body|prose|markdown)/i.test(idClass)) score *= 1.2;
-    if (/(?:nav|menu|sidebar|footer|header|comment|banner|cookie|modal|popup|related)/i.test(idClass)) score *= 0.25;
+    score *= nameWeight(el);
     if (score > bestScore) {
       bestScore = score;
       best = el;
     }
   }
 
+  // A consent prompt can hold the only paragraphs of an app that renders its text in plain blocks.
+  if (best && isConsentPrompt(best)) best = null;
+
   // Repeated blocks such as thread posts belong together, so copy their shared parent.
+  // Layout classes also repeat, so do not leave the article or collect the whole body.
   for (let el: Element | null = best; el && scores.has(el); el = el.parentElement) {
     const current: Element = el;
+    const parent: Element | null = current.parentElement;
+    if (!parent || parent === document.body) break;
     let siblingScore = 0;
-    for (const sibling of current.parentElement?.children || []) {
+    for (const sibling of parent.children) {
       if (sibling !== current && sibling.tagName === current.tagName && sibling.className === current.className) {
-        siblingScore += scores.get(sibling) || 0;
+        siblingScore += (scores.get(sibling) || 0) * nameWeight(sibling);
       }
     }
-    if (current.className && siblingScore >= scores.get(current)! * 0.2) best = current.parentElement;
+    if (current.className && siblingScore >= scores.get(current)! * nameWeight(current) * 0.2) best = parent;
+    if (current.matches('article, main, [role="main"]')) break;
   }
 
   return best || document.body || document.documentElement;
 }
 
-const SELECTION_STRUCTURE = new Set(['UL', 'OL', 'TABLE', 'THEAD', 'TBODY', 'TFOOT', 'TR']);
+/** The children that list and table conversion reads. It drops all other children. */
+const SELECTION_CHILDREN: Record<string, RegExp> = {
+  UL: /^LI$/,
+  OL: /^LI$/,
+  TABLE: /^(?:CAPTION|COLGROUP|THEAD|TBODY|TFOOT|TR)$/,
+  THEAD: /^TR$/,
+  TBODY: /^TR$/,
+  TFOOT: /^TR$/,
+  TR: /^T[DH]$/,
+};
+
+/** Content that a Markdown table cell cannot hold. */
+const CELL_BLOCK_CONTENT = 'h1, h2, h3, h4, h5, h6, pre, ul, ol, dl, blockquote, table, p ~ p';
+
+function hasOnlyStructure(tag: string, content: Node): boolean {
+  const allowed = SELECTION_CHILDREN[tag];
+  return !allowed || Array.from(content.childNodes).every((child) => child instanceof Element
+    ? allowed.test(child.tagName) && hasOnlyStructure(child.tagName, child)
+    : child.nodeType !== Node.TEXT_NODE || !child.textContent?.trim());
+}
 
 /**
  * Rebuild the list or table around items, rows, or cells that a range cloned without it.
@@ -197,14 +237,41 @@ function appendSelection(
   commonEl: Element | null,
   shells: Map<Element, Element>,
 ): void {
+  const tag = commonEl?.tagName || '';
+  const table = /^T(?:ABLE|HEAD|BODY|FOOT|R)$/.test(tag) ? commonEl!.closest('table') : null;
+  if (
+    !SELECTION_CHILDREN[tag]
+    || !hasOnlyStructure(tag, fragment)
+    || (table && (/^(?:presentation|none)$/.test(table.getAttribute('role') || '') || fragment.querySelector(CELL_BLOCK_CONTENT)))
+  ) {
+    block.appendChild(fragment);
+    return;
+  }
+
+  // Table conversion does not read the caption.
+  const caption = fragment.querySelector('caption');
+  if (caption) {
+    block.appendChild(document.createElement('p')).append(...caption.childNodes);
+    caption.remove();
+  }
+
+  // A range that starts inside a row omits the cells before it, and that moves its values to other columns.
+  const startEl = range.startContainer instanceof Element ? range.startContainer : range.startContainer.parentElement;
+  const row = startEl?.closest('tr');
+  if (row && tag !== 'TR' && row.closest('table') === table) {
+    const cells = Array.from(row.cells);
+    const omitted = cells.slice(0, Math.max(0, cells.findIndex((cell) => range.intersectsNode(cell))));
+    fragment.querySelector('tr')?.prepend(...omitted.map((cell) => cell.cloneNode(false)));
+  }
+
   let content: Node = fragment;
-  for (let el = commonEl; el && SELECTION_STRUCTURE.has(el.tagName); el = el.parentElement) {
+  for (let el: Element | null = commonEl; el; el = el.parentElement) {
     const existing = shells.get(el);
     if (existing) {
       existing.appendChild(content);
       return;
     }
-    const shell = el.cloneNode(false) as Element;
+    const shell = document.createElement(el.tagName);
     shell.appendChild(content);
     if (el instanceof HTMLOListElement) {
       const items = Array.from(el.children).filter((child) => child.tagName === 'LI');
@@ -214,6 +281,7 @@ function appendSelection(
       shells.set(el, shell);
     }
     content = shell;
+    if (!SELECTION_CHILDREN[el.parentElement?.tagName || '']?.test(el.tagName)) break;
   }
   block.appendChild(content);
 }
@@ -255,7 +323,8 @@ function extractSelectionMarkdown(sourceName: string): string | null {
       appendSelection(block, fragment, range, commonEl, shells);
     }
   }
-  const body = elementToMarkdown(container);
+  // A selection must never become a copy of the page, so keep its text when conversion gives nothing.
+  const body = elementToMarkdown(container) || (container.hasChildNodes() && cleanMarkdown(selection.toString()));
   if (!body) return null;
 
   const metadata: PageMetadata = {
@@ -332,10 +401,10 @@ function extractSelectionMarkdown(sourceName: string): string | null {
     return extractor;
   }
 
-  /** Identify the open page. Query and fragment updates on the same page do not count. */
+  /** Identify the open page. A query or an in-page anchor does not count, but a path in the fragment does. */
   function getPageRoute(): string {
-    const hashRoute = window.location.hash.match(/^#!?(\/[^?]*)/)?.[1] || '';
-    return `${window.location.origin}${window.location.pathname}#${hashRoute}`;
+    const hash = window.location.hash.split('?')[0];
+    return `${window.location.origin}${window.location.pathname}${hash.includes('/') ? hash : ''}`;
   }
 
   async function extractWithOptions(extractor: Extractor): Promise<string | null> {

@@ -710,6 +710,25 @@ try {
     },
     expected: ['Body of next document'],
   }));
+  await check('A Gmail copy that finishes after another thread opens does not reach the clipboard', () => fixture({
+    name: 'Gmail', url: 'https://mail.google.com/mail/u/0/#inbox/FMfcgzQgMMHLwtbqvvsLSmnmFrtzlwhR', ui: true, html: '<main><h2 class="hP">Thread</h2></main>',
+    afterLoad: async page => {
+      await page.waitForSelector('#cam-copy-btn');
+      await page.evaluate(() => {
+        window.__clips = [];
+        Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText: async text => { window.__clips.push(text); } } });
+        window.fetch = async () => {
+          await new Promise(resolve => setTimeout(resolve, 100));
+          return new Response('<div class="maincontent"><table class="message"><tr><td>Sender</td><td>Jul 29</td></tr><tr><td>to me</td></tr><tr><td><p>Thread body</p></td></tr></table></div>');
+        };
+        document.querySelector('#cam-copy-btn').click();
+        location.hash = '#inbox/FMfcgzQgMMHLwtbqvvsLSmnmFrtzlwhS';
+      });
+      await page.waitForFunction(() => document.querySelector('#cam-toast'), { timeout: 5000 });
+      assert.deepEqual(await page.evaluate(() => window.__clips), []);
+    },
+    expected: ['Thread body'],
+  }));
   await check('Crowded overlays use a stable floating control and restore only into free space', () => fixture({
     name: 'YouTube', url: 'https://www.youtube.com/watch?v=placement', ui: true,
     html: '<h1>Video title</h1><div id="actions" style="position:absolute;left:0;top:100px;width:100%;height:40px"><button>Like</button></div><div id="description" style="position:absolute;left:8px;top:148px">Description metadata</div>',

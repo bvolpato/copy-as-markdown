@@ -37,9 +37,19 @@ let activeOptionCancel: (() => void) | null = null;
 /** Dismissals made in this document, kept for pages where storage is denied or full. */
 const dismissedKeys = new Set<string>();
 
+/** Try the selector, because a page can replace the `CSS` global that a userscript shares. */
+function supportsSelector(selector: string): boolean {
+  try {
+    document.querySelector(selector);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 /** Top-layer selectors. A browser without one of these states rejects the whole selector. */
-const MODAL_SELECTOR = CSS.supports('selector(:modal)') ? 'dialog:modal' : 'dialog[open]';
-const POPUP_SELECTOR = CSS.supports('selector(:popover-open)')
+const MODAL_SELECTOR = supportsSelector(':modal') ? 'dialog:modal' : 'dialog[open]';
+const POPUP_SELECTOR = supportsSelector(':popover-open')
   ? `${MODAL_SELECTOR}, [popover]:popover-open`
   : MODAL_SELECTOR;
 
@@ -73,6 +83,7 @@ function injectStyles(): void {
       touch-action: none;
       user-select: none;
       -webkit-user-select: none;
+      transition: none;
     }
 
     /* ---- Floating icon button (bottom-right fallback) ---- */
@@ -1504,9 +1515,17 @@ function enableFloatingDrag(btn: HTMLButtonElement, wrapper: FloatingWrapperElem
 
   window.addEventListener('resize', applyChosenPosition, { passive: true });
   wrapper._camReposition = applyChosenPosition;
+  // An entry animation of the dialog changes the containing block while it runs.
+  const onParentSettled = (event: Event) => {
+    if (event.target === wrapper.parentElement && activePointerId === null) applyChosenPosition();
+  };
+  document.addEventListener('animationend', onParentSettled, true);
+  document.addEventListener('transitionend', onParentSettled, true);
   const stopWatchingFloatingParent = watchFloatingParent(wrapper, instanceId);
   wrapper._camCleanup = () => {
     window.removeEventListener('resize', applyChosenPosition);
+    document.removeEventListener('animationend', onParentSettled, true);
+    document.removeEventListener('transitionend', onParentSettled, true);
     stopWatchingFloatingParent();
     wrapper.remove();
     wrapper._camCleanup = undefined;
@@ -1810,6 +1829,7 @@ export async function copyToClipboard(text: string): Promise<void> {
   let copied = false;
   const onCopy = (event: ClipboardEvent) => {
     if (!event.clipboardData) return;
+    event.clipboardData.clearData();
     event.clipboardData.setData('text/plain', text);
     event.preventDefault();
     event.stopImmediatePropagation();

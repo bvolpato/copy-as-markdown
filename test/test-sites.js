@@ -1750,6 +1750,10 @@ DD_SITE=datadoghq.com
         <table><tbody><tr><td>A1</td><td>B1</td></tr><tr><td>A2</td><td>B2</td></tr></tbody></table>
         <p id="selected">alpha\u2028beta / 10\u202F000 / می\u200Cروم / 👩\u200D💻 / \u2066isolated\u2069 / A\u00A0B\u1680C\u2007D\u205FE\u3000F / \u201Cdouble\u201D \u2018single\u2019 \u2014 \u2013 \u2212 \u2026 / ＦＵＬＬ ﬁ / water\u200Bmark\u200Ctest\u200Dvalue\u2060\uFE0F\u{E0100}\u{E0061}</p>
         <p>must not copy</p>
+        <ul id="nested"><li>Parent one</li><ul><li>Nested child</li></ul><li>Parent two</li></ul>
+        <ul id="wrapped"><div><li>wrapped one</li></div><div><li>wrapped two</li></div></ul>
+        <table id="steps"><tbody><tr><td><h2>Step one</h2><pre>make build</pre></td></tr><tr><td>Step two</td></tr></tbody></table>
+        <footer id="footer">Footer text</footer>
       </main>
     </body></html>`,
   });
@@ -1786,6 +1790,23 @@ DD_SITE=datadoghq.com
     assertCheck(items.endsWith('\n2. second item\n3. third item'), `Partial list selection lost its items: ${JSON.stringify(items)}`);
     const rows = await copySelection('tr:first-child > td', 'tr:last-child > td:last-child');
     assertCheck(rows.endsWith('| A1 | B1 |\n| --- | --- |\n| A2 | B2 |'), `Partial table selection lost its cells: ${JSON.stringify(rows)}`);
+    for (const [first, last, expected] of [
+      ['tr:first-child > td:last-child', 'tr:last-child > td:last-child', '|  | B1 |\n| --- | --- |\n| A2 | B2 |'],
+      ['#nested > li', '#nested > li:last-child', 'Parent one\n- Nested child\nParent two'],
+      ['#wrapped li', '#wrapped > div:last-child > li', 'wrapped one\n\nwrapped two'],
+      ['#steps td', '#steps tr:last-child > td', '## Step one\n\n```\nmake build\n```\nStep two'],
+    ]) {
+      const partial = await copySelection(first, last);
+      assertCheck(partial.endsWith(`\n---\n\n${expected}`), `Partial selection of ${first} lost content: ${JSON.stringify(partial)}`);
+    }
+    await selectionPage.evaluate(() => {
+      const range = document.createRange();
+      range.selectNode(document.querySelector('#footer'));
+      window.getSelection().removeAllRanges();
+      window.getSelection().addRange(range);
+    });
+    const unconverted = await clickAndCapture(selectionPage);
+    assertCheck(unconverted.endsWith('\n---\n\nFooter text'), `A selection without Markdown output copied the page: ${JSON.stringify(unconverted)}`);
     // Firefox selects several ranges. Chrome keeps one, so provide the same interface.
     await selectionPage.evaluate(() => {
       const values = ['li:nth-child(1)', 'li:nth-child(3)'].map(selector => {
@@ -4792,7 +4813,11 @@ async function runProductionUiChecks(browser, scriptContent) {
     url: 'https://floating.fixture.test/regression',
     html: `<!doctype html>
       <html>
-        <head><title>Fallback page</title><style>button { min-width: 44px; min-height: 44px; }</style></head>
+        <head>
+          <title>Fallback page</title>
+          <style>button { min-width: 44px; min-height: 44px; } * { transition: all 0.2s; }</style>
+          <script>var CSS = {};</script>
+        </head>
         <body>
           <main><h1>Fallback article</h1><p>Enough text for fallback extraction.</p></main>
           <button id="talk-widget" style="position: fixed; right: 16px; bottom: 16px; width: 64px; height: 64px;">Talk with us</button>
@@ -4879,7 +4904,10 @@ async function runProductionUiChecks(browser, scriptContent) {
         title: button.title,
       };
     });
-    assertCheck(Math.abs(dragged.left - layout.button.left) > 100, 'floating button did not move after drag');
+    assertCheck(
+      Math.abs(dragged.left + 19 - 80) < 5 && Math.abs(dragged.top + 19 - 180) < 5,
+      `floating button did not follow the pointer: ${dragged.left}, ${dragged.top}`,
+    );
     assertCheck(dragged.copyCount === 0, 'dragging floating button triggered copy');
     assertCheck(Number.isFinite(dragged.stored?.left) && Number.isFinite(dragged.stored?.top), 'floating position was not persisted');
     assertCheck(dragged.title.includes('Drag to reposition'), 'floating button does not advertise drag behavior');
@@ -4945,6 +4973,22 @@ async function runProductionUiChecks(browser, scriptContent) {
     });
     const app = await clickAndCapture(threadPage, 'fallback consent prompt');
     assertCheck(app.includes('Application text in plain blocks.'), 'fallback copied only a consent prompt');
+
+    const prose = (label, count) => `<p>${label} has a sentence that is long enough to count as prose.</p>`.repeat(count);
+    const copyBody = async (html) => {
+      await threadPage.evaluate(value => { document.body.innerHTML = value; }, html);
+      return clickAndCapture(threadPage, 'fallback content choice');
+    };
+    const consent = await copyBody(`<div id="informed-consent">${prose('Study', 10)}</div><div class="promo">${prose('Promo', 3)}</div>`);
+    assertCheck(consent.includes('Study has'), 'fallback dropped short content with a consent ID');
+    for (const html of [
+      `<div><div class="col" id="content">${prose('Main', 10)}</div><div class="col" id="comments">${prose('Other', 4)}</div></div>`,
+      `<div class="wrapper"><div>${prose('Main', 10)}</div></div><div class="wrapper"><div>${prose('Other', 4)}</div></div>`,
+      `<div><div class="block"><article>${prose('Main', 10)}</article></div><div class="block"><div>${prose('Other', 4)}</div></div></div>`,
+    ]) {
+      const content = await copyBody(html);
+      assertCheck(content.includes('Main has') && !content.includes('Other has'), `fallback joined unrelated blocks: ${html.slice(0, 40)}`);
+    }
     log('✅', 'Fallback keeps thread posts and app text, and reads JSON-LD scalars');
   } finally {
     await threadPage.close();
