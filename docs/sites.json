@@ -1,0 +1,159 @@
+[
+  {
+    "category": "AI assistants",
+    "sites": [
+      { "id": "chatgpt", "name": "ChatGPT", "captures": "User and assistant turns in order, canvas writing blocks, code, model, and images" },
+      { "id": "claude", "name": "Claude", "captures": "User and assistant turns in order, code, citations, and images" },
+      { "id": "gemini", "name": "Gemini", "captures": "User and model turns in order, code, citations, and images" },
+      { "id": "gemini-notebook", "name": "Gemini Notebook / NotebookLM", "captures": "Notebook chats, grounded answers, source citations, files, and rendered Studio artifacts" },
+      { "id": "google-ai-studio", "name": "Google AI Studio", "captures": "Saved and new chat prompts, system instructions, turns, model, citations, code, and files" },
+      { "id": "perplexity", "name": "Perplexity", "captures": "User and assistant turns in order, with citations and source links" },
+      { "id": "grok", "name": "Grok", "captures": "User and assistant turns in order, citations, code, and images" },
+      { "id": "meta-ai", "name": "Meta AI", "captures": "User and assistant turns in order, citations, code, and images" },
+      { "id": "microsoft-copilot", "name": "Microsoft Copilot", "captures": "Consumer chats and shared chats, citations, code, files, images, and rendered Copilot Pages" },
+      { "id": "mistral-vibe", "name": "Mistral Vibe / Le Chat", "captures": "Turns in order, citations, files, code, images, workspace context, and rendered Canvas output" },
+      { "id": "deepseek", "name": "DeepSeek", "captures": "Signed-in and shared chats, citations, reasoning, code, files, and images" }
+    ]
+  },
+  {
+    "category": "AI models and experiments",
+    "sites": [
+      { "id": "hugging-face", "name": "Hugging Face", "captures": "Model, dataset, and Space cards, metadata, tensor details, evaluation results, lineage, and file listings" },
+      { "id": "openrouter", "name": "OpenRouter", "captures": "Model definitions, modalities, pricing, limits, parameters, benchmarks, and provider endpoints" },
+      { "id": "artificial-analysis", "name": "Artificial Analysis", "captures": "Published leaderboards, model overviews, exact benchmark values, specifications, and FAQ" },
+      { "id": "deepswe", "name": "DeepSWE", "captures": "Benchmark overview, leaderboard configurations, efficiency metrics, methodology, and task examples" },
+      { "id": "wandb", "name": "Weights & Biases", "captures": "Run metadata, configuration, metric summaries, sparklines, and sampled history tables" },
+      { "id": "mlflow", "name": "MLflow", "captures": "Self-hosted run metadata, chart comparisons for visible runs, and metric-history tables" },
+      { "id": "leetllm", "name": "LeetLLM", "captures": "Lessons, glossary pages, practice content, code, and links" }
+    ]
+  },
+  {
+    "category": "Code and packages",
+    "sites": [
+      { "id": "github", "name": "GitHub", "captures": "Issues, pull requests, repositories with READMEs, full code files, and canonical patches" },
+      { "id": "gitlab", "name": "GitLab", "captures": "Repositories, trees, code files, issues, merge requests, comments, and visible diffs" },
+      { "id": "bitbucket", "name": "Bitbucket", "captures": "Repositories, source files, pull requests, issues, comments, and visible diffs" },
+      { "id": "gitea", "name": "Codeberg / Gitea / Forgejo", "captures": "Repositories, source files, issues, and pull requests on hosted or self-hosted instances" },
+      { "id": "npm", "name": "npm", "captures": "Package version, description, README, dependencies, and metadata" },
+      { "id": "pypi", "name": "PyPI", "captures": "Package version, summary, install command, and README" },
+      { "id": "crates-io", "name": "crates.io", "captures": "Crate version, metadata, and README" },
+      { "id": "pkg-go", "name": "pkg.go.dev", "captures": "Go package documentation, index, functions, types, and examples" },
+      { "id": "rubygems", "name": "RubyGems", "captures": "Gem version, description, dependencies, and metadata" },
+      { "id": "docker-hub", "name": "Docker Hub", "captures": "Repository and official image overviews with metadata" }
+    ]
+  },
+  {
+    "category": "Documentation and reference",
+    "sites": [
+      { "id": "documentation", "name": "Documentation frameworks", "captures": "Sphinx, Read the Docs, Docusaurus, MkDocs, VitePress, Starlight, mdBook, Nextra, Mintlify, GitBook, Fumadocs, and Fern, on any domain" },
+      { "id": "mdn", "name": "MDN Web Docs", "captures": "Reference pages, guides, code examples, and compatibility tables" },
+      { "id": "datadog-docs", "name": "Datadog Documentation", "captures": "Authored Markdown source when the site serves it, cleaned page content otherwise" },
+      { "id": "openapi-docs", "name": "OpenAPI docs", "captures": "Rendered Swagger UI, Redoc, and Scalar API references on any domain" },
+      { "id": "wikipedia", "name": "Wikipedia", "captures": "Article body, tables, infoboxes, citations, and references" },
+      { "id": "mediawiki", "name": "MediaWiki", "captures": "ArchWiki, Fandom, Wiktionary, and other MediaWiki sites on any domain" },
+      { "id": "grokipedia", "name": "Grokipedia", "captures": "Full article content with metadata" }
+    ]
+  },
+  {
+    "category": "Work and documents",
+    "sites": [
+      { "id": "google-docs", "name": "Google Docs", "captures": "Full document export with headings, lists, tables, links, images, and off-screen content" },
+      { "id": "google-sheets", "name": "Google Sheets", "captures": "The complete active sheet or the selected range" },
+      { "id": "google-slides", "name": "Google Slides", "captures": "The current slide or the full deck, with titles, text, links, and speaker notes when available" },
+      { "id": "gmail", "name": "Gmail", "captures": "Full threads with participants, message bodies, links, images, and attachments" },
+      { "id": "outlook", "name": "Outlook on the web", "captures": "Email threads with subject, participants, and message bodies" },
+      { "id": "notion", "name": "Notion", "captures": "Pages and databases with properties, rich blocks, tables, code, and rendered rows" },
+      { "id": "linear", "name": "Linear", "captures": "Issues, projects, and documents with properties, descriptions, links, and visible comments" },
+      { "id": "jira", "name": "Jira", "captures": "Issue fields, descriptions, comments, and links, from the API or the rendered page" },
+      { "id": "confluence", "name": "Confluence", "captures": "Page body, labels, tables, code, and visible comments, from the API or the rendered page" },
+      { "id": "microsoft-office", "name": "Microsoft 365", "captures": "Word, Excel, and PowerPoint web content" }
+    ]
+  },
+  {
+    "category": "Chat and communities",
+    "sites": [
+      { "id": "slack", "name": "Slack", "captures": "Loaded channel and thread messages with authors, timestamps, reactions, and attachments" },
+      { "id": "microsoft-teams", "name": "Microsoft Teams", "captures": "Loaded chats, channels, and threads with authors, timestamps, replies, reactions, and code" },
+      { "id": "discord", "name": "Discord", "captures": "Loaded channels and threads with authors, timestamps, replies, reactions, and attachments" },
+      { "id": "whatsapp", "name": "WhatsApp Web", "captures": "Loaded chat messages with sender, timestamp, and media indicators" },
+      { "id": "reddit", "name": "Reddit", "captures": "Post, subreddit, author, score, and threaded comments with depth" },
+      { "id": "hackernews", "name": "Hacker News", "captures": "Story, link, score, author, and nested comments with depth" },
+      { "id": "lobsters", "name": "Lobsters", "captures": "Story, link, tags, and nested comments" },
+      { "id": "stackoverflow", "name": "Stack Overflow / Stack Exchange", "captures": "Question, votes, tags, all answers with the accepted one marked, and comments" },
+      { "id": "discourse", "name": "Discourse", "captures": "Forum topics and posts on any Discourse instance" }
+    ]
+  },
+  {
+    "category": "Observability",
+    "sites": [
+      { "id": "datadog-dashboard", "name": "Datadog dashboards", "captures": "Timeframe, template variables, grouped widget values, top lists, and chart annotations" },
+      { "id": "datadog-notebook", "name": "Datadog notebooks", "captures": "Metadata, narrative, ordered visualization cells, and chart annotations" },
+      { "id": "grafana", "name": "Grafana", "captures": "Dashboards and Explore on self-hosted or Grafana Cloud instances" },
+      { "id": "sentry", "name": "Sentry", "captures": "Issues, stack traces, tags, and breadcrumbs" }
+    ]
+  },
+  {
+    "category": "Search engines",
+    "sites": [
+      { "id": "google-search", "name": "Google Search", "captures": "Query, featured snippets, knowledge panel, ranked results, and People Also Ask" },
+      { "id": "bing", "name": "Bing", "captures": "Query, results, knowledge sidebar, and related searches" },
+      { "id": "duckduckgo", "name": "DuckDuckGo", "captures": "Query, ranked results, snippets, destination links, and related searches" },
+      { "id": "brave-search", "name": "Brave Search", "captures": "Query, answer cards, ranked results, discussions, and related searches" },
+      { "id": "yahoo-search", "name": "Yahoo Search", "captures": "Query, ranked results, snippets, and destination links" },
+      { "id": "yandex-search", "name": "Yandex Search", "captures": "Query, answer cards, ranked results, and related searches" },
+      { "id": "baidu-search", "name": "Baidu Search", "captures": "Query, ranked results, abstracts, and destination links" }
+    ]
+  },
+  {
+    "category": "Research, filings, and markets",
+    "sites": [
+      { "id": "arxiv", "name": "arXiv", "captures": "Title, authors, abstract, subjects, DOI, and the full body from HTML pages" },
+      { "id": "openreview", "name": "OpenReview", "captures": "Papers, abstracts, reviews, rebuttals, and decisions" },
+      { "id": "pubmed", "name": "PubMed / PMC", "captures": "Citation, authors, abstract, and identifiers" },
+      { "id": "semantic-scholar", "name": "Semantic Scholar", "captures": "Paper title, authors, abstract, and metadata" },
+      { "id": "google-scholar", "name": "Google Scholar", "captures": "Search results and author profiles" },
+      { "id": "sec-edgar", "name": "SEC EDGAR", "captures": "10-K, 10-Q, 8-K, S-1, and other filings" },
+      { "id": "polymarket", "name": "Polymarket", "captures": "Market, outcome probabilities, volume, and resolution rules" },
+      { "id": "kalshi", "name": "Kalshi", "captures": "Market, outcome prices, and rules" }
+    ]
+  },
+  {
+    "category": "Social, video, and entertainment",
+    "sites": [
+      { "id": "youtube", "name": "YouTube", "captures": "Title, channel, views, description, chapters, comments, and transcript" },
+      { "id": "x-twitter", "name": "X (Twitter)", "captures": "Posts with loaded replies and media, timelines, and searches with engagement counts" },
+      { "id": "bluesky", "name": "Bluesky", "captures": "Post threads and profiles" },
+      { "id": "mastodon", "name": "Mastodon", "captures": "Posts and threads on any Mastodon instance" },
+      { "id": "linkedin", "name": "LinkedIn", "captures": "Profiles, posts with reactions and comments, and articles" },
+      { "id": "facebook", "name": "Facebook", "captures": "Posts and reels with author, caption, engagement, and visible comments" },
+      { "id": "instagram", "name": "Instagram", "captures": "Posts and reels with captions, media descriptions, engagement, and visible comments" },
+      { "id": "tiktok", "name": "TikTok", "captures": "Videos with creator, caption, engagement, transcript or captions, and visible comments" },
+      { "id": "pinterest", "name": "Pinterest", "captures": "Pins with creator, description, destination, media, and visible comments" },
+      { "id": "vk", "name": "VK", "captures": "Posts with author, timestamp, text, media, and visible comments" },
+      { "id": "twitch", "name": "Twitch", "captures": "Channels, streams, videos, and clips with game, viewers, tags, and description" },
+      { "id": "netflix", "name": "Netflix", "captures": "Title, synopsis, cast, genres, ratings, seasons, and visible episodes" },
+      { "id": "imdb", "name": "IMDb", "captures": "Title, rating, cast, and synopsis" },
+      { "id": "fox", "name": "FOX", "captures": "Shows, episodes, movies, and videos with synopsis and details" }
+    ]
+  },
+  {
+    "category": "News and publishing",
+    "sites": [
+      { "id": "news", "name": "News sites", "captures": "CNN, BBC, NYT, Reuters, Fox News, and more: article body, author, date, and paywall detection" },
+      { "id": "globo", "name": "Globo", "captures": "Articles and videos with headline, author, date, and body" },
+      { "id": "medium", "name": "Medium", "captures": "Article, author, publication, claps, and reading time" },
+      { "id": "substack", "name": "Substack", "captures": "Newsletter posts with author, date, likes, and paywall state" },
+      { "id": "devto", "name": "DEV Community", "captures": "Article, author, tags, reactions, and comments" },
+      { "id": "ghost", "name": "Ghost / Obsidian Publish", "captures": "Posts and notes on any custom domain" }
+    ]
+  },
+  {
+    "category": "Shopping, travel, and weather",
+    "sites": [
+      { "id": "amazon", "name": "Amazon", "captures": "Title, ASIN, price, rating, features, specifications, and top reviews" },
+      { "id": "temu", "name": "Temu", "captures": "Title, price, availability, ratings, variants, specifications, and description" },
+      { "id": "booking", "name": "Booking.com", "captures": "Hotels and search results with prices, scores, facilities, policies, and availability" },
+      { "id": "weather", "name": "Weather.com", "captures": "Current conditions, alerts, hourly outlook, and daily forecast" }
+    ]
+  }
+]

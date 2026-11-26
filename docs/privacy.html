@@ -2,45 +2,23 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Privacy Policy — Copy as Markdown</title>
-  <meta name="description" content="Privacy policy for the Copy as Markdown browser extension.">
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Privacy policy: Copy as Markdown</title>
+  <meta name="description" content="Privacy policy for the Copy as Markdown browser extension and userscript.">
+  <link rel="canonical" href="https://bvolpato.github.io/copy-as-markdown/privacy.html">
   <link rel="icon" type="image/svg+xml" href="icon.svg">
-  <style>
-    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-    body {
-      font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
-      background: #0a0a0f;
-      color: #e4e4e7;
-      line-height: 1.7;
-      -webkit-font-smoothing: antialiased;
-    }
-    .container { max-width: 720px; margin: 0 auto; padding: 60px 24px 80px; }
-    a { color: #818cf8; text-decoration: none; }
-    a:hover { text-decoration: underline; }
-    h1 { font-size: 32px; font-weight: 800; margin-bottom: 8px; letter-spacing: -0.02em; }
-    .updated { font-size: 14px; color: #71717a; margin-bottom: 40px; }
-    h2 { font-size: 20px; font-weight: 700; margin: 36px 0 12px; color: #f4f4f5; }
-    p { margin-bottom: 16px; color: #a1a1aa; }
-    ul { margin: 0 0 16px 20px; color: #a1a1aa; }
-    li { margin-bottom: 6px; }
-    table { width: 100%; border-collapse: collapse; margin: 16px 0; }
-    th, td { text-align: left; padding: 10px 14px; border: 1px solid rgba(255,255,255,0.08); font-size: 14px; }
-    th { background: rgba(255,255,255,0.04); color: #e4e4e7; font-weight: 600; }
-    td { color: #a1a1aa; }
-    code { background: rgba(255,255,255,0.06); padding: 2px 6px; border-radius: 4px; font-size: 13px; }
-    .back { display: inline-block; margin-bottom: 24px; font-size: 14px; color: #71717a; }
-    .back:hover { color: #e4e4e7; }
-  </style>
+  <link rel="stylesheet" href="site.css">
 </head>
 <body>
-  <div class="container">
-    <a href="./" class="back">← Back to Copy as Markdown</a>
+  <header class="site-header">
+    <div class="wrap">
+      <a href="./" class="logo" aria-label="Copy as Markdown"><img src="icon.svg" alt="" width="30" height="30"><span>Copy as Markdown</span></a>
+      <nav class="site-nav" aria-label="Site"><a href="./">Home</a> <a href="https://github.com/bvolpato/copy-as-markdown">GitHub</a></nav>
+    </div>
+  </header>
+  <main class="wrap prose">
     <h1>Privacy Policy</h1>
-    <p class="updated">Last updated: July 26, 2026</p>
+    <p class="updated">Last updated: November 26, 2026</p>
 
     <h2>Overview</h2>
     <p>Copy as Markdown is a browser extension and userscript that converts web page content to Markdown format and copies it to your clipboard. It is designed with privacy as a core principle.</p>
@@ -63,15 +41,17 @@
     </ul>
     <p>Some supported pages require a same-site HTTPS request to retrieve content that is not present in the visible DOM. These requests use your existing browser session and go only to the site you are viewing. Responses are processed in memory and are not retained or sent to the developer or unrelated third parties.</p>
     <p>On Datadog dashboard and notebook URLs, the extension loads its page button automatically so it can appear in the page toolbar. After you click it, the extension can request dashboard or notebook definitions and metric series from Datadog's same-origin APIs. Conversion and clipboard access still happen in your browser.</p>
+    <p>On Weights &amp; Biases run URLs, the extension also loads its page button automatically. After you click it, the extension can request run metadata and sampled metric history from the W&amp;B API.</p>
 
     <h2>Permissions</h2>
-    <table>
+    <div class="scroll-x"><table class="data">
       <tr><th>Permission</th><th>Why It's Needed</th></tr>
       <tr><td><code>activeTab</code></td><td>Read the current page's DOM to extract content when you click the extension icon in the toolbar</td></tr>
       <tr><td><code>clipboardWrite</code></td><td>Write the generated Markdown to your clipboard</td></tr>
       <tr><td><code>scripting</code></td><td>Execute the content extraction script into the active tab on demand</td></tr>
       <tr><td>Datadog dashboard and notebook site access</td><td>Place the Copy as Markdown button in page toolbars and request page data from same-origin Datadog APIs after a click</td></tr>
-    </table>
+      <tr><td>Weights &amp; Biases run site access</td><td>Place the Copy as Markdown button on run pages and request run data from the W&amp;B API after a click</td></tr>
+    </table></div>
 
     <h2>Third-Party Services</h2>
     <p>Copy as Markdown does not use developer-operated services, analytics, or advertising platforms. Supported extractors may request content from the current site's own HTTPS endpoints using your existing browser session. No content is sent to unrelated third parties.</p>
@@ -87,6 +67,9 @@
 
     <h2>Contact</h2>
     <p>For questions about this privacy policy, open an issue at <a href="https://github.com/bvolpato/copy-as-markdown/issues">github.com/bvolpato/copy-as-markdown/issues</a>.</p>
-  </div>
+  </main>
+  <footer class="site-footer">
+    <div class="wrap"><p>MIT, by <a href="https://github.com/bvolpato">Bruno Volpato</a></p> <a href="./">Home</a> <a href="https://github.com/bvolpato/copy-as-markdown/issues">Report a problem</a></div>
+  </footer>
 </body>
 </html>

@@ -1,10 +1,10 @@
-# Contributing to Copy as Markdown
+# Contributing
 
-Thanks for your interest in contributing! Here's how to get started.
+Bug reports and new extractors are welcome.
 
-## Development Setup
+## Set up
 
-Build with Node.js 22.22.2 and pnpm 11.22.0, matching CI. The published library supports Node.js 22.22.2 and newer; its consumers can use their own package manager.
+Build with Node.js 22.22.2 and pnpm 11.22.0, to match CI.
 
 ```bash
 git clone https://github.com/bvolpato/copy-as-markdown.git
@@ -13,96 +13,189 @@ pnpm install
 pnpm build
 ```
 
-## Adding a New Site Extractor
+| Command | Purpose |
+| --- | --- |
+| `pnpm build` | Build the userscript, both extensions, and the library in `dist/` |
+| `pnpm typecheck` | Check types |
+| `pnpm test:regression` | Run the offline browser tests that CI runs |
+| `pnpm build:site` | Regenerate the homepage converter and the site lists |
+| `pnpm package:all` | Create the extension ZIP files |
+| `./install.sh` | Install an extension or userscript, from the store or from this checkout |
 
-1. **Create the extractor file** at `src/extractors/my-site.ts`
-2. **Register it** using `register()`:
+### Installer options
+
+```bash
+./install.sh --type extension --browser chrome            # opens the Chrome Web Store
+./install.sh --type extension --browser firefox --local   # builds this checkout
+./install.sh --type extension --browser chrome --copy-to "$HOME/.local/share/copy-as-markdown/chrome"
+./install.sh --type userscript --browser brave --port 8787
+```
+
+`--copy-to` copies the unpacked extension to a new directory, and it does not overwrite an existing path. For userscripts, the installer serves the script on `127.0.0.1`. Press Ctrl+C when the installation is done. Use `--skip-build` to use existing `dist/` files and `--no-open` to print URLs only.
+
+## Architecture
+
+```
+src/
+├── core/
+│   ├── types.ts        Extractor and anchor interfaces
+│   ├── markdown.ts     HTML to Markdown converter
+│   ├── ui.ts           Button injection: inline or floating
+│   ├── utils.ts        DOM helpers, metadata, paywall detection
+│   └── registry.ts     URL pattern to extractor routing
+├── extractors/         One file for each site or platform
+├── library/            Standalone library API and lazy loaders
+├── catalog.ts          Imports every extractor without UI
+├── background.ts       Extension toolbar action
+├── site.ts             Converter entry for the homepage
+└── main.ts             Extension and userscript entry point
+build/
+├── build.ts            Userscript, extension, and library bundles
+├── site.ts             Homepage outputs
+└── verify-release.ts   Release artifact checks
+docs/                   Homepage, served by GitHub Pages
+```
+
+The build creates these outputs:
+
+```
+dist/
+├── userscript/copy-as-markdown.user.js
+├── chrome/             Manifest V3 extension
+├── firefox/            Manifest V2 extension
+└── library/            ESM entry, browser global, extractor chunks, and types
+```
+
+There are no runtime dependencies.
+
+## Add a site
+
+1. Create `src/extractors/my-site.ts`, and call `register()` in it.
+2. Import the file in `src/catalog.ts`.
+3. Add a loader in `src/library/loaders.ts`.
+4. Add the site to `docs/sites.json`, and then run `pnpm build:site`.
+5. Add a test case. Use a captured fixture for a public page and a synthetic fixture for a page that needs a login.
+6. Run the checks in [Open a pull request](#open-a-pull-request).
+7. Load the userscript or the extension, and check the real site.
 
 ```typescript
 import { register } from '../core/registry';
 import * as Markdown from '../core/markdown';
 import * as Utils from '../core/utils';
 
-register({
+export const mySiteExtractor = register({
   name: 'My Site',
-  matches: [
-    '*://www.mysite.com/*',
-  ],
-  // Default behavior: floating button in the bottom-right corner.
-  // Only add buttonPlacement: 'anchor' when an inline position is
-  // explicitly reviewed and ready to be enabled.
-  anchor: {
-    selector: 'header nav',        // where to put the button
-    position: 'append',            // 'append' | 'prepend' | 'before' | 'after' | 'overlay'
-    style: 'pill',                 // 'tab' | 'pill' | 'icon' | 'link'
-  },
+  matches: ['*://www.mysite.com/*'],
 
   async extract() {
     const title = document.querySelector('h1')?.textContent?.trim() || '';
-    const url = Utils.getCanonicalUrl();
-
-    const metadata = { source: 'My Site', title, url };
+    const metadata = { source: 'My Site', title, url: Utils.getCanonicalUrl() };
 
     const content = document.querySelector('article') || document.querySelector('main');
     if (!content) return Markdown.buildPageMarkdown(metadata, '*No content found.*');
 
     const cleaned = Utils.removeNoise(content, Utils.NOISE_SELECTORS);
     const body = Markdown.elementToMarkdown(cleaned);
-
     return Markdown.buildPageMarkdown(metadata, `# ${title}\n\n${body}`);
   },
 });
 ```
 
-3. **Import in main.ts**: Add `import './extractors/my-site';` to `src/main.ts`
-4. **Build and test**: `pnpm typecheck && pnpm test:regression && pnpm package:all && pnpm verify:release && pnpm pack:library`
-5. **Load the userscript** or extension and verify on the target site
+Guidelines:
 
-`pnpm test:live` runs optional Wayback-based diagnostics. It is not a release gate because archive availability is external and intermittent.
+- Leave out ads, menus, sidebars, and banners.
+- Keep the structure. Use the `Markdown` helpers for tables, lists, and code.
+- Include the source, title, URL, author, and date in the front matter.
+- If content loads later, use `Utils.waitForElement()`.
+- Check selectors on real pages. Do not guess them.
+- Use strict TypeScript and imports. Do not add runtime dependencies.
 
-By default, the button should stay floating in the bottom-right corner. If you want to activate an inline placement, set:
+## Button placement
+
+The userscript button floats in the lower right corner by default. The extension uses the toolbar icon, and it shows page buttons only on Datadog dashboards, Datadog notebooks, and W&B runs.
+
+An inline button needs an `anchor` and `buttonPlacement: 'anchor'`. Without the second setting, the `anchor` has no effect.
 
 ```typescript
-buttonPlacement: 'anchor'
+buttonPlacement: 'anchor',
+anchor: {
+  selector: '#p-views ul',      // Target container
+  position: 'append',           // 'append' | 'prepend' | 'before' | 'after' | 'overlay'
+  style: 'tab',                 // 'tab' | 'pill' | 'icon' | 'link'
+  wrapperTag: 'li',             // Optional wrapper when the host expects a child tag
+  wrapperClass: 'mw-list-item', // Optional wrapper classes
+  wrapperCss: { marginLeft: '8px' },
+  css: { color: '#0645ad' },    // Optional button overrides
+  label: 'Copy as Markdown',    // Omit for an icon-only button
+},
 ```
 
-Without that flag, any `anchor` config is treated as a dormant hook for later.
-
-## Anchor Style Guide
-
-| Style | When to use | Example |
+| Style | Use it for | Example |
 | --- | --- | --- |
-| `tab` | Site has a text-based nav bar | Wikipedia |
-| `pill` | General purpose, compact gradient button | YouTube, Google Search |
-| `icon` | Space-constrained action bars with icon buttons | X/Twitter, WhatsApp |
-| `link` | Text-heavy action bars (uppercase links) | Reddit |
+| `tab` | A text navigation bar | Wikipedia |
+| `pill` | Most sites | YouTube, Google Search |
+| `icon` | An action bar that has only icons | X, WhatsApp |
+| `link` | An action bar that has only text links | Reddit |
 
-If unsure, use `pill` — it's the most versatile and always looks good.
+If the anchor is missing, scrolls out of view, or has no safe space beside it, the button floats until the inline position is usable again. Enable an inline button only after browser fixtures cover its selector and the navigation of the app.
 
-## Extractor Guidelines
+## Tests
 
-- **Separate signal from noise.** Strip ads, nav, sidebars, cookie banners.
-- **Preserve structure.** Use the `Markdown` helpers for tables, lists, code blocks.
-- **Include metadata.** Source name, title, URL, author, date — as YAML frontmatter.
-- **Handle SPAs.** Use `Utils.waitForElement()` if content loads dynamically.
-- **Test with real pages.** Don't just guess at selectors — verify them.
+Browser tests and fixture tools use Puppeteer's `headless: 'shell'` mode with `chrome-headless-shell`, which runs without visible windows.
 
-## Code Style
+```bash
+pnpm exec puppeteer browsers install chrome-headless-shell
+pnpm test:regression
+```
 
-- TypeScript with strict mode
-- No runtime dependencies
-- Use proper imports, not globals
-- Keep extractors focused — one file per site
+To use an existing headless shell installation, set `PUPPETEER_EXECUTABLE_PATH` to its executable path. Unset this variable if it points to regular Chrome. Tests launch their own browser and close it when finished.
 
-## Pull Request Process
+Synthetic fixtures check routing and Markdown output without external network requests. Discussion and source-file cases check comment order, duplicate content, literal code, truncation warnings, and removal of action controls. These checks complement captured public pages; they do not establish current live coverage of authenticated applications.
 
-1. Fork the repository
-2. Create a feature branch: `git checkout -b add-github-extractor`
-3. Make your changes and test them
-4. Run `pnpm typecheck && pnpm test:regression && pnpm package:all && pnpm verify:release && pnpm pack:library`
-5. Open a PR with a clear description of what site you're adding and what content is extracted
+### Captured public-site fixtures
 
-## Release Process
+Public extractors can be checked against browser-rendered pages without committing raw page data:
+
+```bash
+# Capture current public page in a clean headless browser.
+# If live capture fails, try a Wayback snapshot.
+pnpm fixtures:capture -- --site mdn
+
+# Capture every curated public case, reporting failures without stopping early.
+pnpm fixtures:capture -- --all
+
+# Force one source while debugging.
+pnpm fixtures:capture -- --site mdn --source live
+pnpm fixtures:capture -- --site mdn --source wayback
+
+# Replay committed fixtures entirely offline.
+pnpm fixtures:verify
+```
+
+The [catalog](test/sites/catalog.yaml) contains anonymized public-page captures, including Hugging Face models, datasets, file trees, documentation references, and discussion threads. The [coverage inventory](test/sites/coverage.json) links the captures and retains historical public probes with their original timestamps. Capture checks the original copy button, extractor identity, placement, clipboard output, and `contentRequired` strings or `contentSelectors` before anonymizing the DOM. Bot challenges, login screens, and error pages fail capture.
+
+Raw reference screenshots stay under gitignored `.fixture-work/`. Committed fixtures contain synthetic text, normalized links, no scripts or media, a screenshot of sanitized DOM, expected Markdown, and source provenance. `linkPrefixes` can retain curated public route prefixes for path-aware file extractors; link suffixes are still replaced.
+
+A failed live attempt writes `live-failure.png` before Wayback fallback. Archive discovery tries CDX, then direct replay if CDX is unavailable. Accepted snapshots record the exact timestamp, digest, and downloaded-response SHA-256. Pin the accepted timestamp and digest in the catalog; set `digestAlgorithm: sha256` when pinning the response hash. Archived DOM is checked at the original URL with site scripts removed and outgoing requests blocked. An archive verifies historical content and markup; it does not prove current site placement or access.
+
+Capture refuses credentials, localhost, private IP addresses, and non-HTTP protocols. Use only curated public URLs. Authenticated pages require synthetic fixtures and must never use this capture path.
+
+Each captured fixture verifies extractor identity, exact anchor relationship, singleton UI, Markdown bounds, required output, synthetic markers for excluded page chrome, exact expected Markdown, and privacy rules. `pnpm test:regression` runs this offline lane in CI.
+
+`pnpm test:live` runs optional diagnostics against Wayback snapshots. It is not a release gate, because the archive is not always available.
+
+## Open a pull request
+
+1. Fork the repository, and create a branch.
+2. Make the change, and test it.
+3. Run `pnpm typecheck && pnpm test:regression && pnpm package:all && pnpm verify:release && pnpm pack:library`.
+4. Open a pull request that says which site or behavior changes.
+
+## Report a problem
+
+Include the URL, the browser, and the format that you use (userscript, Chrome, or Firefox). If the Markdown is wrong, include the result that you got and the result that you expected.
+
+## Release process
 
 GitHub Actions builds and publishes browser releases. Do not create releases or upload assets manually.
 
@@ -136,8 +229,16 @@ gh workflow run release.yml --ref "v$version" -f publish_npm=true
 
 Run `pnpm pack:library` before publishing. npm trusted publishing must be configured for `release.yml`; the opt-in job uses OIDC provenance and publishes the same version as the signed tag.
 
-## Reporting Issues
+### npm trusted publishing
 
-- Include the URL where the button doesn't appear or doesn't work
-- Note which format you're using (userscript, Chrome, Firefox)
-- If the Markdown output is wrong, share a sample of what you got vs. what you expected
+The unscoped name `copy-as-markdown` is taken on npm, so this package is `@bvolpato/copy-as-markdown`. An npm owner must configure trusted publishing one time:
+
+```bash
+pnpm dlx npm@12.0.2 trust github @bvolpato/copy-as-markdown \
+  --file release.yml \
+  --repo bvolpato/copy-as-markdown \
+  --allow-publish \
+  --yes
+```
+
+The npm job skips versions that already exist. `prepack` rebuilds the library only, and the `files` list in `package.json` limits the package contents.

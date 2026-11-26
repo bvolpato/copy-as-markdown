@@ -1,6 +1,6 @@
 # Privacy Policy — Copy as Markdown
 
-**Last updated:** July 26, 2026
+**Last updated:** November 26, 2026
 
 ## Overview
 
@@ -28,6 +28,8 @@ Some supported pages require a same-site HTTPS request to retrieve content that 
 
 On Datadog dashboard and notebook URLs, the extension loads its page button automatically so it can appear in the page toolbar. After you click it, the extension can request dashboard or notebook definitions and metric series from Datadog's same-origin APIs. Conversion and clipboard access still happen in your browser.
 
+On Weights & Biases run URLs, the extension also loads its page button automatically. After you click it, the extension can request run metadata and sampled metric history from the W&B API.
+
 ## Permissions
 
 | Permission | Why It's Needed |
@@ -36,6 +38,7 @@ On Datadog dashboard and notebook URLs, the extension loads its page button auto
 | `clipboardWrite` | Write the generated Markdown to your clipboard |
 | `scripting` | Execute the content extraction script into the active tab on demand |
 | Datadog dashboard and notebook site access | Place the Copy as Markdown button in page toolbars and request page data from same-origin Datadog APIs after a click |
+| Weights & Biases run site access | Place the Copy as Markdown button on run pages and request run data from the W&B API after a click |
 
 ## Third-Party Services
 
