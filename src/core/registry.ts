@@ -184,7 +184,7 @@ export function matchPatternToRegex(pattern: string): RegExp {
   const portMatch = authority.match(/^(.*?)(:\d+|:\*)?$/)!;
   const hostname = portMatch[1].toLowerCase();
   const host = hostname === '*'
-    ? '[^/?#:@]+'
+    ? '(?:\\[[^\\]/?#@]+\\]|[^/?#:@]+)'
     : hostname.startsWith('*.')
       ? `(?:[^/?#:@]+\\.)?${hostname.slice(2).split('*').map(escapeRegexLiteral).join('[^/?#:@]*')}`
       : hostname.split('*').map(escapeRegexLiteral).join('[^/?#:@]*');
@@ -194,6 +194,12 @@ export function matchPatternToRegex(pattern: string): RegExp {
   const compiled = new RegExp(`^${scheme}://${host}${port}${pathname}$`);
   patternRegexCache.set(pattern, compiled);
   return compiled;
+}
+
+/** Match patterns ignore URL fragments. A pattern for a hash-routed page can still name one. */
+export function matchesUrlPattern(compiled: RegExp, href: string): boolean {
+  const hashStart = href.indexOf('#');
+  return compiled.test(href) || (hashStart >= 0 && compiled.test(href.slice(0, hashStart)));
 }
 
 function normalizeUrlSchemeAndHost(href: string): string {
@@ -216,7 +222,7 @@ export function matchesExtractorUrl(extractor: Extractor, href: string): boolean
   }
   const normalized = normalizeUrlSchemeAndHost(href);
   return testRegex(extractor.regex, href) ||
-    getCompiledPatterns(extractor).some((compiled) => compiled.test(normalized));
+    getCompiledPatterns(extractor).some((compiled) => matchesUrlPattern(compiled, normalized));
 }
 
 export function matchesPathname(regex: RegExp | null, href: string): boolean {

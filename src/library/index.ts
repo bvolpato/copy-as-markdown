@@ -3,6 +3,7 @@ import {
   getAll,
   matchPatternToRegex,
   matchesExtractor,
+  matchesUrlPattern,
 } from '../core/registry';
 import {
   buildPageMarkdown,
@@ -179,11 +180,13 @@ function normalizeDomains(values: readonly string[]): string[] {
 
 function normalizeOrigins(values: readonly string[]): string[] {
   return values.map((value) => {
+    let origin = 'null';
     try {
-      return new URL(value).origin;
-    } catch {
-      throw new Error(`Invalid origin restriction: ${value}`);
-    }
+      origin = new URL(value).origin;
+    } catch { /* Report malformed and opaque origins below. */ }
+    // `localhost:3000` parses as an opaque origin, which equals every file: and data: page origin.
+    if (origin === 'null') throw new Error(`Invalid origin restriction: ${value}`);
+    return origin;
   });
 }
 
@@ -197,7 +200,7 @@ function matchesDomainRestrictions(url: URL, domains: readonly string[]): boolea
 
 function matchesUrlRestriction(url: URL, restriction: UrlRestriction): boolean {
   if (typeof restriction === 'string') {
-    return matchPatternToRegex(restriction).test(url.href);
+    return matchesUrlPattern(matchPatternToRegex(restriction), url.href);
   }
   restriction.lastIndex = 0;
   return restriction.test(url.href);
