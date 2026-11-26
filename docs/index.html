@@ -13,7 +13,7 @@
   <meta property="og:image" content="https://bvolpato.github.io/copy-as-markdown/og.png">
   <meta property="og:image:width" content="1200">
   <meta property="og:image:height" content="630">
-  <meta property="og:image:alt" content="A cluttered web page on the left and the clean Markdown copied from it on the right">
+  <meta property="og:image:alt" content="Copy the page. Leave the mess. The Markdown copy of a page about tide tables, with front matter, a heading, and a table">
   <meta name="twitter:card" content="summary_large_image">
   <link rel="icon" type="image/svg+xml" href="icon.svg">
   <link rel="preload" href="fonts/recursive-latin.woff2" as="font" type="font/woff2" crossorigin>
@@ -212,7 +212,7 @@ if (SAFE.has(request.method)) {
             <figcaption><span class="key key-kept"></span> Markdown <span class="key key-noise"></span> HTML left behind. <span id="cells-caption"></span></figcaption>
           </figure>
         </div>
-        <p class="fine">Sizes are in characters. Measured on November 26, 2026 in a headless browser, signed out. Markdown sizes include link URLs.</p>
+        <p class="fine">Sizes are in characters. HTML is the page after it loads, which can be larger or smaller than the download. Measured on November 26, 2026 in a headless browser, signed out. Markdown sizes include link URLs.</p>
       </div>
     </section>
 
@@ -223,7 +223,7 @@ if (SAFE.has(request.method)) {
           <table class="data spec">
             <thead><tr><th scope="col">Markdown</th><th scope="col">What it keeps</th></tr></thead>
             <tbody>
-              <tr><td><code>--- title, url ---</code></td><td>Front matter with the title, the source URL, and details such as author and date, so you can cite the page later.</td></tr>
+              <tr><td><code>--- title, url ---</code></td><td>Front matter with the title, the source URL, and details that the body does not repeat, so you can cite the page later.</td></tr>
               <tr><td><code># ## ###</code></td><td>The heading hierarchy of the page.</td></tr>
               <tr><td><code>| cell | cell |</code></td><td>Tables, including merged cells, infoboxes, and property lists.</td></tr>
               <tr><td><code>```ts</code></td><td>Code, character for character, with its language. The fence grows when the code contains backticks.</td></tr>
@@ -423,7 +423,7 @@ if (SAFE.has(request.method)) {
           </div>
           <ul class="checks">
             <li>No account, no ads, no analytics</li>
-            <li>Runs only when you ask it to</li>
+            <li>Copies only when you ask it to</li>
             <li>Some signed-in pages are read through that site's own API, with the session you already have</li>
             <li>This page loads nothing from third parties</li>
           </ul>
@@ -435,7 +435,7 @@ if (SAFE.has(request.method)) {
             <tr><td><code>activeTab</code></td><td>Read the current page after you click.</td></tr>
             <tr><td><code>scripting</code></td><td>Run the packaged extraction script in that tab.</td></tr>
             <tr><td><code>clipboardWrite</code></td><td>Write the Markdown to your clipboard.</td></tr>
-            <tr><td>Datadog and W&amp;B pages</td><td>Show an inline button on dashboards, notebooks, and runs. It still waits for your click.</td></tr>
+            <tr><td>Datadog and W&amp;B pages</td><td>Show a button on dashboards, notebooks, and runs. It still waits for your click.</td></tr>
           </tbody>
         </table>
       </div>
@@ -478,7 +478,7 @@ if (match) console.log(await match.extract());</code></pre>
           </details>
           <details>
             <summary>Part of a long conversation is missing. Why?</summary>
-            <p>Many apps keep only recent messages in the page. Scroll up to load the older ones, then copy again. The output says when older content was not loaded.</p>
+            <p>Many apps keep only recent messages in the page. Scroll up to load the older ones, then copy again. Copies of AI chats say when older messages were not loaded. Other chat apps do not say it.</p>
           </details>
           <details>
             <summary>The userscript button is in the way. Can I move it?</summary>
@@ -515,7 +515,7 @@ if (match) console.log(await match.extract());</code></pre>
             <a class="btn-install" href="https://github.com/bvolpato/copy-as-markdown/releases/latest/download/copy-as-markdown.user.js">Install userscript</a>
           </div>
         </div>
-        <p class="install-foot"><a class="latest-release" href="https://github.com/bvolpato/copy-as-markdown/releases/latest">Release notes and downloads</a> <a href="https://github.com/bvolpato/copy-as-markdown#install">Build from source</a></p>
+        <p class="install-foot"><a class="latest-release" href="https://github.com/bvolpato/copy-as-markdown/releases/latest">Release notes and downloads</a> <a href="https://github.com/bvolpato/copy-as-markdown#build-from-source">Build from source</a></p>
       </div>
     </section>
   </main>

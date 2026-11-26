@@ -75,7 +75,7 @@ url: "https://news.ycombinator.com/item?id=8863"
 
 | Part of the page | In the Markdown |
 | --- | --- |
-| Title, URL, author, date | YAML front matter |
+| Title, URL, and details that the body does not repeat | YAML front matter |
 | Headings | `#` to `######`, with the same hierarchy |
 | Tables and infoboxes | Pipe tables |
 | Code | Fenced blocks with the language, character for character |
@@ -99,7 +99,7 @@ Language models read structure better than loose text, and Markdown keeps the st
 | [arXiv paper](https://arxiv.org/html/1706.03762v7) | 188,288 | 40,020 | 21% |
 | [Hacker News thread](https://news.ycombinator.com/item?id=8863) | 101,315 | 28,549 | 28% |
 
-Sizes are in characters. They were measured on November 26, 2026 in a headless browser, signed out.
+Sizes are in characters. HTML is the page after it loads, which can be larger or smaller than the download. They were measured on November 26, 2026 in a headless browser, signed out.
 
 ## Supported sites
 
@@ -128,7 +128,7 @@ On every other site, the general extractor finds the main content.
 
 ### Limits
 
-- A copy contains what the page has loaded. Scroll to older messages and expand collapsed sections first. When an app does not load older content, the output says so.
+- A copy contains what the page has loaded. Scroll to older messages and expand collapsed sections first. Copies of AI chats say when older messages were not loaded. Other chat apps do not say it.
 - It does not get around logins or paywalls. Pages that need a login use the session that you already have in the browser.
 - Content that a site draws on a canvas can be missing.
 - W&B and MLflow metric histories are sampled, so that the copy stays small. [Details](https://github.com/bvolpato/copy-as-markdown/blob/main/SUPPORTED_SITES.md#metric-histories).
@@ -197,7 +197,7 @@ pnpm install
 pnpm build
 ```
 
-Then run `./install.sh` and choose a browser. It builds the extension or userscript, opens the correct browser page, and prints the remaining steps. `./install.sh --help` lists all options.
+Then run `./install.sh` and choose a browser. For an extension, it offers the store or a local build. For a local build or a userscript, it builds the checkout, opens the correct browser page, and prints the remaining steps. `./install.sh --help` lists all options.
 
 To load a build yourself:
 

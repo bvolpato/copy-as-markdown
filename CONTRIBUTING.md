@@ -20,13 +20,13 @@ pnpm build
 | `pnpm test:regression` | Run the offline browser tests that CI runs |
 | `pnpm build:site` | Regenerate the homepage converter and the site lists |
 | `pnpm package:all` | Create the extension ZIP files |
-| `./install.sh` | Build and install a local extension or userscript |
+| `./install.sh` | Install an extension or userscript, from the store or from this checkout |
 
 ### Installer options
 
 ```bash
-./install.sh --type extension --browser chrome
-./install.sh --type extension --browser firefox --local
+./install.sh --type extension --browser chrome            # opens the Chrome Web Store
+./install.sh --type extension --browser firefox --local   # builds this checkout
 ./install.sh --type extension --browser chrome --copy-to "$HOME/.local/share/copy-as-markdown/chrome"
 ./install.sh --type userscript --browser brave --port 8787
 ```

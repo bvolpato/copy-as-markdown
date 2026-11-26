@@ -25,6 +25,7 @@
       await navigator.clipboard.writeText(text);
       return true;
     } catch {
+      const focused = document.activeElement;
       const area = document.createElement('textarea');
       area.value = text;
       area.style.cssText = 'position:fixed;opacity:0';
@@ -32,6 +33,7 @@
       area.select();
       const copied = document.execCommand('copy');
       area.remove();
+      focused?.focus({ preventScroll: true });
       return copied;
     }
   }
@@ -65,7 +67,10 @@
     line.append(text.slice(last));
   }
 
-  function renderMarkdown(target, markdown) {
+  const PREVIEW_LIMIT = 200_000;
+
+  function renderMarkdown(target, text) {
+    const markdown = text.slice(0, PREVIEW_LIMIT);
     const fragment = document.createDocumentFragment();
     let fence = '';
     let frontMatter = false;
@@ -99,8 +104,12 @@
           appendInline(line, marker[2]);
         } else appendInline(line, text);
       }
+      line.append('\n');
       fragment.append(line);
     });
+    if (text.length > PREVIEW_LIMIT) {
+      fragment.append(span('line s-dim', `The preview ends here. Copy gives all ${count(text.length)} characters.`));
+    }
     target.replaceChildren(fragment);
   }
 
@@ -312,7 +321,7 @@
     const token = ++switching;
     const markdown = view === 'markdown';
     $$('[data-view]').forEach((button) => button.setAttribute('aria-pressed', String(button.dataset.view === view)));
-    if (markdown === root.classList.contains('view-markdown')) return;
+    if (markdown === root.classList.contains('view-markdown')) return root.classList.remove('morph');
     if (animate) {
       if (!markdown) root.classList.replace('view-markdown', 'morph');
       else root.classList.add('morph');
@@ -333,6 +342,11 @@
   }));
   addEventListener('hashchange', () => setView(location.hash === '#markdown' ? 'markdown' : 'page', { animate: false }));
   $('.logo').addEventListener('click', () => setView('page', { animate: false }));
+  $('.skip-link').addEventListener('click', (event) => {
+    if (!root.classList.contains('view-markdown')) return;
+    event.preventDefault();
+    $('#markdown-title').focus();
+  });
   $$('.site-nav a[href^="#"]').forEach((link) => link.addEventListener('click', () => setView('page', { animate: false })));
 
   $('#copy-view').addEventListener('click', () => copyAndReport(pageMarkdown()));
