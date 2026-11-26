@@ -359,14 +359,9 @@ export function cloneMessage(element: Element): Element {
 
 /** Convert a cloned message whose text nodes already have their rendered whitespace. */
 export function messageToMarkdown(clone: Element): string {
-  let markdown = Markdown.cleanMarkdown(
+  const markdown = Markdown.cleanMarkdown(
     Markdown.nodeToMarkdown(clone, { preserveWhitespace: true }),
   );
-  // Table cells double each backslash, which changes the TeX.
-  for (const math of clone.querySelectorAll('td [data-tex], th [data-tex]')) {
-    const tex = Markdown.normalizeWhitespace(math.textContent || '');
-    markdown = markdown.split(Markdown.escapeMarkdownTableCell(tex)).join(tex.replace(/\|/g, '\\|'));
-  }
   return clone.querySelector('pre') ? markdown : closeFence(markdown);
 }
 
@@ -418,8 +413,15 @@ function mathReplacement(element: Element): Element | null {
   if (!tex) return null;
   const display = element.matches('.math-block, .katex-display .katex, math[display="block"]')
     || element.querySelector('.katex-display, math[display="block"]') !== null;
+  if (element.closest('td, th')) {
+    // Table cells escape the backslashes of prose, but not those of code.
+    const code = element.ownerDocument.createElement('code');
+    const cell = element.ownerDocument.createElement('span');
+    code.textContent = tex;
+    cell.append('$', code, '$');
+    return cell;
+  }
   const replacement = element.ownerDocument.createElement(display ? 'div' : 'span');
-  replacement.setAttribute('data-tex', '');
   replacement.textContent = display ? `$$${tex}$$` : `$${tex}$`;
   return replacement;
 }

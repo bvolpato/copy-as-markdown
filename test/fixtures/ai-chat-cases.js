@@ -109,7 +109,7 @@ export const AI_CHAT_CASES = [
     </div></div></body></html>`,
     ordered: [
       '[report.pdf](https://files.example/report.pdf)', 'Quoted text.', 'Summarize it.',
-      '| $\\frac{a}{b} \\| x$ |', 'unloaded page history is not included',
+      '| $`\\frac{a}{b} \\| x`$ |', 'unloaded page history is not included',
     ],
     contains: [],
     excludes: ['Earlier answer.'],
