@@ -6,8 +6,10 @@ import { register } from '../core/registry';
 import * as Markdown from '../core/markdown';
 import * as Utils from '../core/utils';
 import { addExtractionMetadata, limitCollection, limitMarkdown } from '../core/context';
+import { labeledCount } from '../core/counts';
 
 const COMMENT_LIMIT = 30;
+const TEXT_SELECTOR = 'h1, [data-testid="post-caption"], [data-testid="comment"], li, figcaption';
 
 interface InstagramPost {
   shortcode: string;
@@ -189,7 +191,7 @@ function extractDomPost(container: Element | null, shortcode: string, routeType:
     || (routeType === 'profile' ? clean(Utils.getMeta('description')) : '');
   post.timestamp = attr(container, ['time[datetime]'], 'datetime') || text(container, ['time']);
   post.likes = engagementFromDom(container, /likes?/i, ['section button', 'a[href$="/liked_by/"]', '[data-testid="like-count"]']);
-  post.comments = engagementFromDom(container, /comments?/i, ['a[href*="comments"]', 'button', '[data-testid="comment-count"]']);
+  post.comments = engagementFromDom(container, /comment\p{L}*/iu, ['a[href*="comments"]', 'button', '[data-testid="comment-count"]']);
   post.views = engagementFromDom(container, /views?|plays?/i, ['span', 'div']);
 
   const seenMedia = new Set<string>();
@@ -360,12 +362,10 @@ function appendComment(parts: string[], comment: InstagramComment): void {
 function engagementFromDom(scope: ParentNode, label: RegExp, selectors: string[]): string {
   for (const selector of selectors) {
     for (const node of scope.querySelectorAll(selector)) {
-      const textValue = clean(node.textContent || '');
-      const aria = node.getAttribute('aria-label') || '';
-      const combined = `${aria} ${textValue}`.trim();
-      if (!label.test(combined)) continue;
-      const match = combined.match(/\d[\d,.]*(?:\s*[kmb]\b)?/i);
-      if (match) return match[0];
+      // Numbers in the caption or in a comment are not engagement counts.
+      if (node.closest(TEXT_SELECTOR) || node.querySelector(TEXT_SELECTOR)) continue;
+      const value = labeledCount(`${node.getAttribute('aria-label') || ''} ${clean(node.textContent || '')}`, label);
+      if (value) return value;
     }
   }
   return '';

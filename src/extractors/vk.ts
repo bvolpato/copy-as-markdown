@@ -5,6 +5,7 @@
  */
 
 import { addExtractionMetadata, limitCollection, limitMarkdown } from '../core/context';
+import { labeledCount } from '../core/counts';
 import * as Markdown from '../core/markdown';
 import { register } from '../core/registry';
 import * as Utils from '../core/utils';
@@ -201,10 +202,10 @@ function extractDomPost(scope: Element | null, id: string): VkPost {
     '.wall_post_text_content', '[class*="PostText"]',
   ]);
   post.timestamp = attr(scope, ['time[datetime]'], 'datetime') || text(scope, ['.rel_date', '.post_date', 'time']);
-  post.likes = count(scope, /like|нрав/i);
-  post.comments = count(scope, /comment|коммент/i);
-  post.shares = count(scope, /share|подел/i);
-  post.views = count(scope, /view|просмотр/i);
+  post.likes = count(scope, /likes?|нрав\p{L}*/iu);
+  post.comments = count(scope, /comment\p{L}*|коммент\p{L}*/iu);
+  post.shares = count(scope, /shares?|подел\p{L}*/iu);
+  post.views = count(scope, /views?|просмотр\p{L}*/iu);
   post.media = extractMedia(scope);
   return post;
 }
@@ -227,7 +228,7 @@ function extractComments(scope: ParentNode): VkComment[] {
       author: author || 'Anonymous',
       body,
       timestamp: attr(node, ['time[datetime]'], 'datetime') || text(node, ['.rel_date', '.reply_date', 'time']),
-      likes: count(node, /like|нрав/i),
+      likes: count(node, /likes?|нрав\p{L}*/iu),
       reply: Boolean(node.closest('.reply_replies')),
     });
   });
@@ -264,6 +265,7 @@ function extractMedia(scope: ParentNode): string[] {
 
 function findEmbeddedPost(id: string): VkPost | null {
   const payloads: unknown[] = [];
+  const idPattern = new RegExp(`(?:^|[^\\d-])${id}(?!\\d)`);
   for (const script of document.querySelectorAll<HTMLScriptElement>(
     'script[type="application/json"], script[type="application/ld+json"], script[id*="initial" i], script[id*="state" i]',
   )) {
@@ -283,7 +285,7 @@ function findEmbeddedPost(id: string): VkPost | null {
     if (record) return mapEmbeddedPost(record, id);
     const ld = findObject(payload, (candidate) =>
       ['SocialMediaPosting', 'VideoObject', 'Article'].includes(stringValue(candidate['@type']))
-      && (stringValue(candidate.url).includes(id) || stringValue(candidate.mainEntityOfPage).includes(id)),
+      && (idPattern.test(stringValue(candidate.url)) || idPattern.test(stringValue(candidate.mainEntityOfPage))),
     );
     if (ld) return mapLdPost(ld, id);
   }
@@ -340,10 +342,8 @@ function count(scope: ParentNode, label: RegExp): string {
   for (const node of scope.querySelectorAll<HTMLElement>('[aria-label], button, a, span')) {
     // Numbers in the post or comment text are not engagement counts.
     if (node.closest(TEXT_SELECTOR) || node.querySelector(TEXT_SELECTOR)) continue;
-    const combined = `${node.getAttribute('aria-label') || ''} ${clean(node.textContent || '')}`.trim();
-    if (!label.test(combined)) continue;
-    const match = combined.match(/\d[\d,.]*(?:\s*[kmb]\b)?/i);
-    if (match) return match[0];
+    const value = labeledCount(`${node.getAttribute('aria-label') || ''} ${clean(node.textContent || '')}`, label);
+    if (value) return value;
   }
   return '';
 }

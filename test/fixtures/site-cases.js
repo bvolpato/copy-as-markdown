@@ -20,6 +20,13 @@ export const SITE_CASES = [
     excluded: ['AAAAAAAAAAA', 'Old', '2001', 'PT1M', 'previous video'],
   },
   {
+    id: 'youtube-collapsed-description-keeps-same-site-links',
+    name: 'YouTube',
+    url: 'https://www.youtube.com/watch?v=BBBBBBBBBBB',
+    html: `<ytd-watch-flexy><h1>Video</h1><div id="description-inline-expander"><span id="snippet-text"><a href="/watch?v=BBBBBBBBBBB&t=60s">1:00</a> Start, then <a href="/watch?v=CCCCCCCCCCC">• Next video</a></span><span id="ellipsis">…</span></div></ytd-watch-flexy>`,
+    expected: ['1:00 Start, then [• Next video](https://www.youtube.com/watch?v=CCCCCCCCCCC) ...'],
+  },
+  {
     id: 'old-reddit-score-title-and-deleted-author',
     name: 'Reddit',
     url: 'https://old.reddit.com/r/markdown/comments/abc123/thread/',
@@ -55,6 +62,15 @@ export const SITE_CASES = [
     excluded: ['2020', 'twimg.com'],
   },
   {
+    id: 'x-quote-with-only-an-image',
+    name: 'X (Twitter)',
+    url: 'https://x.com/alice/status/1234567890',
+    html: `<main><article data-testid="tweet"><div data-testid="User-Name"><a href="/alice"><span><span>Alice</span></span></a></div><div data-testid="tweetText">Look</div>
+      <div role="link"><div data-testid="User-Name"><span><span>Bob</span></span><span>@bob</span></div><img alt="Chart" src="https://pbs.twimg.com/media/q.jpg"></div></article></main>`,
+    expected: ['> **Quoted Bob (@bob):**\n> [Chart](https://pbs.twimg.com/media/q.jpg)'],
+    excluded: ['## Media'],
+  },
+  {
     id: 'bluesky-thread-text-author-and-hidden-screens',
     name: 'Bluesky',
     url: 'https://bsky.app/profile/alice.example/post/3l6',
@@ -74,6 +90,21 @@ export const SITE_CASES = [
       <article data-variant="thread" class="_comp_status__root"><header><strong class="display-name__html">Bob</strong></header><div class="_comp_status_content__text"><p>Reply post</p></div></article>
       <article data-variant="thread"><span>Carol</span><span>&lt;p&gt;Off-screen &lt;strong&gt;reply&lt;/strong&gt;&lt;/p&gt;</span></article></main></div>`,
     expected: ['## Alice @alice (2026-01-01T00:00:00Z)\n\nRoot post', '### Bob\n\nReply post', '### Carol\n\nOff-screen **reply**'],
+  },
+  {
+    id: 'mastodon-image-only-post',
+    name: 'Mastodon',
+    url: 'https://social.example/@alice/2',
+    html: `<div id="mastodon"><main><article data-variant="page"><header><strong class="display-name__html">Alice</strong></header><div class="media-gallery"><a href="/o.png"><img alt="A chart" src="https://social.example/s.png"></a></div></article>
+      <article data-variant="thread"><div class="_comp_status_content__text"><p>Reply</p></div></article></main></div>`,
+    expected: ['## Alice\n\n![A chart](https://social.example/s.png)', 'Reply'],
+  },
+  {
+    id: 'mastodon-profile-keeps-the-bio',
+    name: 'Mastodon',
+    url: 'https://social.example/@alice',
+    html: `<div id="mastodon"><main><div class="_comp_account_header__barWrapper"><div class="_comp_account_bio__bio"><p>Film photography.</p></div></div><article data-variant="feed"><div class="_comp_status_content__text"><p>Post</p></div></article></main></div>`,
+    expected: ['Film photography.', 'Post'],
   },
   {
     id: 'arxiv-html-math-and-author-notes',
@@ -104,12 +135,32 @@ export const SITE_CASES = [
     excluded: ['See the Rules section.'],
   },
   {
+    id: 'polymarket-in-app-navigation-uses-one-event',
+    name: 'Polymarket',
+    url: 'https://polymarket.com/event/new',
+    head: '<title>New</title><script id="__NEXT_DATA__" type="application/json">{"event":{"title":"Old","slug":"old","related":"new","markets":[{"groupItemTitle":"O1","outcomePrices":["0.5"]},{"groupItemTitle":"O2","outcomePrices":["0.5"]}]}}</script>',
+    html: ['new', 'old'].map((slug) => `<div${slug === 'old' ? ' style="display: none"' : ''}><h1>${slug} title</h1>
+      <script type="application/ld+json">{"@type":"Event","name":"${slug} title","url":"https://polymarket.com/event/${slug}"}</script>
+      <script type="application/ld+json">{"@type":"FAQPage","mainEntity":[{"name":"When does it close?","acceptedAnswer":{"text":"${slug} timeline"}}]}</script>
+      <div data-scroll-anchor="event-detail-accordion-item-1"><p>${slug} outcome</p><p>60%</p></div><div role="tabpanel" id="${slug}-panel-rules"><span>${slug} rules</span></div></div>`).join(''),
+    expected: ['# new title', '| new outcome | 60% |', 'new rules', 'new timeline'],
+    excluded: ['old', '| O1 |'],
+  },
+  {
     id: 'kalshi-outcome-names-and-prices',
     name: 'Kalshi',
     url: 'https://kalshi.com/markets/kxfed/fed',
     html: `<main><h1>Fed</h1><div data-tile-group=""><div><button>Above 4.00%</button><span>95%</span><button data-testid="price-pill">Yes 97¢</button><button data-testid="price-pill">No 4¢</button></div>
       <div><button>Above 4.25%</button><span>&lt;1%</span><button data-testid="price-pill">Yes 1¢</button></div></div><p>Rules</p></main>`,
     expected: ['| Above 4.00% | 95% | 97¢ | 4¢ |', '| Above 4.25% | <1% | 1¢ |  |', 'Rules'],
+  },
+  {
+    id: 'kalshi-keeps-later-tile-groups-and-hidden-counts',
+    name: 'Kalshi',
+    url: 'https://kalshi.com/markets/kxgame/game',
+    html: `<main><h1>Game</h1><div data-tile-group=""><div><button>Bears</button><span>51%</span></div><div>2 more</div></div>
+      <button aria-controls="p">Totals</button><div id="p"><div data-tile-group=""><div><button>Over<span>56.5</span></button><span>48%</span></div><div><button>Show more</button></div></div></div></main>`,
+    ordered: ['| Bears | 51% |', '2 more', '## Totals', '| Over 56.5 | 48% |', 'Show more'],
   },
   {
     id: 'weather-current-reading-and-hourly-rows',
@@ -126,6 +177,7 @@ export const SITE_CASES = [
     id: 'news-paywall-markers-on-visible-content',
     name: 'News (Generic)',
     url: 'https://www.wired.com/story/x/',
+    head: '<title>Story</title><script type="application/ld+json">{"@type":"NewsArticle","articleBody":"A visible paragraph."}</script>',
     html: `<aside class="paywall-bar"><div></div></aside><main><article><h1>Story</h1><p class="paywall">A visible paragraph.</p><div class="recirc-most-popular-wrapper"><p>Other story</p></div></article></main>`,
     expected: ['A visible paragraph.'],
     excluded: ['Paywall detected', 'Other story'],
@@ -135,6 +187,21 @@ export const SITE_CASES = [
     name: 'News (Generic)',
     url: 'https://www.wired.com/story/y/',
     html: '<main><article><h1>Story</h1><p>Teaser.</p><div class="paywall">Subscribe to read the rest.</div></article></main>',
+    expected: ['Paywall detected'],
+  },
+  {
+    id: 'news-short-copy-is-a-paywall',
+    name: 'News (Generic)',
+    url: 'https://www.wired.com/story/z/',
+    head: `<title>Story</title><script type="application/ld+json">{"@type":"NewsArticle","articleBody":"${'A long article. '.repeat(40)}"}</script>`,
+    html: '<main><article><h1>Story</h1><p>Teaser.</p></article></main>',
+    expected: ['Paywall detected'],
+  },
+  {
+    id: 'news-paywall-prompt-in-a-paragraph',
+    name: 'News (Generic)',
+    url: 'https://www.wired.com/story/w/',
+    html: '<main><article><h1>Story</h1><p>Teaser.</p><p class="paywall-prompt">Subscribe to read the rest.</p></article></main>',
     expected: ['Paywall detected'],
   },
   {
@@ -187,6 +254,23 @@ export const SITE_CASES = [
     excluded: ['## Engagement'],
   },
   {
+    id: 'facebook-count-is-next-to-its-label',
+    name: 'Facebook',
+    url: 'https://www.facebook.com/acme/posts/12345/',
+    html: `<main role="main"><div role="article"><strong><a href="/acme">Alice</a></strong><a href="/acme/posts/12345/">1h</a><div data-ad-preview="message">Hello</div>
+      <span><span>Tuesday, November 24, 2026</span> · Shared with Public</span><span>View 4 replies</span><button><span>1.2K</span><span>Comments</span></button></div></main>`,
+    expected: ['- **Comments:** 1.2K'],
+    excluded: ['**Shares:**', '**Views:**'],
+  },
+  {
+    id: 'instagram-caption-is-not-a-view-count',
+    name: 'Instagram',
+    url: 'https://www.instagram.com/p/ABC123/',
+    html: '<main><article><header><a href="/alice/">alice</a></header><a href="/p/ABC123/">x</a><div><h1>My favorite 3 views</h1></div><section><button>1,234 likes</button><button>5 commentaires</button></section></article></main>',
+    expected: ['- **Likes:** 1,234', '- **Comments:** 5'],
+    excluded: ['**Views:**'],
+  },
+  {
     id: 'instagram-caption-line-breaks-and-reply-owners',
     name: 'Instagram',
     url: 'https://www.instagram.com/p/ABC123/',
@@ -211,6 +295,15 @@ export const SITE_CASES = [
       <article data-video-id="222"><img alt="bob" src="https://p16.example/tos-useast5-avt-0068-tx/a.jpeg"><div data-e2e="browse-video-desc">Second video</div></article>`,
     expected: ['Second video'],
     excluded: ['First video', 'TikTok cover', '-avt-'],
+  },
+  {
+    id: 'tiktok-video-over-a-profile',
+    name: 'TikTok',
+    url: 'https://www.tiktok.com/@bob/video/222',
+    head: '<title>Bob</title><link rel="canonical" href="https://www.tiktok.com/@bob"><meta name="description" content="Profile text">',
+    html: '<div role="dialog"><div data-e2e="browse-video"></div><div><span data-e2e="browse-username">Bob B</span><div data-e2e="browse-video-desc">Video text</div><strong data-e2e="browse-like-count">9</strong></div></div>',
+    expected: ['url: "https://www.tiktok.com/@bob/video/222"', '**Handle:** @bob', 'Video text', '- **Likes:** 9'],
+    excluded: ['Profile text'],
   },
   {
     id: 'twitch-live-channel-ignores-listed-clips',
@@ -272,7 +365,7 @@ export const SITE_CASES = [
     id: 'booking-rating-is-not-concatenated',
     name: 'Booking.com',
     url: 'https://www.booking.com/hotel/fr/x.html',
-    html: '<h1>Hotel</h1><div data-testid="review-score"><div>Scored 8.5</div><div aria-hidden="true">8.5</div><div>Very Good</div></div>',
-    expected: ['**Rating:** Scored 8.5 Very Good'],
+    html: '<h1>Hotel <b>Paris</b>, Centre</h1><div data-testid="review-score"><div>Scored 8.5</div><div aria-hidden="true">8.5</div><div>Very Good</div></div><div data-testid="price-and-discounted-price"><div>Price</div><div aria-hidden="true">€ 120</div></div>',
+    expected: ['# Hotel Paris, Centre', '**Rating:** Scored 8.5 Very Good', '**Price:** Price € 120'],
   },
 ];

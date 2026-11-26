@@ -297,8 +297,10 @@ function parseTweetArticle(article: Element): TweetData {
   let quote: TweetData['quote'] = null;
   const quoteTextEl = quoteContainer?.querySelector('[data-testid="tweetText"]')
     || (tweetTextEls.length > 1 ? tweetTextEls[1] : null);
-  if (quoteTextEl && quoteTextEl !== mainTextEl) {
-    const quoteScope = quoteContainer || quoteTextEl.closest('[role="link"]') || quoteTextEl.parentElement;
+  const quoteMedia = quoteContainer ? extractTweetMedia(quoteContainer) : [];
+  const hasQuoteText = quoteTextEl && quoteTextEl !== mainTextEl;
+  if (hasQuoteText || quoteMedia.length > 0) {
+    const quoteScope = quoteContainer || quoteTextEl?.closest('[role="link"]') || quoteTextEl?.parentElement;
     const qUserEl = quoteScope?.querySelector('[data-testid="User-Name"]')
       || (userNameEls.length > 1 ? userNameEls[1] : null);
     const qAuthor = clean(qUserEl?.querySelector('span span')?.textContent || '');
@@ -306,7 +308,7 @@ function parseTweetArticle(article: Element): TweetData {
     const qHandle = (qHandleEl?.getAttribute('href') || '').replace(/^\//, '').split(/[/?#]/)[0]
       || Array.from(qUserEl?.querySelectorAll('span') || [])
         .map((span) => clean(span.textContent || '').match(/^@(\w+)$/)?.[1] || '').find(Boolean) || '';
-    const qText = tweetTextToMarkdown(quoteTextEl);
+    const qText = [hasQuoteText ? tweetTextToMarkdown(quoteTextEl) : '', ...quoteMedia].filter(Boolean).join('\n');
     if (qText) quote = { author: qAuthor, handle: qHandle, text: qText };
   }
 
@@ -330,7 +332,7 @@ function parseTweetArticle(article: Element): TweetData {
   if (statsMap.views) sp.push(`Views: ${statsMap.views}`);
   if (statsMap.bookmarks) sp.push(`Bookmarks: ${statsMap.bookmarks}`);
 
-  const media = extractTweetMedia(article);
+  const media = extractTweetMedia(article, quoteContainer);
   return { author, handle, date, text, articleBody, quote, stats: sp.join(' · '), media };
 }
 
@@ -349,9 +351,10 @@ function tweetTextToMarkdown(element: Element): string {
   return Markdown.elementToMarkdown(clone).trim() || clean(clone.textContent || '');
 }
 
-function extractTweetMedia(article: Element): string[] {
+function extractTweetMedia(article: Element, quote: Element | null = null): string[] {
   const media: string[] = [];
   article.querySelectorAll<HTMLImageElement>('img[alt][src]').forEach((element) => {
+    if (quote?.contains(element)) return;
     const label = clean(element.alt) || 'X media';
     if (/profile picture|avatar|emoji|icon/i.test(label)) return;
     const raw = element.currentSrc || element.src;
@@ -361,6 +364,7 @@ function extractTweetMedia(article: Element): string[] {
     if (!media.includes(value)) media.push(value);
   });
   article.querySelectorAll<HTMLVideoElement>('video[poster]').forEach((element) => {
+    if (quote?.contains(element)) return;
     const src = safeHttpUrl(element.poster || '');
     const value = src ? `[X video](${src})` : 'X video';
     if (!media.includes(value)) media.push(value);

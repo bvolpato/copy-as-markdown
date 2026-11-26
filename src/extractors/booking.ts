@@ -158,14 +158,19 @@ function firstText(selectors: string[]): string {
 /** Separate adjacent blocks, and skip the visual copy of text that screen readers get in full. */
 function spacedText(element: Element | null): string {
   if (!element) return '';
-  const walker = document.createTreeWalker(element, NodeFilter.SHOW_TEXT);
-  const chunks: string[] = [];
-  for (let node = walker.nextNode(); node; node = walker.nextNode()) {
-    const hidden = node.parentElement?.closest('[aria-hidden="true"], script, style');
-    const chunk = (node.textContent || '').replace(/\s+/g, ' ').trim();
-    if (chunk && !(hidden && element.contains(hidden))) chunks.push(chunk);
-  }
-  return chunks.join(' ') || (element.textContent || '').replace(/\s+/g, ' ').trim();
+  const read = (node: Node, skipped: string | null): string => {
+    if (node.nodeType === Node.TEXT_NODE) return node.textContent || '';
+    if (!(node instanceof Element) || node.matches('script, style')) return '';
+    if (node !== element && node.matches('[aria-hidden="true"]')) {
+      // Keep hidden text that has no accessible copy.
+      const copy = (node.textContent || '').replace(/\s+/g, ' ').trim();
+      if (skipped === null || skipped.includes(copy)) return ' ';
+    }
+    const inner = Array.from(node.childNodes, (child) => read(child, skipped)).join('');
+    return node.matches('a, abbr, b, bdi, em, i, s, small, span, strong, sub, sup, u') ? inner : ` ${inner} `;
+  };
+  const clean = (text: string) => text.replace(/\s+/g, ' ').trim();
+  return clean(read(element, clean(read(element, null))));
 }
 
 function extractRows(selectors: string[]): string[] {

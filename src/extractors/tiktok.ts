@@ -54,10 +54,10 @@ register({
   },
 
   async extract() {
-    const url = Utils.getCanonicalUrl();
     const pathname = window.location.pathname;
     const routeId = pathname.match(/\/(?:video|photo)\/(\d+)/)?.[1]
       || pathname.match(/\/(?:embed\/v2|player\/v1)\/(\d+)/)?.[1] || '';
+    const url = hasStaleHead(routeId) ? window.location.origin + pathname : Utils.getCanonicalUrl();
     const isProfile = /^\/@[^/]+\/?$/.test(pathname);
     const isLive = /(?:^|\/)live(?:\/|$)/.test(pathname);
     const active = findActiveVideo(routeId);
@@ -157,7 +157,15 @@ function emptyItem(id = ''): TikTokItem {
   };
 }
 
+/** In-app navigation from a profile keeps the head metadata of the profile. */
+function hasStaleHead(routeId: string): boolean {
+  return Boolean(routeId) && !Utils.getCanonicalUrl().includes(routeId);
+}
+
 function findActiveVideo(routeId: string): Element | null {
+  // A video that opens over a profile or a feed has its text outside the player element.
+  const dialog = routeId ? document.querySelector('[data-e2e="browse-video-desc"]')?.closest('[role="dialog"]') : null;
+  if (dialog) return dialog;
   const candidates = Array.from(document.querySelectorAll<HTMLElement>([
     '[data-e2e="feed-item"]', '[data-e2e="browse-video"]', '[data-video-id]',
     '[data-e2e="search-video-card"]', 'main article', 'article',
@@ -193,19 +201,19 @@ function extractDomItem(scope: Element | null, routeId: string): TikTokItem {
     item.body = clean(Utils.getMeta('description'));
     return item;
   }
-  item.author = text(scope, [
+  item.author = (routeId ? pathAuthor : '') || text(scope, [
     '[data-e2e="video-author-uniqueid"]', '[data-e2e="browse-username"]',
     '[data-e2e="user-title"]', 'a[href^="/@"] strong', 'a[href^="/@"]',
   ]).replace(/^@/, '') || pathAuthor;
   item.displayName = text(scope, [
     '[data-e2e="video-author-nickname"]', '[data-e2e="browse-nickname"]',
     '[data-e2e="browser-nickname"]', '[data-e2e="user-subtitle"]',
-  ]);
+  ]).replace(/\s+·\s*\d.*$/, '');
   item.body = text(scope, [
     '[data-e2e="browse-video-desc"]', '[data-e2e="video-desc"]',
     '[data-e2e="feed-video-desc"]', 'h1[data-e2e="browse-video-desc"]',
     '[data-e2e="user-bio"]',
-  ]) || clean(Utils.getMeta('description'));
+  ]) || (hasStaleHead(routeId) ? '' : clean(Utils.getMeta('description')));
   item.timestamp = attr(scope, ['time[datetime]'], 'datetime') || text(scope, ['time']);
   item.likes = text(scope, ['[data-e2e="like-count"]', '[data-e2e="browse-like-count"]']);
   item.comments = text(scope, ['[data-e2e="comment-count"]', '[data-e2e="browse-comment-count"]']);

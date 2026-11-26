@@ -181,7 +181,7 @@ function priceIn(scope: ParentNode | null): string {
   for (const element of selectors.flatMap((selector) => Array.from(scope.querySelectorAll(selector)))) {
     // Current layouts leave the offscreen copy blank and split the visible price into parts.
     const text = element.querySelector('.a-offscreen')?.textContent?.trim()
-      || element.querySelector('[aria-hidden="true"]')?.textContent?.replace(/\s+/g, '')
+      || element.querySelector('[aria-hidden="true"]')?.textContent?.replace(/\s+/g, '').replace(/(\d)[.,](?!\d)/, '$1')
       || element.textContent?.trim() || '';
     if (text) return text;
   }

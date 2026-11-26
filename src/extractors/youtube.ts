@@ -102,7 +102,7 @@ register({
       '.ytp-time-duration:not(.ad-showing *)',
     ], true, 'content', scope) || stringValue(ld?.duration);
     const likes = extractLikes(scope);
-    const description = extractDescription(scope, playerVideo);
+    const description = extractDescription(scope, playerVideo, videoId);
     const headImage = Utils.getMeta('image');
     const thumbnail = (!videoId || headImage.includes(`/${videoId}/`) ? headImage : '') || stringValue(ld?.thumbnailUrl);
 
@@ -136,7 +136,9 @@ register({
       }
     }
 
-    const comments = Array.from(scope.querySelectorAll('ytd-comment-thread-renderer'));
+    // The Shorts comment panel is outside the active reel.
+    const panelScope = (route === 'short' && document.querySelector('ytd-shorts:not([hidden])')) || scope;
+    const comments = Array.from(panelScope.querySelectorAll('ytd-comment-thread-renderer'));
     if (comments.length) {
       parts.push('## Comments', '');
       comments.forEach((comment) => {
@@ -150,7 +152,7 @@ register({
       });
     }
 
-    const transcript = extractTranscript(scope);
+    const transcript = extractTranscript(panelScope);
     if (transcript.length) {
       parts.push('## Transcript', '', ...transcript, '');
     }
@@ -228,8 +230,9 @@ function attributedText(element: Element | null): string {
     if (node.nodeType === Node.TEXT_NODE) {
       parts.push(node.textContent || '');
     } else if (node instanceof Element && !node.hasAttribute('hidden')) {
-      const target = node instanceof HTMLAnchorElement ? redirectTarget(node.href) : '';
-      const label = target ? Markdown.normalizeWhitespace(node.textContent || '') : '';
+      const label = node instanceof HTMLAnchorElement ? Markdown.normalizeWhitespace(node.textContent || '') : '';
+      // A timestamp or a hashtag needs no URL, and the chapter list reads plain timestamps.
+      const target = node instanceof HTMLAnchorElement && !/^(?:#|\d+(?::\d{2})+$)/.test(label) ? linkTarget(node.href) : '';
       if (!target) node.childNodes.forEach(visit);
       else parts.push(/^https?:/i.test(label) || !label ? target : `[${Markdown.escapeMarkdownLinkText(label)}](${target})`);
     }
@@ -238,25 +241,30 @@ function attributedText(element: Element | null): string {
   return parts.join('').trim();
 }
 
-function redirectTarget(href: string): string {
+function linkTarget(href: string): string {
   try {
     const url = new URL(href);
-    return url.pathname === '/redirect'
-      ? safeHttpUrl(url.searchParams.get('q') || '').replace(/\(/g, '%28').replace(/\)/g, '%29')
-      : '';
+    const target = url.pathname === '/redirect' ? url.searchParams.get('q') || '' : href;
+    return safeHttpUrl(target).replace(/\(/g, '%28').replace(/\)/g, '%29');
   } catch {
     return '';
   }
 }
 
-function extractDescription(scope: ParentNode, playerVideo: JsonLd | null): string {
+function extractDescription(scope: ParentNode, playerVideo: JsonLd | null, videoId: string): string {
+  const playerDescription = stringValue(playerVideo?.shortDescription);
+  if (playerDescription && videoId && stringValue(playerVideo?.videoId) === videoId) return playerDescription;
   const selectors = [
     'ytd-text-inline-expander > yt-attributed-string',
     '#description-inline-expander',
     '#description',
   ];
-  let domDescription = attributedText(scope.querySelector('#description-inline-expander #expanded yt-attributed-string'))
-    || attributedText(scope.querySelector('#description-inline-expander #snippet-text'));
+  let domDescription = attributedText(scope.querySelector('#description-inline-expander #expanded yt-attributed-string'));
+  if (!domDescription) {
+    domDescription = attributedText(scope.querySelector('#description-inline-expander #snippet-text'));
+    // A collapsed description shows only its first lines.
+    if (domDescription && scope.querySelector('#description-inline-expander #ellipsis:not([hidden])')) domDescription += ' …';
+  }
   for (const selector of domDescription ? [] : selectors) {
     const el = scope.querySelector(selector);
     if (!el) continue;
@@ -269,7 +277,6 @@ function extractDescription(scope: ParentNode, playerVideo: JsonLd | null): stri
       break;
     }
   }
-  const playerDescription = stringValue(playerVideo?.shortDescription);
   if (playerDescription && playerDescription.length > domDescription.length) {
     return playerDescription;
   }

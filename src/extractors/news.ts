@@ -112,11 +112,9 @@ register({
     if (description) parts.push(`\n*${description}*`);
     parts.push('');
 
-    if (hasVisiblePaywall()) {
-      parts.push('> ⚠️ **Paywall detected.** Content below may be incomplete.\n');
-    }
-
+    const paywallNotice = '> ⚠️ **Paywall detected.** Content below may be incomplete.\n';
     if (isLiveBlog) {
+      if (isPaywalled(null, '')) parts.push(paywallNotice);
       parts.push('## Live Updates\n');
       const updates = Array.from(document.querySelectorAll('.live-blog-post, [data-testid="live-blog-post"], article, .post-item'));
       updates.filter((update) => !updates.some((other) => other !== update && update.contains(other))).forEach((update) => {
@@ -154,36 +152,55 @@ register({
         '[id^="taboola"]', '.ad-feedback-link', '.jwplayer',
       ];
 
-      if (articleEl) {
-        const cleaned = Utils.removeNoise(articleEl, articleNoise);
-        parts.push('## Article\n', Markdown.elementToMarkdown(cleaned));
-      } else {
-        const cleaned = Utils.removeNoise(document.body, articleNoise);
-        parts.push('## Content\n', Markdown.elementToMarkdown(cleaned));
-      }
+      const body = Markdown.elementToMarkdown(Utils.removeNoise(articleEl || document.body, articleNoise));
+      if (isPaywalled(articleEl, body)) parts.push(paywallNotice);
+      parts.push(articleEl ? '## Article\n' : '## Content\n', body);
     }
 
     return Markdown.buildPageMarkdown(metadata, parts.join('\n'));
   },
 });
 
-function hasVisiblePaywall(): boolean {
-  const paywallSelectors = [
+/** The copied length against JSON-LD is the best evidence. Class names decide only when it is missing or unclear. */
+function isPaywalled(article: Element | null, body: string): boolean {
+  const share = article ? copiedShare(body) : null;
+  if (share !== null && share < 0.5) return true;
+  const isVisible = Utils.createVisibilityChecker();
+  const links = Array.from(article?.querySelectorAll<HTMLAnchorElement>('a[href]') || []);
+  if (links.some((link) => /paywall/i.test(link.search) && isVisible(link))) return true;
+  const markers = Array.from(document.querySelectorAll([
     '.paywall', '.subscription-wall', '.meter-wall',
     '[class*="paywall"]', '[class*="Paywall"]',
     '[id*="paywall"]', '[id*="Paywall"]',
     '.tp-modal', '.piano-offer',
     '.article-gate', '.gate-content',
-  ];
-  const isVisible = Utils.createVisibilityChecker();
-  for (const selector of paywallSelectors) {
-    for (const element of document.querySelectorAll(selector)) {
-      // Some sites put the class on each visible paragraph of a metered article.
-      if (element.matches('article :is(p, h2, h3, h4, ul, ol, blockquote, figure)')) continue;
-      // An empty slot is not a paywall prompt.
-      if (!element.textContent?.trim() && !element.querySelector('iframe')) continue;
-      if (isVisible(element)) return true;
+  ].join(', '))).filter(isVisible);
+  if (share === null || share < 0.9) return markers.length > 0;
+  // Some sites put the class on each visible paragraph of a metered article, so a prompt must ask the reader to act.
+  return markers.some((marker) => article?.contains(marker)
+    && !marker.matches('p, h2, h3, h4, ul, ol, blockquote, figure')
+    && /subscri|sign in|log in|unlock/i.test(marker.textContent || ''));
+}
+
+/** The copied text as a share of the first article length in JSON-LD. */
+function copiedShare(body: string): number | null {
+  const text = body.replace(/\]\([^)]*\)/g, ']');
+  const find = (value: unknown, depth = 0): number | null => {
+    if (!value || typeof value !== 'object' || depth > 5) return null;
+    const { articleBody, wordCount } = value as Record<string, unknown>;
+    if (typeof articleBody === 'string' && articleBody.trim()) return text.length / articleBody.trim().length;
+    if (Number(wordCount) > 0) return text.split(/\s+/).length / Number(wordCount);
+    for (const child of Object.values(value)) {
+      const share = find(child, depth + 1);
+      if (share !== null) return share;
     }
+    return null;
+  };
+  for (const script of document.querySelectorAll('script[type="application/ld+json"]')) {
+    try {
+      const share = find(JSON.parse(script.textContent || ''));
+      if (share !== null) return share;
+    } catch { /* ignore malformed JSON-LD */ }
   }
-  return false;
+  return null;
 }

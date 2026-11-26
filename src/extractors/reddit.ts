@@ -5,6 +5,7 @@
  */
 
 import { addExtractionMetadata, limitCollection, limitMarkdown } from '../core/context';
+import { labeledCount } from '../core/counts';
 import * as Markdown from '../core/markdown';
 import { register } from '../core/registry';
 import * as Utils from '../core/utils';
@@ -210,10 +211,10 @@ function extractDomPost(root: Element | null, id: string): RedditPost {
   ]);
   post.score = root.getAttribute('score') || text(root, [
     '[data-testid="post-score"]', '[data-testid="post-vote-count"]', VOTED_SCORE_SELECTOR, '.score.unvoted', '.score', '.likes',
-  ]) || count(root, /point|score|upvote/i);
+  ]) || count(root, /points?|score|upvotes?/i);
   post.comments = root.getAttribute('comment-count') || text(root, [
     '[data-testid="comment-count"]', '[data-testid="post-comment-count"]', '.comments',
-  ]) || count(root, /comment/i);
+  ]) || count(root, /comment\p{L}*/iu);
   post.timestamp = root.getAttribute('created-timestamp')?.trim()
     || attr(root, ['time[datetime]'], 'datetime')
     || text(root, ['time', '[data-testid="post_timestamp"]']);
@@ -407,10 +408,8 @@ function mergePosts(primary: RedditPost | null, fallback: RedditPost): RedditPos
 
 function count(scope: ParentNode, label: RegExp): string {
   for (const node of queryAllShadow<HTMLElement>(scope, '[aria-label], button, a, span')) {
-    const combined = `${node.getAttribute('aria-label') || ''} ${clean(node.textContent || '')}`;
-    if (!label.test(combined)) continue;
-    const match = combined.match(/\d[\d,.]*(?:\s*[kmb]\b)?/i);
-    if (match) return match[0];
+    const value = labeledCount(`${node.getAttribute('aria-label') || ''} ${clean(node.textContent || '')}`, label);
+    if (value) return value;
   }
   return '';
 }

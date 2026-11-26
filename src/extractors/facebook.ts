@@ -6,6 +6,7 @@ import { register } from '../core/registry';
 import * as Markdown from '../core/markdown';
 import * as Utils from '../core/utils';
 import { addExtractionMetadata, limitCollection, limitMarkdown } from '../core/context';
+import { labeledCount } from '../core/counts';
 
 const COMMENT_LIMIT = 30;
 const MESSAGE_SELECTOR = [
@@ -196,7 +197,7 @@ function extractDomPost(article: Element | null, id: string, allowMetadata: bool
   post.timestamp = attr(article, ['time[datetime]'], 'datetime')
     || timestampFromAbbr(article) || text(article, ['time', 'abbr']);
   post.reactions = engagement(article, /reactions?|likes?/i);
-  post.comments = engagement(article, /comments?/i);
+  post.comments = engagement(article, /comment\p{L}*/iu);
   post.shares = engagement(article, /shares?/i);
   post.views = engagement(article, /views?|plays?/i);
   post.media = extractMedia(article);
@@ -338,11 +339,8 @@ function engagement(scope: Element, label: RegExp): string {
     if (scope.matches('[role="article"]') && node.closest('[role="article"]') !== scope) continue;
     // Numbers in the message text are not engagement counts.
     if (node.closest(MESSAGE_SELECTOR) || node.querySelector(MESSAGE_SELECTOR)) continue;
-    const combined = `${node.getAttribute('aria-label') || ''} ${clean(node.textContent || '')}`.trim();
-    // A label such as "View 5 more comments" does not hold a total.
-    if (!label.test(combined) || /\bmore\b/i.test(combined)) continue;
-    const match = combined.match(/\d[\d,.]*(?:\s*[kmb]\b)?/i);
-    if (match) return match[0];
+    const value = labeledCount(`${node.getAttribute('aria-label') || ''} ${clean(node.textContent || '')}`, label);
+    if (value) return value;
   }
   return '';
 }
