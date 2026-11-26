@@ -271,22 +271,30 @@ function rowsFromDom(): JsonRecord[] {
     const spans = Array.from(element.querySelectorAll('span'));
     const model = textOf(spans.find((span) => /font-medium/.test(span.className) && /text-foreground/.test(span.className)) || null);
     const effortText = textOf(spans.find((span) => /^\[[^\]]+\]$/.test(textOf(span))) || null);
-    const raw = element.textContent || '';
-    const pass = raw.match(/(\d+(?:\.\d+)?)%±(\d+(?:\.\d+)?)%/);
-    const cost = raw.match(/Avg cost\s*(\$[\d.]+)/i);
-    const output = raw.match(/Out tok\s*([\d.]+k?)/i);
-    const steps = raw.match(/Steps\s*(\d+(?:\.\d+)?)/i);
+    const raw = spacedText(element);
+    const pass = raw.match(/(\d+(?:\.\d+)?)\s*%\s*±\s*(\d+(?:\.\d+)?)\s*%/);
+    const cost = raw.match(/Avg cost\s*\$([\d.,]+)/i);
+    const output = raw.match(/Out tok\s*([\d.,]+[kmb]?)/i);
+    const steps = raw.match(/Steps\s*([\d.,]+)/i);
     return {
       model,
       reasoning_effort: effortText.replace(/^\[|\]$/g, ''),
       pass_at_1: pass ? Number(pass[1]) / 100 : null,
       ci_lo: pass ? (Number(pass[1]) - Number(pass[2])) / 100 : null,
       ci_hi: pass ? (Number(pass[1]) + Number(pass[2])) / 100 : null,
-      mean_cost_usd: cost ? Number(cost[1].slice(1)) : null,
+      mean_cost_usd: cost ? parseCompactNumber(cost[1]) : null,
       mean_output_tokens: output ? parseCompactNumber(output[1]) : null,
-      mean_agent_steps: steps ? Number(steps[1]) : null,
+      mean_agent_steps: steps ? parseCompactNumber(steps[1]) : null,
     };
   }).filter((row) => stringValue(row.model));
+}
+
+/** Adjacent cells have no whitespace between them, so their digits would join. */
+function spacedText(element: Element): string {
+  const walker = document.createTreeWalker(element, NodeFilter.SHOW_TEXT);
+  const parts: string[] = [];
+  while (walker.nextNode()) parts.push(walker.currentNode.textContent || '');
+  return parts.join(' ');
 }
 
 function selectedLeaderboardContext(): string {
@@ -387,9 +395,10 @@ function ratio(numerator: unknown, denominator: unknown): string {
 }
 
 function parseCompactNumber(value: string): number | null {
-  const match = value.trim().match(/^(\d+(?:\.\d+)?)(k)?$/i);
+  const match = value.replace(/,/g, '').trim().match(/^(\d+(?:\.\d+)?)([kmb])?$/i);
   if (!match) return null;
-  return Number(match[1]) * (match[2] ? 1_000 : 1);
+  const scale = { k: 1_000, m: 1_000_000, b: 1_000_000_000 }[(match[2] || '').toLowerCase()] ?? 1;
+  return Number(match[1]) * scale;
 }
 
 function exactValue(value: unknown): string {

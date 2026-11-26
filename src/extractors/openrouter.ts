@@ -25,9 +25,12 @@ type EndpointCatalog = {
 };
 
 const NON_MODEL_PREFIXES = [
-  'announcements', 'api', 'apps', 'benchmarks', 'chat', 'collections',
-  'compare', 'credits', 'docs', 'enterprise', 'keys', 'models', 'pricing',
-  'privacy', 'provider', 'rankings', 'settings', 'terms', 'workspaces',
+  'announcements', 'api', 'apps', 'benchmarks', 'blog', 'chat', 'collections',
+  'compare', 'credits', 'customers', 'data', 'docs', 'enterprise', 'keys', 'models',
+  'ori', 'pricing', 'privacy', 'provider', 'rankings', 'settings', 'skills', 'terms',
+  'tool', 'works-with-openrouter', 'workspaces',
+  // Localized pages
+  'de', 'es', 'fr', 'ja', 'ko', 'pt-br', 'zh-cn',
 ];
 
 const TOKEN_PRICING_UNITS: Record<string, string> = {
@@ -426,6 +429,8 @@ function priceDisplay(field: string, raw: unknown): string {
   const value = numberValue(raw);
   if (value === null) return exactValue(raw);
   if (field === 'discount') return `${trimNumber(value * 100)}%`;
+  // Routers publish -1, because the routed model sets the price.
+  if (value < 0) return 'Variable';
   if (field === 'web_search') return `${formatUsd(value * 1_000)} / 1K calls`;
   if (field === 'request') return `${formatUsd(value)} / request`;
   const unit = TOKEN_PRICING_UNITS[field];

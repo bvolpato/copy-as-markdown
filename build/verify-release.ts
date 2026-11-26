@@ -5,6 +5,7 @@ import { createHash } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { Script } from 'node:vm';
 
 type JsonObject = Record<string, unknown>;
 
@@ -24,6 +25,7 @@ const REQUIRED_PNG_DIMENSIONS = new Map([
   ['icons/icon-48.png', 48],
   ['icons/icon-128.png', 128],
 ]);
+const MANIFEST_VERSIONS = new Map([['chrome', 3], ['firefox', 2]]);
 const PNG_SIGNATURE = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
 
 function fail(message: string): never {
@@ -160,6 +162,14 @@ function assertDirectoryFile(root: string, relativePath: string, context: string
   }
 }
 
+function verifyScript(file: string, context: string): void {
+  try {
+    new Script(fs.readFileSync(file, 'utf8'));
+  } catch (error) {
+    fail(`${context}: invalid JavaScript: ${error instanceof Error ? error.message : String(error)}`);
+  }
+}
+
 function verifyPng(buffer: Buffer, expectedSize: number | undefined, context: string): void {
   if (
     buffer.length < 24
@@ -186,6 +196,12 @@ function verifyDirectory(target: string, expectedVersion: string): void {
 
   const manifest = readJson(fs.readFileSync(path.join(root, 'manifest.json')), `${context}/manifest.json`);
   assertVersion(manifest.version, expectedVersion, `${context}/manifest.json`);
+  if (manifest.manifest_version !== MANIFEST_VERSIONS.get(target)) {
+    fail(`${context}/manifest.json: unexpected manifest_version ${JSON.stringify(manifest.manifest_version)}`);
+  }
+  for (const script of ['content.js', 'background.js']) {
+    verifyScript(path.join(root, script), `${context}/${script}`);
+  }
   for (const asset of collectManifestAssets(manifest)) {
     const normalized = normalizeAssetPath(asset, context);
     assertDirectoryFile(root, normalized, context);
@@ -253,6 +269,11 @@ function verifyZip(target: string, expectedVersion: string): void {
     if (entry.endsWith('/')) continue;
     if (files.has(normalized)) fail(`${context}: duplicate archive entry ${normalized}`);
     files.add(normalized);
+    const built = path.join(DIST, target, normalized);
+    if (!fs.existsSync(built)) fail(`${context}: ${normalized} is not in dist/${target}`);
+    if (!readZipEntry(zipPath, normalized, context).equals(fs.readFileSync(built))) {
+      fail(`${context}: ${normalized} differs from dist/${target}`);
+    }
   }
 
   for (const file of REQUIRED_EXTENSION_FILES) {
@@ -282,6 +303,14 @@ function sha256(file: string): string {
   return hash.digest('hex');
 }
 
+function verifyLibraryExports(packageJson: JsonObject): void {
+  for (const [subpath, target] of Object.entries(asObject(packageJson.exports) ?? {})) {
+    for (const file of typeof target === 'string' ? [target] : Object.values(asObject(target) ?? {})) {
+      assertDirectoryFile(ROOT, String(file), `package.json exports ${subpath}`);
+    }
+  }
+}
+
 function verifyReleaseBundle(bundleArgument: string, expectedVersion: string): void {
   const bundle = path.resolve(ROOT, bundleArgument);
   const versionedUserscript = `copy-as-markdown-v${expectedVersion}.user.js`;
@@ -307,6 +336,11 @@ function verifyReleaseBundle(bundleArgument: string, expectedVersion: string): v
   }
   for (const artifact of expectedArtifacts) {
     assertDirectoryFile(bundle, artifact, bundleArgument);
+    const built = artifact.replace(`-v${expectedVersion}`, '');
+    const source = path.join(DIST, built.endsWith('.zip') ? built : `userscript/${built}`);
+    if (sha256(path.join(bundle, artifact)) !== sha256(source)) {
+      fail(`${bundleArgument}: ${artifact} differs from ${path.relative(ROOT, source)}`);
+    }
   }
 
   const versionedContents = fs.readFileSync(path.join(bundle, versionedUserscript), 'utf8');
@@ -336,7 +370,7 @@ function verifyReleaseBundle(bundleArgument: string, expectedVersion: string): v
 function main(): void {
   const arguments_ = process.argv.slice(2);
   if (arguments_[0] === '--') arguments_.shift();
-  const expectedArgument = arguments_.shift();
+  const expectedArgument = arguments_[0] === '--bundle' ? undefined : arguments_.shift();
   let bundleArgument: string | undefined;
   if (arguments_[0] === '--bundle' && arguments_[1]) {
     arguments_.shift();
@@ -361,6 +395,7 @@ function main(): void {
     path.basename(userscriptMetadataPath),
     'dist/userscript',
   );
+  verifyScript(userscriptPath, 'dist/userscript/copy-as-markdown.user.js');
   const userscript = fs.readFileSync(userscriptPath, 'utf8');
   const userscriptMetadata = fs.readFileSync(userscriptMetadataPath, 'utf8');
   if (!userscript.startsWith(`${userscriptMetadata}\n`)) {
@@ -383,6 +418,7 @@ function main(): void {
     verifyDirectory(target, packageVersion);
     verifyZip(target, packageVersion);
   }
+  verifyLibraryExports(packageJson);
   if (bundleArgument) verifyReleaseBundle(bundleArgument, packageVersion);
 
   console.log(`✅ Release artifacts verified for v${packageVersion}`);
