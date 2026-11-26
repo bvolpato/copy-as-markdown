@@ -104,13 +104,11 @@ function extractCollectionPage(): string {
   const intro = homepageIntro(titleElement);
   if (intro) parts.push(intro);
 
-  appendHomepageDatasets(parts, datasets);
+  const hasDatasets = appendHomepageDatasets(parts, datasets);
+  const hasTables = !hasDatasets && appendDomTables(parts);
+  if (!hasDatasets && !hasTables) appendDomFallback(parts, title);
   appendDatasetProvenance(parts, datasets[0]);
   appendFaq(parts, findJsonLdObjects('FAQPage')[0]);
-
-  if (parts.length <= 2) {
-    appendDomFallback(parts, title);
-  }
 
   const limited = limitMarkdown(Markdown.cleanMarkdown(parts.join('\n\n')));
   return Markdown.buildPageMarkdown({
@@ -118,6 +116,19 @@ function extractCollectionPage(): string {
     title,
     url,
   }, limited.markdown);
+}
+
+/** Leaderboards render their column and model names as controls. */
+function appendDomTables(parts: string[]): boolean {
+  const tables = Array.from(document.querySelectorAll('main table')).map((element) => {
+    const cleaned = element.cloneNode(true) as Element;
+    cleaned.querySelectorAll('svg, img').forEach((node) => node.remove());
+    cleaned.querySelectorAll('button').forEach((button) => button.replaceWith(...button.childNodes));
+    cleaned.querySelectorAll('th span').forEach((line) => line.after(' '));
+    return Markdown.tableToMarkdown(cleaned);
+  }).filter(Boolean);
+  if (tables.length > 0) parts.push(`## Tables\n\n${tables.join('\n\n')}`);
+  return tables.length > 0;
 }
 
 function appendDomFallback(parts: string[], title: string): void {
@@ -203,7 +214,7 @@ function appendHomepageSections(parts: string[]): void {
   }
 }
 
-function appendHomepageDatasets(parts: string[], datasets: JsonRecord[]): void {
+function appendHomepageDatasets(parts: string[], datasets: JsonRecord[]): boolean {
   const sections: string[] = [];
   const seen = new Set<string>();
 
@@ -246,6 +257,7 @@ function appendHomepageDatasets(parts: string[], datasets: JsonRecord[]): void {
   if (sections.length > 0) {
     parts.push(`## Published Datasets\n\n${sections.join('\n\n')}`);
   }
+  return sections.length > 0;
 }
 
 function getOverview(hero: Element | null | undefined): Overview {
@@ -292,13 +304,14 @@ function appendSummary(parts: string[]): void {
     const details = metricBlock
       ? Array.from(metricBlock.children)
         .filter((child) => child !== valueRow)
+        .flatMap((child) => child.children.length > 1 ? Array.from(child.children) : [child])
         .map((child) => textWithoutNoise(child))
         .filter(Boolean)
         .join('; ')
       : '';
 
     rows.push([
-      textOf(heading),
+      textOf(heading.querySelector('a') || heading),
       textWithoutNoise(valueElement),
       textWithoutNoise(rankButton),
       description,

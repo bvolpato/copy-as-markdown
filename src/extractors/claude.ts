@@ -7,10 +7,13 @@ import { register } from '../core/registry';
 import * as Markdown from '../core/markdown';
 import * as Utils from '../core/utils';
 import { addExtractionMetadata, limitCollection, limitMarkdown } from '../core/context';
+import {
+  cloneMessage, conversationPageTitle, conversationUrl, createTurnOwner, hasHistoryControl,
+  isAriaHidden, isFaviconUrl, isInText, isPageAnchor, messageToMarkdown, type Role,
+} from '../core/ai-conversation';
 
 const MAX_TURNS = 200;
 
-type Role = 'user' | 'assistant';
 type Turn = { role: Role; element: Element; container: Element; blocks?: Element[] };
 
 register({
@@ -37,11 +40,11 @@ register({
   },
 
   async extract() {
-    const title = cleanTitle(Utils.getPageTitle()) || 'Claude Conversation';
+    const title = cleanTitle(conversationPageTitle()) || 'Claude Conversation';
     const metadata: Record<string, string | number> = {
       source: 'Claude',
       title,
-      url: Utils.getCanonicalUrl(),
+      url: conversationUrl(),
       route: conversationRoute(window.location.pathname),
     };
     const model = extractModel();
@@ -56,19 +59,21 @@ register({
     let imageCount = 0;
     let codeBlockCount = 0;
 
+    const owns = createTurnOwner(turns.items);
+
     for (const turn of turns.items) {
       const contentNodes = turn.blocks && turn.blocks.length > 0 ? turn.blocks : [turn.element];
       const cleanedNodes = contentNodes.map((node) => clean(node));
       let content = cleanedNodes
-        .map((node) => Markdown.elementToMarkdown(node))
+        .map(messageToMarkdown)
         .filter(Boolean)
         .join('\n\n')
         .trim();
-      const images = standaloneImages(turn.container, contentNodes);
+      const images = standaloneImages(turn.container, contentNodes, (node) => owns(turn, node));
       if (images.length) content = `${content}\n\n${images.join('\n')}`.trim();
       if (!content) continue;
 
-      const citations = extractCitations(turn.container);
+      const citations = extractCitations(turn.container, (link) => owns(turn, link, turn.role));
       citations.forEach((citation) => citationUrls.add(citation.href));
       if (turn.role === 'user') userCount += 1;
       else assistantCount += 1;
@@ -83,6 +88,9 @@ register({
 
     const captured = userCount + assistantCount;
     const structuralIncomplete = turns.truncated || hasUnrenderedHistory();
+    parts.push('', structuralIncomplete
+      ? '> **Coverage:** Visible rendered conversation only; older or virtualized history was not loaded.'
+      : '> **Coverage:** Visible rendered conversation only; unloaded page history is not included.');
     if (!captured) {
       const fallback = document.querySelector('[data-autoscroll-container], main, [role="main"], #__next');
       if (fallback) parts.push('', Markdown.elementToMarkdown(clean(fallback)));
@@ -113,6 +121,7 @@ register({
 });
 
 const MARKDOWN_BLOCK_SELECTOR = '.standard-markdown, .progressive-markdown, .markdown, .prose';
+const USER_MESSAGE_SELECTOR = '[data-testid="user-message"], [data-user-message], [data-message-author-role="user"], [data-role="user"]';
 
 function extractModel(): string {
   const dataModel = document.querySelector('[data-model]')?.getAttribute('data-model')?.trim();
@@ -149,6 +158,7 @@ function buildTurn(role: Role, target: Element, container: Element): Turn {
     }
     return { role, element: scope, container };
   }
+  if (topLevelBlocks(target, MARKDOWN_BLOCK_SELECTOR).length > 1) return { role, element: target, container };
   return { role, element: messageContent(target) || target, container };
 }
 
@@ -214,6 +224,8 @@ function collectTurns(): Turn[] {
     const className = typeof element.className === 'string' ? element.className : '';
     const role = roleFor(element) || (/standard-markdown|progressive-markdown/i.test(className) ? 'assistant' : null);
     if (!role) continue;
+    // Prompts use the same Markdown blocks as answers.
+    if (role === 'assistant' && element.parentElement?.closest(USER_MESSAGE_SELECTOR)) continue;
     result.push(buildTurn(role, element, closestTurn(element)));
   }
   result.sort((a, b) => compareDomOrder(a.element, b.element));
@@ -259,7 +271,10 @@ function dedupeTurns(turns: Turn[]): Turn[] {
       || Boolean(other.blocks?.some((block) => block === turn.element || block.contains(turn.element))))));
 }
 
-function extractCitations(container: Element): Array<{ label: string; href: string }> {
+function extractCitations(
+  container: Element,
+  ownsNode: (node: Element) => boolean,
+): Array<{ label: string; href: string }> {
   const links = container.querySelectorAll<HTMLAnchorElement>([
     'a[data-citation][href]',
     '[data-testid*="citation"] a[href]',
@@ -271,6 +286,7 @@ function extractCitations(container: Element): Array<{ label: string; href: stri
   const seen = new Set<string>();
   const result: Array<{ label: string; href: string }> = [];
   for (const link of links) {
+    if (isPageAnchor(link) || !ownsNode(link)) continue;
     const href = safeHttpUrl(link.href);
     if (!href || seen.has(href)) continue;
     seen.add(href);
@@ -282,18 +298,24 @@ function extractCitations(container: Element): Array<{ label: string; href: stri
   return result;
 }
 
-function standaloneImages(container: Element, contentNodes: Element[]): string[] {
+function standaloneImages(
+  container: Element,
+  contentNodes: Element[],
+  ownsNode: (node: Element) => boolean,
+): string[] {
+  const inText = (image: Element) => isInText(contentNodes, image);
   const existing = new Set(
     contentNodes
       .flatMap((node) => Array.from(node.querySelectorAll<HTMLImageElement>('img[src]')))
+      .filter(inText)
       .map((image) => safeImageUrl(imageSource(image)))
       .filter(Boolean),
   );
   const result: string[] = [];
   for (const image of container.querySelectorAll<HTMLImageElement>('img[src]')) {
-    if (contentNodes.some((node) => node.contains(image)) || image.getAttribute('aria-hidden') === 'true') continue;
+    if (inText(image) || isAriaHidden(container, image) || !ownsNode(image)) continue;
     const source = safeImageUrl(imageSource(image));
-    if (!source || existing.has(source)) continue;
+    if (!source || existing.has(source) || isFaviconUrl(source)) continue;
     const alt = image.getAttribute('alt') || '';
     const meaningful = Boolean(image.closest('figure, [data-find-omitted] .grid, [data-testid*="image"], [class*="image"]'))
       || /generated|uploaded|image/i.test(alt)
@@ -306,7 +328,7 @@ function standaloneImages(container: Element, contentNodes: Element[]): string[]
 }
 
 function clean(element: Element): Element {
-  return Utils.removeNoise(element, [
+  return Utils.removeNoise(cloneMessage(element), [
     ...Utils.NOISE_SELECTORS,
     'button', 'h2.sr-only[data-find-omitted]', '[data-message-action-bar]',
     '[data-testid*="actions"]', '[data-testid*="feedback"]',
@@ -341,8 +363,8 @@ function compareDomOrder(left: Element, right: Element): number {
 }
 
 function hasUnrenderedHistory(): boolean {
-  return Boolean(document.querySelector(
-    '[data-testid*="load-more"], button[aria-label*="older" i], button[aria-label*="previous" i], [data-virtualized="true"]',
+  return hasHistoryControl() || Boolean(document.querySelector(
+    '[data-testid*="load-more"], [data-virtualized="true"]',
   ));
 }
 

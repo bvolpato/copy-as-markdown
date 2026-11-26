@@ -39,6 +39,118 @@ export const AI_CHAT_CASES = [
     occurrences: { 'Repeated question.': 2, 'Repeated answer.': 2 },
   })),
   {
+    id: 'gemini',
+    extractor: 'Gemini',
+    url: 'https://gemini.google.com/share/current-viewer',
+    html: `<!doctype html><html><head><title>Gemini - direct access to Google AI</title></head><body><main><share-viewer>
+      <h1>Rocket chat</h1>
+      <share-turn-viewer>
+        <user-query><button><img alt="Uploaded image preview" src="https://images.example/upload.png"></button>
+          <div class="query-text"><h5 class="cdk-visually-hidden">You said Draw a rock...</h5><p class="query-text-line">Draw a rocket.</p></div></user-query>
+        <response-container><model-thoughts><div class="markdown markdown-main-panel"><p>Hidden thoughts.</p></div></model-thoughts>
+          <message-content><div class="markdown markdown-main-panel"><p>Here it is.</p>
+            <div class="math-block" data-math="r^3"><span class="katex-display"><span class="katex"><math><semantics><msup><mi>r</mi><mn>3</mn></msup><annotation encoding="application/x-tex">r^3</annotation></semantics></math></span></span></div>
+            <generated-image><button><img alt=", AI generated" src="https://images.example/rocket.png"></button></generated-image>
+            <code-block><div class="code-block-decoration"><span>Python</span><button>Copy</button></div><div><pre><code>launch()</code></pre></div></code-block>
+          </div></message-content></response-container>
+      </share-turn-viewer></share-viewer></main></body></html>`,
+    ordered: [
+      '# Rocket chat', '## 👤 User', 'Draw a rocket.', '![Uploaded image preview](https://images.example/upload.png)',
+      '## 🤖 Gemini', 'Here it is.', '$$r^3$$', '```python\nlaunch()\n```', '![, AI generated](https://images.example/rocket.png)',
+      '> **Coverage:** Visible rendered conversation only; unloaded page history is not included.',
+    ],
+    contains: [],
+    excludes: ['You said', 'Hidden thoughts.', 'direct access', '\nPython\n'],
+    occurrences: { 'upload.png': 1, 'rocket.png': 1, 'r^3': 1 },
+  },
+  {
+    id: 'grok',
+    extractor: 'Grok',
+    url: 'https://grok.com/share/current-transcript',
+    html: `<!doctype html><html><head><title>Sort check | Shared Grok Conversation</title></head><body><div data-transcript-renderer="plane"><div>
+      <div data-plane-row="response:1"><div role="article" data-testid="user-message" class="message-bubble"><h2 class="sr-only" data-no-copy="true">You</h2>
+        <span data-bubble-text style="white-space: pre-wrap">class A {
+  int b;
+}</span></div></div>
+      <div data-plane-row="response:2"><div role="article" data-testid="assistant-message" class="message-bubble"><h2 class="sr-only" data-no-copy="true">Grok</h2>
+        <div class="response-content-markdown"><p>First part.</p><div data-testid="generated-image-row"><button><img alt="Banner" src="https://images.example/banner.png"></button></div><img alt="" aria-hidden="true" src="https://images.example/banner.png"></div>
+        <div>Searched</div><div class="response-content-markdown"><p>Second part.</p></div></div></div>
+      <div data-plane-row="transcript:bottom-spacing"></div>
+    </div></div></body></html>`,
+    ordered: [
+      '# Sort check', '## 👤 User', 'class A {\n  int b;\n}', '## 🤖 Grok', 'First part.', 'Second part.',
+      '![Banner](https://images.example/banner.png)', 'older or virtualized history was not loaded',
+    ],
+    contains: [],
+    excludes: ['Shared Grok', '## You', '## Grok'],
+    occurrences: { '## 🤖 Grok': 1, 'banner.png': 1 },
+  },
+  {
+    id: 'perplexity',
+    extractor: 'Perplexity',
+    url: 'https://www.perplexity.ai/session/current-session',
+    html: `<!doctype html><html><head><title>European founders</title><meta property="og:title" content="Perplexity"><link rel="canonical" href="https://www.perplexity.ai"></head><body><main>
+      <div data-workflow-entry="0"><div data-message-bubble="right"><div data-renderer="lm"><p>List founders.</p></div></div></div>
+      <div data-workflow-final-text><div>Finished</div><div class="prose" data-renderer="lm"><p>Two founders.
+        <span class="citation" data-pplx-citation-url="https://news.example/founders"><span>news</span><span>+1</span></span></p></div></div>
+    </main></body></html>`,
+    ordered: ['# European founders', '## 👤 User', 'List founders.', '## 🤖 Perplexity', 'Two founders. [news](https://news.example/founders)'],
+    contains: ['url: "https://www.perplexity.ai/session/current-session"', '> **Coverage:**'],
+    excludes: ['Finished', '+1'],
+  },
+  {
+    id: 'perplexity',
+    extractor: 'Perplexity',
+    url: 'https://www.perplexity.ai/page/published-page',
+    html: `<!doctype html><html><head><title>Perplexity</title></head><body><main><h2>Cable damage</h2>
+      <div data-last-section="false"><div class="prose"><h2>What happened</h2></div><div id="markdown-content-0"><p>Two cables broke.</p></div></div>
+    </main></body></html>`,
+    ordered: ['# Cable damage', '### What happened', 'Two cables broke.'],
+    contains: [],
+  },
+  {
+    id: 'claude',
+    extractor: 'Claude',
+    url: 'https://claude.ai/chat/code-label',
+    html: `<!doctype html><html><head><title>Code label - Claude</title></head><body><main>
+      <div role="article"><div data-testid="user-message"><div class="standard-markdown"><p>Part one.</p></div><div class="standard-markdown"><p style="white-space: pre-wrap">Open fence:
+\`\`\`js
+a()</p></div></div></div>
+      <div role="article"><div class="standard-markdown"><div><div><button>Copy</button></div><div>python</div><div><pre><code class="language-python">x = 1</code></pre></div></div><p>Done.</p></div></div>
+    </main></body></html>`,
+    ordered: ['## 👤 User', 'Part one.', '```js\na()\n```', '## 🤖 Claude', '```python\nx = 1\n```', 'Done.', '> **Coverage:**'],
+    contains: [],
+    excludes: ['\npython\n'],
+    occurrences: { '## 👤 User': 1, '## 🤖 Claude': 1 },
+  },
+  {
+    id: 'deepseek',
+    extractor: 'DeepSeek',
+    url: 'https://chat.deepseek.com/a/chat/s/answer-heading',
+    html: `<!doctype html><html><head><title>Fraction help - DeepSeek</title></head><body><main>
+      <div class="ds-message _63c77b1"><div class="d29f3d7d">Explain.</div></div>
+      <div class="ds-message _63c77b1"><div class="_4f9bf79 _43c05b5"><div class="ds-markdown"><h1>Answer heading</h1>
+        <p>Use <span class="katex"><span class="katex-mathml"><math><semantics><mfrac><mi>a</mi><mi>b</mi></mfrac><annotation encoding="application/x-tex">\\frac{a}{b}</annotation></semantics></math></span><span class="katex-html" aria-hidden="true">ab</span></span>.<sup><a href="#fn1">1</a></sup></p>
+        <div><div class="md-code-block-banner-wrap"><span>python</span><button>Copy</button></div><pre><span>print(1)</span></pre></div></div></div></div>
+    </main></body></html>`,
+    ordered: ['# Fraction help', 'Explain.', '# Answer heading', 'Use $\\frac{a}{b}$.', '```python\nprint(1)\n```'],
+    contains: ['title: Fraction help'],
+    excludes: ['### Sources', '\npython\n'],
+  },
+  {
+    id: 'meta-ai',
+    extractor: 'Meta AI',
+    url: 'https://www.meta.ai/c/answer-heading',
+    html: `<!doctype html><html><head><title>Trip plan - Meta AI</title></head><body><main><div data-testid="message">
+      <div data-testid="user-message">Plan a trip.</div>
+      <div data-testid="assistant-message"><div class="markdown"><h1>Day one</h1></div><img alt="Generated map" src="https://images.example/map.png"><button aria-label="Previous image"></button></div>
+    </div></main></body></html>`,
+    ordered: ['# Trip plan', 'Plan a trip.', '## 🤖 Meta AI', '# Day one', '![Generated map](https://images.example/map.png)'],
+    contains: ['unloaded page history is not included'],
+    excludes: [],
+    occurrences: { 'map.png': 1 },
+  },
+  {
     id: 'microsoft-copilot',
     extractor: 'Microsoft Copilot',
     url: 'https://copilot.microsoft.com/shares/pages/example-page',

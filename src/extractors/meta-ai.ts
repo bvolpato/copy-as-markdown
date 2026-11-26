@@ -12,10 +12,13 @@ import { register } from '../core/registry';
 import * as Markdown from '../core/markdown';
 import * as Utils from '../core/utils';
 import { addExtractionMetadata, limitCollection, limitMarkdown } from '../core/context';
+import {
+  cloneMessage, conversationPageTitle, conversationUrl, createTurnOwner, hasHistoryControl,
+  isAriaHidden, isFaviconUrl, isInText, isPageAnchor, messageToMarkdown, type Role,
+} from '../core/ai-conversation';
 
 const MAX_TURNS = 200;
 
-type Role = 'user' | 'assistant';
 type Turn = { role: Role; element: Element; container: Element };
 
 register({
@@ -27,21 +30,23 @@ register({
   pathnameRegex: /^\/(?:chat|c|conversation|share|search|discover|ask|home|prompt|imagine)(?:\/|$)|^\/$/i,
 
   async extract() {
+    const turns = limitCollection(collectTurns(), MAX_TURNS);
+    const heading = Array.from(document.querySelectorAll('h1'))
+      .find((element) => !turns.items.some((turn) => turn.element.contains(element)));
     const title = cleanTitle(
-      document.querySelector('h1')?.textContent?.trim()
-      || Utils.getPageTitle(),
+      heading?.textContent?.trim()
+      || conversationPageTitle(),
     ) || 'Meta AI Conversation';
     const metadata: Record<string, string | number> = {
       source: 'Meta AI',
       title,
-      url: Utils.getCanonicalUrl(),
+      url: conversationUrl(),
       route: conversationRoute(window.location.pathname),
     };
 
     const model = extractModel();
     if (model) metadata.model = model;
 
-    const turns = limitCollection(collectTurns(), MAX_TURNS);
     const parts = [`# ${title}`];
     if (model) parts.push('', `**Model:** ${model}`);
 
@@ -51,14 +56,16 @@ register({
     let imageCount = 0;
     let codeBlockCount = 0;
 
+    const owns = createTurnOwner(turns.items);
+
     for (const turn of turns.items) {
       const cleaned = clean(turn.element);
-      let content = Markdown.elementToMarkdown(cleaned);
-      const images = standaloneImages(turn.container, turn.element);
+      let content = messageToMarkdown(cleaned);
+      const images = standaloneImages(turn.container, turn.element, (node) => owns(turn, node));
       if (images.length) content = `${content}\n\n${images.join('\n')}`.trim();
       if (!content) continue;
 
-      const citations = extractCitations(turn.container);
+      const citations = extractCitations(turn.container, (link) => owns(turn, link, turn.role));
       citations.forEach((citation) => citationUrls.add(citation.href));
       if (turn.role === 'user') userCount += 1;
       else assistantCount += 1;
@@ -73,6 +80,9 @@ register({
 
     const captured = userCount + assistantCount;
     const structuralIncomplete = turns.truncated || hasUnrenderedHistory();
+    parts.push('', structuralIncomplete
+      ? '> **Coverage:** Visible rendered conversation only; older or virtualized history was not loaded.'
+      : '> **Coverage:** Visible rendered conversation only; unloaded page history is not included.');
     if (!captured) {
       const fallback = document.querySelector('main, [role="main"], [data-testid*="conversation"], #__next');
       if (fallback) parts.push('', Markdown.elementToMarkdown(clean(fallback)));
@@ -213,7 +223,10 @@ function dedupeTurns(turns: Turn[]): Turn[] {
     && other.element !== turn.element && other.element.contains(turn.element)));
 }
 
-function extractCitations(container: Element): Array<{ label: string; href: string }> {
+function extractCitations(
+  container: Element,
+  ownsNode: (node: Element) => boolean,
+): Array<{ label: string; href: string }> {
   const links = container.querySelectorAll<HTMLAnchorElement>([
     'a[data-citation][href]',
     '[data-testid*="citation"] a[href]',
@@ -225,6 +238,7 @@ function extractCitations(container: Element): Array<{ label: string; href: stri
   const seen = new Set<string>();
   const result: Array<{ label: string; href: string }> = [];
   for (const link of links) {
+    if (isPageAnchor(link) || !ownsNode(link)) continue;
     const href = safeHttpUrl(link.href);
     if (!href || seen.has(href)) continue;
     seen.add(href);
@@ -236,17 +250,23 @@ function extractCitations(container: Element): Array<{ label: string; href: stri
   return result;
 }
 
-function standaloneImages(container: Element, content: Element): string[] {
+function standaloneImages(
+  container: Element,
+  content: Element,
+  ownsNode: (node: Element) => boolean,
+): string[] {
+  const inText = (image: Element) => isInText([content], image);
   const existing = new Set(
     Array.from(content.querySelectorAll<HTMLImageElement>('img[src]'))
+      .filter(inText)
       .map((image) => safeImageUrl(imageSource(image)))
       .filter(Boolean),
   );
   const result: string[] = [];
   for (const image of container.querySelectorAll<HTMLImageElement>('img[src]')) {
-    if (content.contains(image) || image.getAttribute('aria-hidden') === 'true') continue;
+    if (inText(image) || isAriaHidden(container, image) || !ownsNode(image)) continue;
     const source = safeImageUrl(imageSource(image));
-    if (!source || existing.has(source)) continue;
+    if (!source || existing.has(source) || isFaviconUrl(source)) continue;
     const alt = image.getAttribute('alt') || '';
     const meaningful = Boolean(image.closest('figure, [data-testid*="image"], [class*="generated"]'))
       || /generated|uploaded|image/i.test(alt)
@@ -259,7 +279,7 @@ function standaloneImages(container: Element, content: Element): string[] {
 }
 
 function clean(element: Element): Element {
-  return Utils.removeNoise(element, [
+  return Utils.removeNoise(cloneMessage(element), [
     ...Utils.NOISE_SELECTORS,
     'button', '[data-testid*="actions"]', '[data-testid*="feedback"]',
     '[class*="toolbar"]:not(.code-toolbar)', '[class*="avatar"]', '[class*="profile"]',
@@ -293,8 +313,8 @@ function compareDomOrder(left: Element, right: Element): number {
 }
 
 function hasUnrenderedHistory(): boolean {
-  return Boolean(document.querySelector(
-    '[data-testid*="load-more"], button[aria-label*="older" i], button[aria-label*="previous" i], [data-virtualized="true"]',
+  return hasHistoryControl() || Boolean(document.querySelector(
+    '[data-testid*="load-more"], [data-virtualized="true"]',
   ));
 }
 

@@ -7,11 +7,14 @@ import { register } from '../core/registry';
 import * as Markdown from '../core/markdown';
 import * as Utils from '../core/utils';
 import { addExtractionMetadata, limitCollection, limitMarkdown } from '../core/context';
+import {
+  cloneMessage, conversationPageTitle, conversationUrl, createTurnOwner, hasHistoryControl,
+  isAriaHidden, isFaviconUrl, isInText, isPageAnchor, messageToMarkdown, type Role,
+} from '../core/ai-conversation';
 
 const MAX_TURNS = 200;
 
-type Role = 'user' | 'assistant';
-type Turn = { role: Role; element: Element; container: Element };
+type Turn = { role: Role; element: Element; container: Element; blocks?: Element[] };
 
 register({
   name: 'Gemini',
@@ -32,11 +35,12 @@ register({
   pathnameRegex: /^(?:\/u\/\d+)?\/(?:app|share|chat|gem|spark|canvas)(?:\/|$)/,
 
   async extract() {
-    const title = cleanTitle(Utils.getPageTitle()) || 'Gemini Conversation';
+    const sharedTitle = document.querySelector('share-viewer h1')?.textContent?.trim();
+    const title = sharedTitle || cleanTitle(conversationPageTitle()) || 'Gemini Conversation';
     const metadata: Record<string, string | number> = {
       source: 'Gemini',
       title,
-      url: Utils.getCanonicalUrl(),
+      url: conversationUrl(),
       route: conversationRoute(window.location.pathname),
     };
     const model = extractModel();
@@ -51,19 +55,25 @@ register({
     let imageCount = 0;
     let codeBlockCount = 0;
 
+    const owns = createTurnOwner(turns.items);
+
     for (const turn of turns.items) {
-      const cleaned = clean(turn.element);
-      let content = Markdown.elementToMarkdown(cleaned);
-      const images = standaloneImages(turn.container, turn.element);
+      const contentNodes = turn.blocks || [turn.element];
+      const cleanedNodes = contentNodes.map((node) => clean(node));
+      let content = cleanedNodes.map(messageToMarkdown).filter(Boolean).join('\n\n');
+      const images = standaloneImages(turn.container, contentNodes, (node) => owns(turn, node));
       if (images.length) content = `${content}\n\n${images.join('\n')}`.trim();
       if (!content) continue;
 
-      const citations = extractCitations(turn.container);
+      const citations = extractCitations(turn.container, (link) => owns(turn, link, turn.role));
       citations.forEach((citation) => citationUrls.add(citation.href));
       if (turn.role === 'user') userCount += 1;
       else assistantCount += 1;
-      imageCount += cleaned.querySelectorAll('img[src]').length + images.length;
-      codeBlockCount += cleaned.querySelectorAll('pre').length;
+      imageCount += images.length;
+      for (const node of cleanedNodes) {
+        imageCount += node.querySelectorAll('img[src]').length;
+        codeBlockCount += node.querySelectorAll('pre').length;
+      }
 
       parts.push('', `## ${turn.role === 'user' ? '👤 User' : '🤖 Gemini'}`, '', content);
       if (turn.role === 'assistant' && citations.length) {
@@ -73,6 +83,9 @@ register({
 
     const captured = userCount + assistantCount;
     const structuralIncomplete = turns.truncated || hasUnrenderedHistory();
+    parts.push('', structuralIncomplete
+      ? '> **Coverage:** Visible rendered conversation only; older or virtualized history was not loaded.'
+      : '> **Coverage:** Visible rendered conversation only; unloaded page history is not included.');
     if (!captured) {
       const fallback = document.querySelector('#chat-history, main, [role="main"], [data-testid*="conversation"]');
       if (fallback) parts.push('', Markdown.elementToMarkdown(clean(fallback)));
@@ -109,6 +122,7 @@ function extractModel(): string {
   if (dataModelName) return dataModelName;
   const isVisible = Utils.createVisibilityChecker();
   for (const el of document.querySelectorAll('[data-testid*="model"]')) {
+    if (el.closest('[data-testid*="model-response"]')) continue;
     if (!isVisible(el)) continue;
     const text = normalize(el.textContent || '');
     if (text && text.length <= 100) return text;
@@ -129,7 +143,7 @@ function collectTurns(): Turn[] {
     for (const root of roots) {
       const explicitRole = roleFor(root);
       if (explicitRole) {
-        result.push({ role: explicitRole, element: messageContent(root) || root, container: root });
+        result.push(buildTurn(explicitRole, root, root));
         continue;
       }
       const user = queryFirst(root, [
@@ -148,8 +162,8 @@ function collectTurns(): Turn[] {
         '[data-role="assistant"]',
         '.model-response',
       ]);
-      if (user) result.push({ role: 'user', element: messageContent(user) || user, container: root });
-      if (assistant) result.push({ role: 'assistant', element: messageContent(assistant) || assistant, container: root });
+      if (user) result.push(buildTurn('user', user, root));
+      if (assistant) result.push(buildTurn('assistant', assistant, root));
     }
     if (result.length) return dedupeTurns(result);
   }
@@ -161,6 +175,7 @@ function collectTurns(): Turn[] {
     '[data-message-author-role="user"]',
     '[data-role="user"]',
     'model-response',
+    'response-container',
     '[data-testid="model-response"]',
     '[data-testid="answer"]',
     '[data-message-author-role="assistant"]',
@@ -170,7 +185,7 @@ function collectTurns(): Turn[] {
   for (const element of standalone) {
     const role = roleFor(element);
     if (!role) continue;
-    result.push({ role, element: messageContent(element) || element, container: closestTurn(element) });
+    result.push(buildTurn(role, element, closestTurn(element)));
   }
   return dedupeTurns(result);
 }
@@ -187,6 +202,21 @@ function roleFor(element: Element): Role | null {
   if (/(?:^|[\s_-])(user|human|you|prompt|query)(?:$|[\s_-])/.test(value)) return 'user';
   if (/(?:^|[\s_-])(assistant|gemini|model|response|answer)(?:$|[\s_-])/.test(value)) return 'assistant';
   return null;
+}
+
+function buildTurn(role: Role, message: Element, container: Element): Turn {
+  // Expanded thoughts and canvas documents use the same panels as the answer.
+  const selector = role === 'assistant' ? '.markdown.markdown-main-panel' : '.query-text, .query-text-line';
+  const blocks = Array.from(message.querySelectorAll(selector)).filter((block, _index, all) => (
+    !block.closest('model-thoughts, .thoughts-container')
+    && !all.some((other) => other !== block && other.contains(block))
+  ));
+  return {
+    role,
+    element: blocks[0] || messageContent(message) || message,
+    container,
+    blocks: blocks.length > 1 ? blocks : undefined,
+  };
 }
 
 function messageContent(element: Element): Element | null {
@@ -209,10 +239,14 @@ function dedupeTurns(turns: Turn[]): Turn[] {
     return true;
   });
   return unique.filter((turn) => !unique.some((other) => other.role === turn.role
-    && other.element !== turn.element && other.element.contains(turn.element)));
+    && other.element !== turn.element
+    && (other.blocks || [other.element]).some((block) => block.contains(turn.element))));
 }
 
-function extractCitations(container: Element): Array<{ label: string; href: string }> {
+function extractCitations(
+  container: Element,
+  ownsNode: (node: Element) => boolean,
+): Array<{ label: string; href: string }> {
   const links = container.querySelectorAll<HTMLAnchorElement>([
     'a[data-citation][href]',
     '[data-testid*="citation"] a[href]',
@@ -224,6 +258,7 @@ function extractCitations(container: Element): Array<{ label: string; href: stri
   const seen = new Set<string>();
   const result: Array<{ label: string; href: string }> = [];
   for (const link of links) {
+    if (isPageAnchor(link) || !ownsNode(link)) continue;
     const href = safeHttpUrl(link.href);
     if (!href || seen.has(href)) continue;
     seen.add(href);
@@ -235,17 +270,24 @@ function extractCitations(container: Element): Array<{ label: string; href: stri
   return result;
 }
 
-function standaloneImages(container: Element, content: Element): string[] {
+function standaloneImages(
+  container: Element,
+  contentNodes: Element[],
+  ownsNode: (node: Element) => boolean,
+): string[] {
+  const inText = (image: Element) => isInText(contentNodes, image);
   const existing = new Set(
-    Array.from(content.querySelectorAll<HTMLImageElement>('img[src]'))
+    contentNodes
+      .flatMap((node) => Array.from(node.querySelectorAll<HTMLImageElement>('img[src]')))
+      .filter(inText)
       .map((image) => safeImageUrl(imageSource(image)))
       .filter(Boolean),
   );
   const result: string[] = [];
   for (const image of container.querySelectorAll<HTMLImageElement>('img[src]')) {
-    if (content.contains(image) || image.getAttribute('aria-hidden') === 'true') continue;
+    if (inText(image) || isAriaHidden(container, image) || !ownsNode(image)) continue;
     const source = safeImageUrl(imageSource(image));
-    if (!source || existing.has(source)) continue;
+    if (!source || existing.has(source) || isFaviconUrl(source)) continue;
     const alt = image.getAttribute('alt') || '';
     const meaningful = Boolean(image.closest('figure, [data-testid*="image"], [class*="generated"], [class*="image"]'))
       || /generated|uploaded|image/i.test(alt)
@@ -258,11 +300,11 @@ function standaloneImages(container: Element, content: Element): string[] {
 }
 
 function clean(element: Element): Element {
-  return Utils.removeNoise(element, [
+  return Utils.removeNoise(cloneMessage(element), [
     ...Utils.NOISE_SELECTORS,
     'button', '[data-testid*="actions"]', '[data-testid*="feedback"]',
     '[class*="toolbar"]:not(.code-toolbar)', '[class*="avatar"]', 'textarea',
-    '[contenteditable="true"]',
+    '[contenteditable="true"]', '.cdk-visually-hidden',
   ]);
 }
 
@@ -283,7 +325,7 @@ function queryFirst(root: Element, selectors: string[]): Element | null {
 }
 
 function closestTurn(element: Element): Element {
-  return element.closest('.conversation-container, conversation-turn, .conversation-turn, [data-message-id]') || element;
+  return element.closest('share-turn-viewer, .conversation-container, conversation-turn, .conversation-turn, [data-message-id]') || element;
 }
 
 function compareDomOrder(left: Element, right: Element): number {
@@ -292,8 +334,8 @@ function compareDomOrder(left: Element, right: Element): number {
 }
 
 function hasUnrenderedHistory(): boolean {
-  return Boolean(document.querySelector(
-    '[data-testid*="load-more"], button[aria-label*="older" i], button[aria-label*="previous" i], [data-virtualized="true"]',
+  return hasHistoryControl() || Boolean(document.querySelector(
+    '[data-testid*="load-more"], [data-virtualized="true"]',
   ));
 }
 
@@ -343,7 +385,8 @@ function hostname(value: string): string {
 }
 
 function cleanTitle(value: string): string {
-  return value.replace(/\s*[·|\-]\s*Gemini\s*$/i, '').trim();
+  const title = value.replace(/\u200e/g, '').replace(/\s*[·|\-]\s*(?:Google\s+)?Gemini\s*$/i, '').trim();
+  return /^(?:Google Gemini|Gemini(?: - direct access to Google AI)?)$/i.test(title) ? '' : title;
 }
 
 function normalize(value: string): string {
