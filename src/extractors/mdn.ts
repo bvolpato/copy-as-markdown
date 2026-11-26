@@ -29,12 +29,17 @@ register({
     const title = titleEl?.textContent?.trim() || Utils.getPageTitle();
 
     // Breadcrumb path (e.g., "Web > JavaScript > Reference > Array")
-    const breadcrumbEls = document.querySelectorAll('.breadcrumbs-container li, nav.breadcrumbs ol li');
+    const breadcrumbEls = document.querySelectorAll('.breadcrumbs-container li, nav.breadcrumbs ol li, ol.breadcrumbs li');
     const breadcrumb = Array.from(breadcrumbEls).map((el) => el.textContent?.trim()).filter(Boolean).join(' > ');
 
     // Browser compat status
     const statusEl = document.querySelector('.page-header .bc-level');
-    const status = statusEl?.textContent?.trim() || '';
+    const status = statusEl?.textContent?.trim()
+      || Markdown.normalizeWhitespace(
+        Array.from(document.querySelectorAll('.baseline-indicator .status-title, .baseline-indicator .pill'))
+          .map((el) => el.textContent?.trim())
+          .join(' '),
+      );
 
     const metadata: Record<string, string> = {
       source: 'MDN Web Docs',
@@ -52,6 +57,7 @@ register({
     const contentEl = document.querySelector('.main-page-content, article.main-page-content, #content article, #content');
     if (contentEl) {
       const clone = contentEl.cloneNode(true) as HTMLElement;
+      expandMdnCodeExamples(contentEl, clone);
       annotateMdnCodeLanguages(clone);
       // Remove noise
       clone.querySelectorAll([
@@ -59,6 +65,9 @@ register({
         'mdn-button',
         'button',
         '.code-example .example-header',
+        '.baseline-indicator > summary',
+        '.baseline-indicator ul',
+        '.article-footer',
         '#help-improve-mdn',
         '.metadata-content-container',
         'article h1',
@@ -102,12 +111,29 @@ function findCompatTable(): Element | null {
   const lightTable = document.querySelector('.bc-table');
   if (lightTable) return lightTable;
 
-  const hosts = document.querySelectorAll('mdn-compat-table, mdn-compat-table-lazy');
-  for (const host of hosts) {
-    const shadowTable = host.shadowRoot?.querySelector('.bc-table, table');
-    if (shadowTable) return shadowTable;
+  return findShadowCompatTable(document);
+}
+
+/** The lazy element renders the compat table element inside its own shadow root. */
+function findShadowCompatTable(root: ParentNode): Element | null {
+  for (const host of root.querySelectorAll('mdn-compat-table, mdn-compat-table-lazy')) {
+    if (!host.shadowRoot) continue;
+    const table = host.shadowRoot.querySelector('.bc-table, table') || findShadowCompatTable(host.shadowRoot);
+    if (table) return table;
   }
   return null;
+}
+
+/** Cloning drops shadow roots, where current pages render every code example. */
+function expandMdnCodeExamples(source: Element, clone: HTMLElement): void {
+  const targets = clone.querySelectorAll('mdn-code-example');
+  source.querySelectorAll('mdn-code-example').forEach((example, index) => {
+    const pre = example.shadowRoot?.querySelector('pre');
+    if (!pre) return;
+    const copy = pre.cloneNode(true) as HTMLElement;
+    if (!/\bbrush:/.test(copy.className)) copy.className = `${copy.className} ${example.className}`.trim();
+    targets[index]?.replaceWith(copy);
+  });
 }
 
 function annotateMdnCodeLanguages(root: HTMLElement): void {

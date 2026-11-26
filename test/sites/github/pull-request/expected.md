@@ -1,8 +1,9 @@
 ---
+title: FIXTURE_SPAN_0021
 url: "https://github.com/bvolpato/copy-as-markdown/pull/67"
 ---
 
-# Pull Request #67:
+# Pull Request #67: FIXTURE_SPAN_0021
 
 **Author:** @fixture-link-0023
 **Created:** 2026-01-01T00:00:00Z

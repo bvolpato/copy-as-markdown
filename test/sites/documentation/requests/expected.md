@@ -6,7 +6,7 @@ url: "https://requests.readthedocs.io/en/latest/"
 # FIXTURE_H1_0001
 
 FIXTURE_P_0002 [FIXTURE_SPAN_0003](https://example.invalid/fixture-link-0001) FIXTURE_P_0004
- https://example.invalid/fixture-link-0002 https://example.invalid/fixture-link-0003 https://example.invalid/fixture-link-0004 https://example.invalid/fixture-link-0005 https://example.invalid/fixture-link-0006
+
 **FIXTURE_STRONG_0005**FIXTURE_P_0006
 
 ---

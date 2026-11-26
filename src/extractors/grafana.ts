@@ -85,7 +85,7 @@ export const grafanaExtractor = register({
 
     // Match top-level panel containers (never sub-elements like Panel header title / Panel menu / Panel content).
     const panels = Array.from(document.querySelectorAll(
-      'section[data-panelid], .panel-container, [data-testid="data-testid Panel container"], [data-testid^="data-testid Panel "][data-panelid]',
+      'section[data-panelid], .panel-container, [data-testid="data-testid Panel container"], [data-testid^="data-testid Panel "][data-panelid], section[data-testid^="data-testid Panel header "]',
     )).filter((el) => isVisible(el));
     const seen = new Set<Element>();
     let panelCount = 0;
@@ -111,7 +111,7 @@ export const grafanaExtractor = register({
         .filter((el) => isVisible(el))
         .map((el) => Markdown.normalizeWhitespace(el.textContent || ''))
         .filter(Boolean);
-      const textBody = panel.querySelector('.markdown-html, .panel-content');
+      const textBody = panel.querySelector('.markdown-html, .panel-content, [data-testid="data-testid panel content"]');
 
       panelCount += 1;
       parts.push(`\n## ${panelTitle}`);
@@ -123,7 +123,12 @@ export const grafanaExtractor = register({
       } else if (statValues.length > 0) {
         parts.push(statValues.map((v) => `- ${v}`).join('\n'));
       } else if (textBody) {
-        const cleaned = Utils.removeNoise(textBody, [...Utils.NOISE_SELECTORS, 'button']);
+        const content = textBody.cloneNode(true) as Element;
+        // Legend series names are buttons, and their values have no meaning without them.
+        content.querySelectorAll('[data-testid^="data-testid VizLegend series"] > button').forEach((button) => {
+          button.replaceWith(`${button.textContent || ''} `);
+        });
+        const cleaned = Utils.removeNoise(content, [...Utils.NOISE_SELECTORS, 'button']);
         const body = Markdown.elementToMarkdown(cleaned);
         if (body) parts.push(body);
       }

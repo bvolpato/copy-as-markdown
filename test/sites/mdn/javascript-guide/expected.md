@@ -5,6 +5,8 @@ url: "https://developer.mozilla.org/en-US/docs/Web/JavaScript/Guide"
 
 # FIXTURE_H1_0139
 
+**Path:** FIXTURE_SPAN_0119 > FIXTURE_SPAN_0120 > FIXTURE_SPAN_0121
+
 FIXTURE_P_0140 [FIXTURE_A_0141](https://example.invalid/fixture-link-0106) FIXTURE_P_0142 [FIXTURE_A_0143](https://example.invalid/fixture-link-0107) FIXTURE_P_0144
 
 FIXTURE_P_0145
@@ -191,12 +193,3 @@ FIXTURE_P_0327
 - [FIXTURE_A_0333](https://example.invalid/fixture-link-0253)
 - [FIXTURE_A_0334](https://example.invalid/fixture-link-0254)
 - [FIXTURE_A_0335](https://example.invalid/fixture-link-0255)
-
-## FIXTURE_H2_0337
-
- FIXTURE_LABEL_0338
-
- [FIXTURE_A_0341](https://example.invalid/fixture-link-0257)
-FIXTURE_P_0342FIXTURE_TIME_0343FIXTURE_P_0344 [FIXTURE_A_0345](https://example.invalid/fixture-link-0258) FIXTURE_P_0346
-
- [FIXTURE_A_0347](https://example.invalid/fixture-link-0259) FIXTURE_DIV_0348 [FIXTURE_A_0349](https://example.invalid/fixture-link-0260)

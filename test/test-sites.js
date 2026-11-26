@@ -4063,9 +4063,10 @@ async function runMetricPlatformChecks(browser, scriptContent) {
     assertCheck(fetches.every(({ credentials }) => credentials === 'include'), 'Weights & Biases omitted browser session credentials');
     assertCheck(fetches.every(({ authorization }) => !authorization), 'Weights & Biases sent an Authorization credential');
     assertCheck(
-      fetches[1].variables.specs[0].includes('"samples":500')
+      fetches[1].variables.specs.length === 2
+        && fetches[1].variables.specs.every((spec) => spec.includes('"samples":500'))
         && fetches[1].variables.specs[0].includes('"accuracy"')
-        && fetches[1].variables.specs[0].includes('"loss"'),
+        && fetches[1].variables.specs[1].includes('"loss"'),
       `Weights & Biases sampled-history variables are wrong: ${JSON.stringify(fetches[1].variables)}`,
     );
     assertCompactMetadata(markdown, 'Weights & Biases output');

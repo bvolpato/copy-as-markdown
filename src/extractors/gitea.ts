@@ -22,7 +22,7 @@ export const giteaExtractor = register({
   matches: [
     '*://codeberg.org/*/*',
   ],
-  pathnameRegex: /^\/(?!explore|user|org|admin|api|assets|notifications|milestones|issues|pulls)[^/]+\/[^/]+/i,
+  pathnameRegex: /^\/(?!(?:explore|user|org|admin|api|assets|notifications|milestones|issues|pulls)\/)[^/]+\/[^/]+/i,
   detect: isGiteaOrForgejo,
   buttonPlacement: 'anchor',
   anchor: {
@@ -34,11 +34,18 @@ export const giteaExtractor = register({
 
   async extract() {
     const path = window.location.pathname;
-    const isIssueOrPr = /\/(?:issues|pulls)\/\d+/.test(path);
-    const isBlob = /\/src\/(?:branch|tag|commit)\//.test(path) && Boolean(document.querySelector('.file-view .lines-code, .code-view, .file-content'));
+    const isSource = /\/src\/(?:branch|tag|commit)\//.test(path);
+    const isIssueOrPr = !isSource && /\/(?:issues|pulls)\/\d+/.test(path);
+    const isBlob = isSource && Boolean(document.querySelector('.file-view .lines-code, .code-view, .file-content'));
 
+    const headerLinks = Array.from(document.querySelectorAll('.repo-header a.muted'), (link) => (
+      Markdown.normalizeWhitespace(link.textContent || '')
+    )).filter(Boolean);
     const repoTitle = Markdown.normalizeWhitespace(
-      document.querySelector('.repo-title, h1 .title, h1')?.textContent || Utils.getPageTitle(),
+      document.querySelector('.repo-title')?.textContent
+        || (headerLinks.length >= 2 ? headerLinks.slice(0, 2).join('/') : '')
+        || document.querySelector('h1 .title, h1')?.textContent
+        || Utils.getPageTitle(),
     );
 
     const metadata: PageMetadata = {
@@ -51,7 +58,9 @@ export const giteaExtractor = register({
 
     if (isIssueOrPr) {
       const issueTitle = Markdown.normalizeWhitespace(
-        document.querySelector('#issue-title-display, .issue-title .index, h1')?.textContent || repoTitle,
+        document.querySelector('#issue-title-display h1')?.textContent
+          || document.querySelector('#issue-title-display, .issue-title .index, h1')?.textContent
+          || repoTitle,
       );
       metadata.title = issueTitle;
       parts.push(`# ${issueTitle}`);
@@ -59,7 +68,10 @@ export const giteaExtractor = register({
       const state = Markdown.normalizeWhitespace(document.querySelector('.issue-state-label')?.textContent || '');
       if (state) parts.push(`**State:** ${state}`);
 
-      const comments = Array.from(document.querySelectorAll('.timeline-item.comment, .comment-container'));
+      const candidates = Array.from(document.querySelectorAll('.timeline-item.comment, .comment-container'));
+      const comments = candidates.filter((comment) => !candidates.some(
+        (other) => other !== comment && other.contains(comment),
+      ));
       let count = 0;
       for (const comment of comments) {
         const bodyEl = comment.querySelector('.render-content.markup, .markdown');
@@ -82,7 +94,7 @@ export const giteaExtractor = register({
       const codeLines = Array.from(document.querySelectorAll('.lines-code .code-inner, .file-view td.lines-code pre'));
       if (codeLines.length > 0) {
         const ext = (path.split('.').pop() || '').toLowerCase();
-        const code = codeLines.map((line) => line.textContent || '').join('\n');
+        const code = codeLines.map((line) => (line.textContent || '').replace(/\r?\n$/, '')).join('\n');
         parts.push('\n' + Markdown.fencedCodeToMarkdown(code, ext));
       } else {
         const rendered = document.querySelector('.file-view .markup, .file-content');
@@ -93,10 +105,12 @@ export const giteaExtractor = register({
       const description = Markdown.normalizeWhitespace(document.querySelector('#repo-desc .description, .repo-description')?.textContent || '');
       if (description) parts.push(`\n> ${description}`);
 
-      const fileRows = Array.from(document.querySelectorAll('#repo-files-table tbody tr, .repo-file-list .entry'));
+      const fileRows = Array.from(document.querySelectorAll(
+        '#repo-files-table tbody tr:not(.commit-list), .repo-file-list .entry, #repo-files-table .repo-file-item',
+      ));
       const fileLines: string[] = [];
       for (const row of fileRows) {
-        const link = row.querySelector<HTMLAnchorElement>('td.name a, a.muted');
+        const link = row.querySelector<HTMLAnchorElement>('td.name a, a.entry-name, a.muted');
         if (!link) continue;
         const name = Markdown.normalizeWhitespace(link.textContent || '');
         if (!name || name === '..') continue;

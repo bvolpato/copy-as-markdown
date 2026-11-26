@@ -10,6 +10,8 @@ export type DatadogMetricQuery = {
   alias?: string;
 };
 
+const PLAIN_FORMULA_RE = /^[a-zA-Z_]\w*$/;
+
 type ApiSeries = {
   display_name?: string;
   expression?: string;
@@ -24,6 +26,8 @@ type ApiResponse = {
 export function getMetricQueries(definition: Record<string, unknown>): DatadogMetricQuery[] {
   const requests = Array.isArray(definition.requests) ? definition.requests : [];
   const queries: DatadogMetricQuery[] = [];
+  // The inputs of a computed formula are not the plotted values, and labels need every plotted series.
+  if (requests.some(hasComputedFormula)) return queries;
 
   for (const requestValue of requests) {
     if (!isRecord(requestValue)) continue;
@@ -194,13 +198,19 @@ function getFormulaAliases(request: Record<string, unknown>): Map<string, string
     if (
       isRecord(value)
       && typeof value.formula === 'string'
-      && /^[a-zA-Z_]\w*$/.test(value.formula)
+      && PLAIN_FORMULA_RE.test(value.formula)
       && typeof value.alias === 'string'
     ) {
       aliases.set(value.formula, value.alias);
     }
   });
   return aliases;
+}
+
+function hasComputedFormula(request: unknown): boolean {
+  return isRecord(request) && Array.isArray(request.formulas) && request.formulas.some((value) => (
+    isRecord(value) && typeof value.formula === 'string' && !PLAIN_FORMULA_RE.test(value.formula)
+  ));
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

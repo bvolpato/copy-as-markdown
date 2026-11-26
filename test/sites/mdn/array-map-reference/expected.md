@@ -5,14 +5,11 @@ url: "https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_O
 
 # FIXTURE_H1_0142
 
-FIXTURE_DIV_0143
+**Path:** FIXTURE_SPAN_0119 > FIXTURE_SPAN_0120 > FIXTURE_SPAN_0121 > FIXTURE_SPAN_0122 > FIXTURE_SPAN_0123 > FIXTURE_SPAN_0124
 
-FIXTURE_DIV_0144
+**Status:** FIXTURE_DIV_0143 FIXTURE_DIV_0144
 
 FIXTURE_P_0145
-
-- [FIXTURE_A_0146](https://example.invalid/fixture-link-0109)
-- [FIXTURE_A_0147](https://example.invalid/fixture-link-0110)
 
 FIXTURE_P_0148**`FIXTURE_CODE_0149`**FIXTURE_P_0150 [`FIXTURE_CODE_0151`](https://example.invalid/fixture-link-0111) FIXTURE_P_0152
 
@@ -281,12 +278,3 @@ FIXTURE_P_1080 [`FIXTURE_CODE_1081`](https://example.invalid/fixture-link-0153) 
 - [`FIXTURE_CODE_1103`](https://example.invalid/fixture-link-0163)
 - [`FIXTURE_CODE_1104`](https://example.invalid/fixture-link-0164)
 - [`FIXTURE_CODE_1105`](https://example.invalid/fixture-link-0165)
-
-## FIXTURE_H2_1106
-
- FIXTURE_LABEL_1107
-
- [FIXTURE_A_1110](https://example.invalid/fixture-link-0166)
-FIXTURE_P_1111FIXTURE_TIME_1112FIXTURE_P_1113 [FIXTURE_A_1114](https://example.invalid/fixture-link-0167) FIXTURE_P_1115
-
- [FIXTURE_A_1116](https://example.invalid/fixture-link-0168) FIXTURE_DIV_1117 [FIXTURE_A_1118](https://example.invalid/fixture-link-0169)

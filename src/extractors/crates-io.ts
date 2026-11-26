@@ -34,7 +34,7 @@ export const cratesIoExtractor = register({
       document.querySelector('[data-test-heading] small, [data-test-crate-version]')?.textContent || '',
     );
     const description = Markdown.normalizeWhitespace(
-      document.querySelector('[data-test-description], [class*="description"] p')?.textContent || '',
+      document.querySelector('[data-test-description], main .header .description, [class*="description"] p')?.textContent || '',
     );
 
     const metadata: PageMetadata = {
@@ -49,22 +49,28 @@ export const cratesIoExtractor = register({
 
     const details: string[] = [];
     const installCode = Markdown.normalizeWhitespace(
-      document.querySelector('[data-test-install] code, [class*="install"] code')?.textContent || '',
+      document.querySelector('[data-test-install] code, [class*="install"] code, .install-instructions .selectable')?.textContent || '',
     );
     if (installCode) details.push(`**Install:** \`${installCode}\``);
 
     const license = Markdown.normalizeWhitespace(
-      document.querySelector('[data-test-license], [data-test-metadata-license]')?.textContent || '',
-    );
+      document.querySelector('[data-test-license], [data-test-metadata-license], .metadata .license')?.textContent || '',
+    ).replace(/^License:\s*/i, '');
     if (license) details.push(`**License:** ${license}`);
 
-    const msrv = Markdown.normalizeWhitespace(document.querySelector('[data-test-msrv]')?.textContent || '');
+    const msrv = Markdown.normalizeWhitespace(
+      document.querySelector('[data-test-msrv], .metadata .msrv')?.textContent || '',
+    ).replace(/^Minimum Rust version:\s*/i, '');
     if (msrv) details.push(`**MSRV:** ${msrv}`);
 
-    const docsLink = document.querySelector<HTMLAnchorElement>('[data-test-docs-link] a, a[href*="docs.rs"]');
+    // README links can also point to docs.rs, so prefer the sidebar link.
+    const docsLink = document.querySelector<HTMLAnchorElement>('[data-test-docs-link] a')
+      || findSidebarLink('Documentation')
+      || document.querySelector<HTMLAnchorElement>('a[href*="docs.rs"]');
     if (docsLink?.href) details.push(`**Docs:** ${docsLink.href}`);
 
-    const repoLink = document.querySelector<HTMLAnchorElement>('[data-test-repository-link] a');
+    const repoLink = document.querySelector<HTMLAnchorElement>('[data-test-repository-link] a')
+      || findSidebarLink('Repository');
     if (repoLink?.href) details.push(`**Repository:** ${repoLink.href}`);
 
     if (details.length > 0) parts.push('\n' + details.join(' | '));
@@ -92,3 +98,9 @@ export const cratesIoExtractor = register({
     return Markdown.buildPageMarkdown(metadata, limited.markdown);
   },
 });
+
+function findSidebarLink(heading: string): HTMLAnchorElement | null {
+  const title = Array.from(document.querySelectorAll('.sidebar h2'))
+    .find((element) => element.textContent?.trim() === heading);
+  return title?.parentElement?.querySelector<HTMLAnchorElement>('a[href]') || null;
+}

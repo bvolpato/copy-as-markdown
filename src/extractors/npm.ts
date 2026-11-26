@@ -71,6 +71,7 @@ register({
 
     const metadata: Record<string, string> = {
       source: 'NPM',
+      title: packageName,
       package: packageName,
       url,
     };

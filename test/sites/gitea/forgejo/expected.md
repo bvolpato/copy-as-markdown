@@ -1,15 +1,14 @@
 ---
-title: FIXTURE_H1_0497
+title: FIXTURE_A_0018/FIXTURE_A_0020
 url: "https://codeberg.org/forgejo/forgejo"
 ---
 
-# FIXTURE_H1_0497
+# FIXTURE_A_0018/FIXTURE_A_0020
 
 > FIXTURE_SPAN_0039 FIXTURE_A_0040
 
 ## Files
 
-- [FIXTURE_STRONG_0072](https://example.invalid/fixture-link-0036)
 - [FIXTURE_A_0080](https://example.invalid/fixture-link-0041)
 - [FIXTURE_A_0086](https://example.invalid/fixture-link-0045)
 - [FIXTURE_A_0092](https://example.invalid/fixture-link-0049)

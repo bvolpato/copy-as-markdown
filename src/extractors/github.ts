@@ -6,9 +6,17 @@
 
 import { register } from '../core/registry';
 import * as Markdown from '../core/markdown';
+import { restoreMathSource } from '../core/math-source';
 import * as Utils from '../core/utils';
 
 const NON_REPO_PATH_RE = /^\/(?:settings|orgs|topics|sponsors|marketplace|features|enterprise|pricing|login|signup|explore|notifications|codespaces)(?:\/|$)/i;
+const TITLE_SELECTOR = [
+  '[data-testid="issue-title"]',
+  '.js-issue-title',
+  '.gh-header-title .markdown-title',
+  'h1 .markdown-title',
+  'h1 [class*="markdownTitle"]',
+].join(', ');
 const GITHUB_PATH_RE = /^\/(?!(?:settings|orgs|topics|sponsors|marketplace|features|enterprise|pricing|login|signup|explore|notifications|codespaces)(?:\/|$))[^/]+/i;
 
 export const githubExtractor = register({
@@ -255,8 +263,7 @@ async function extractChanges(
       ? `/repos/${encodeURIComponent(route.owner)}/${encodeURIComponent(route.repo)}/commits/${route.commitSha}`
       : `/repos/${encodeURIComponent(route.owner)}/${encodeURIComponent(route.repo)}/pulls/${route.pullNumber}`;
   const patchApiUrl = new URL(apiPath.replace(/^\//, ''), `${getGitHubApiBase().replace(/\/$/, '')}/`).href;
-  const title = document.querySelector('.js-issue-title, .gh-header-title .markdown-title, [data-testid="issue-title"]')
-    ?.textContent?.trim() || Utils.getPageTitle();
+  const title = document.querySelector(TITLE_SELECTOR)?.textContent?.trim() || Utils.getPageTitle();
   const state = document.querySelector('.State, [title^="Status:"], [data-component="StateLabel"]')?.textContent?.trim() || '';
   const base = document.querySelector('.gh-header-meta .commit-ref:not(.head-ref)')?.getAttribute('title') || '';
   const head = document.querySelector('.gh-header-meta .head-ref')?.getAttribute('title') || '';
@@ -381,31 +388,56 @@ async function extractChanges(
 }
 
 function extractDomDiffs(): { files: Array<{ path: string; diff: string }> } {
-  const containers = Array.from(document.querySelectorAll(
-    'copilot-diff-entry, .file.js-file, .file[data-tagsearch-path], [data-testid="diff-file"]',
+  const candidates = Array.from(document.querySelectorAll(
+    'copilot-diff-entry, .file.js-file, .file[data-tagsearch-path], [data-testid="diff-file"], table[data-diff-anchor]',
+  ));
+  // Current diff entries wrap the older file container, so keep outermost matches only.
+  const containers = candidates.filter((container) => !candidates.some(
+    (other) => other !== container && other.contains(container),
   ));
   const files: Array<{ path: string; diff: string }> = [];
   for (const container of containers) {
     const filePath = container.getAttribute('data-file-path')
       || container.getAttribute('data-tagsearch-path')
+      || container.getAttribute('aria-label')?.match(/^Diff for: (.+)$/)?.[1]
       || container.querySelector('.file-info a[title], .file-info a, [data-testid="file-path"], h3 a')?.textContent?.trim()
       || '';
-    const lineEls = container.querySelectorAll(
-      'td.blob-code-inner, [data-testid="diff-line-content"], .diff-text-inner',
-    );
-    const lines = Array.from(lineEls).map((el) => {
-      const marker = el.closest('[data-code-marker]')?.getAttribute('data-code-marker')
-        || el.getAttribute('data-code-marker')
-        || '';
-      const text = el.textContent || '';
-      return marker && !text.startsWith(marker) ? `${marker}${text}` : text;
-    });
-    const diff = lines.join('\n').trim();
+    const diff = extractDiffLines(container).join('\n');
     if (filePath || diff) {
       files.push({ path: filePath || 'File', diff: diff || '*Diff content not rendered.*' });
     }
   }
   return { files };
+}
+
+function extractDiffLines(container: Element): string[] {
+  const lines: string[] = [];
+  let contextRow: Element | null = null;
+  for (const content of container.querySelectorAll(
+    '.blob-code-hunk, .blob-code .blob-code-inner, .diff-text-inner',
+  )) {
+    const text = (content.textContent || '').replace(/\r?\n$/, '');
+    if (content.matches('.blob-code-hunk') || content.closest('.hunk')) {
+      lines.push(text.trim());
+      continue;
+    }
+    const marker = diffMarker(content);
+    const row = content.closest('tr');
+    if (marker === ' ' && row) {
+      // Split views repeat unchanged lines on both sides.
+      if (row === contextRow) continue;
+      contextRow = row;
+    }
+    lines.push(`${marker}${text}`);
+  }
+  return lines;
+}
+
+function diffMarker(content: Element): string {
+  const marker = content.closest('[data-code-marker]')?.getAttribute('data-code-marker');
+  if (marker) return marker;
+  if (content.closest('.addition, .blob-code-addition')) return '+';
+  return content.closest('.deletion, .blob-code-deletion') ? '-' : ' ';
 }
 
 function parsePatchDetails(patch: string): PatchDetails {
@@ -415,12 +447,13 @@ function parsePatchDetails(patch: string): PatchDetails {
     const boundary = boundaries[index];
     const start = (boundary.index || 0) + boundary[0].length + 1;
     const end = boundaries[index + 1]?.index ?? patch.length;
-    const headers = patch.slice(start, end).split(/^---\n/m, 1)[0];
+    // Mail headers end at the first blank line. Long values fold onto indented lines.
+    const headers = patch.slice(start, end).split(/^\r?\n/m, 1)[0].replace(/\r?\n[ \t]+/g, ' ');
     commits.push({
       sha: boundary[1],
-      author: headers.match(/^From: (.+)$/m)?.[1]?.trim() || '',
+      author: decodeMailHeader(headers.match(/^From: (.+)$/m)?.[1]?.trim() || ''),
       date: headers.match(/^Date: (.+)$/m)?.[1]?.trim() || '',
-      subject: headers.match(/^Subject: (?:\[PATCH[^\]]*\]\s*)?(.+)$/m)?.[1]?.trim() || '',
+      subject: decodeMailHeader(headers.match(/^Subject: (?:\[PATCH[^\]]*\]\s*)?(.+)$/m)?.[1]?.trim() || ''),
     });
   }
 
@@ -430,16 +463,28 @@ function parsePatchDetails(patch: string): PatchDetails {
   )];
   let additions = 0;
   let deletions = 0;
-  let insideDiff = false;
+  let oldRemaining = 0;
+  let newRemaining = 0;
   for (const line of patch.split('\n')) {
-    if (line.startsWith('diff --git ')) {
-      insideDiff = true;
+    if (oldRemaining <= 0 && newRemaining <= 0) {
+      // Only hunk bodies hold changed lines. Commit messages can also start with + or -.
+      const hunk = line.match(/^@@ -\d+(?:,(\d+))? \+\d+(?:,(\d+))? @@/);
+      if (hunk) {
+        oldRemaining = Number(hunk[1] ?? 1);
+        newRemaining = Number(hunk[2] ?? 1);
+      }
       continue;
     }
-    if (!insideDiff) continue;
-    if (line.startsWith('+++') || line.startsWith('---')) continue;
-    if (line.startsWith('+')) additions += 1;
-    if (line.startsWith('-')) deletions += 1;
+    if (line.startsWith('+')) {
+      additions += 1;
+      newRemaining -= 1;
+    } else if (line.startsWith('-')) {
+      deletions += 1;
+      oldRemaining -= 1;
+    } else if (!line.startsWith('\\')) {
+      oldRemaining -= 1;
+      newRemaining -= 1;
+    }
   }
 
   return { commits, files, additions, deletions };
@@ -447,6 +492,28 @@ function parsePatchDetails(patch: string): PatchDetails {
 
 function unescapeGitPath(value: string): string {
   return value.replace(/\\(["\\])/g, '$1');
+}
+
+/** Decode RFC 2047 words, which patches use for non-ASCII authors and subjects. */
+function decodeMailHeader(value: string): string {
+  return value
+    .replace(/(=\?[^?\s]+\?[bq]\?[^?\s]*\?=)\s+(?==\?)/gi, '$1')
+    .replace(/(?:=\?utf-8\?[bq]\?[^?\s]*\?=)+/gi, (run) => {
+      const bytes: number[] = [];
+      for (const [, encoding, text] of run.matchAll(/=\?utf-8\?([bq])\?([^?\s]*)\?=/gi)) {
+        try {
+          const decoded = encoding.toLowerCase() === 'b'
+            ? atob(text)
+            : text.replace(/_/g, ' ').replace(/=([0-9a-f]{2})/gi, (_match, hex: string) => (
+              String.fromCharCode(Number.parseInt(hex, 16))
+            ));
+          for (const character of decoded) bytes.push(character.charCodeAt(0));
+        } catch {
+          return run;
+        }
+      }
+      return new TextDecoder().decode(new Uint8Array(bytes));
+    });
 }
 
 function fencePatch(patch: string): string {
@@ -484,9 +551,8 @@ function extractGist(metadata: Record<string, string>): string {
       ?.textContent?.trim() || 'file';
     const markdownBody = fileBox.querySelector('article.markdown-body, .markdown-body');
     if (markdownBody) {
-      const cleaned = Utils.removeNoise(markdownBody, ['.anchor', '.octicon']);
       parts.push(`## ${fileName}\n`);
-      parts.push(Markdown.elementToMarkdown(cleaned));
+      parts.push(bodyToMarkdown(markdownBody, ['.anchor', '.octicon']));
       parts.push('');
       continue;
     }
@@ -494,7 +560,7 @@ function extractGist(metadata: Record<string, string>): string {
     const lineCells = fileBox.querySelectorAll('table.js-file-line-container td.blob-code-inner, td.blob-code-inner');
     let code = '';
     if (lineCells.length > 0) {
-      code = Array.from(lineCells).map((cell) => cell.textContent || '').join('\n');
+      code = Array.from(lineCells).map(codeCellText).join('\n');
     } else {
       const fallback = fileBox.querySelector('pre, .blob-wrapper');
       code = fallback?.textContent?.replace(/^\n/, '').replace(/\n$/, '') || '';
@@ -510,8 +576,7 @@ function extractGist(metadata: Record<string, string>): string {
 
 function extractDiscussion(metadata: Record<string, string>): string {
   metadata.type = 'Discussion';
-  const title = document.querySelector('.js-issue-title, .gh-header-title .markdown-title, [data-testid="issue-title"], h1 .markdown-title')
-    ?.textContent?.trim() || Utils.getPageTitle();
+  const title = document.querySelector(TITLE_SELECTOR)?.textContent?.trim() || Utils.getPageTitle();
   metadata.title = title;
   const number = `#${window.location.pathname.split('/')[4] || ''}`;
   const category = document.querySelector('.gh-header-meta a[href*="/discussions/categories/"], .discussion-category')?.textContent?.trim() || '';
@@ -534,7 +599,7 @@ function extractDiscussion(metadata: Record<string, string>): string {
   const bodyEl = document.querySelector('.js-discussion .comment-body, .discussion .comment-body, .timeline-comment .comment-body');
   if (bodyEl) {
     parts.push('## Description\n');
-    parts.push(Markdown.elementToMarkdown(bodyEl));
+    parts.push(bodyToMarkdown(bodyEl));
     parts.push('');
   }
 
@@ -555,8 +620,7 @@ function extractWiki(metadata: Record<string, string>): string {
 
   const wikiBody = document.querySelector('#wiki-body .markdown-body, #wiki-content .markdown-body, .markdown-body');
   if (wikiBody) {
-    const cleaned = Utils.removeNoise(wikiBody, [...Utils.NOISE_SELECTORS, '.anchor', '.octicon']);
-    parts.push(Markdown.elementToMarkdown(cleaned));
+    parts.push(bodyToMarkdown(wikiBody, [...Utils.NOISE_SELECTORS, '.anchor', '.octicon']));
   } else {
     parts.push('*Could not extract wiki content.*');
   }
@@ -600,8 +664,7 @@ function extractReleases(metadata: Record<string, string>): string {
 
       const body = node.querySelector('.markdown-body');
       if (body) {
-        const cleaned = Utils.removeNoise(body, ['.anchor', '.octicon']);
-        parts.push(Markdown.elementToMarkdown(cleaned));
+        parts.push(bodyToMarkdown(body, ['.anchor', '.octicon']));
         parts.push('');
       }
     }
@@ -641,7 +704,7 @@ function extractActionRun(metadata: Record<string, string>): string {
   const summary = document.querySelector('.workflow-summary .markdown-body, .js-checks-summary .markdown-body, article.markdown-body');
   if (summary) {
     parts.push('## Summary\n');
-    parts.push(Markdown.elementToMarkdown(Utils.removeNoise(summary, ['.anchor', '.octicon'])));
+    parts.push(bodyToMarkdown(summary, ['.anchor', '.octicon']));
     parts.push('');
   }
 
@@ -698,8 +761,7 @@ function extractCommitsList(metadata: Record<string, string>): string {
 
 function extractPRCommits(metadata: Record<string, string>): string {
   metadata.type = 'Pull Request Commits';
-  const title = document.querySelector('.js-issue-title, .gh-header-title .markdown-title, [data-testid="issue-title"]')
-    ?.textContent?.trim() || Utils.getPageTitle();
+  const title = document.querySelector(TITLE_SELECTOR)?.textContent?.trim() || Utils.getPageTitle();
   const number = `#${window.location.pathname.split('/')[4] || ''}`;
   metadata.title = title;
   const parts: string[] = [`# Pull Request ${number} Commits: ${title}\n`];
@@ -713,8 +775,7 @@ function extractPRCommits(metadata: Record<string, string>): string {
 
 function extractPRChecks(metadata: Record<string, string>): string {
   metadata.type = 'Pull Request Checks';
-  const title = document.querySelector('.js-issue-title, .gh-header-title .markdown-title, [data-testid="issue-title"]')
-    ?.textContent?.trim() || Utils.getPageTitle();
+  const title = document.querySelector(TITLE_SELECTOR)?.textContent?.trim() || Utils.getPageTitle();
   const number = `#${window.location.pathname.split('/')[4] || ''}`;
   metadata.title = title;
   const parts: string[] = [`# Pull Request ${number} Checks: ${title}\n`];
@@ -744,18 +805,27 @@ function extractPRChecks(metadata: Record<string, string>): string {
 }
 
 function appendRenderedCommitsList(parts: string[]): void {
-  const rows = Array.from(document.querySelectorAll(
+  const candidates = Array.from(document.querySelectorAll(
     '[data-testid="commit-row-item"], li.js-commits-list-item, .TimelineItem--condensed .js-details-container',
   ));
+  const rows = candidates.filter((row) => !candidates.some((other) => other !== row && other.contains(row)));
   if (rows.length === 0) return;
 
   const commits: Array<{ sha: string; message: string; author: string; date: string }> = [];
   for (const row of rows) {
-    const msgEl = row.querySelector('[data-testid="list-view-item-title-container"] a, a.markdown-title, .js-navigation-open, p a');
+    // A title is split into several links when it mentions an issue or a pull request.
+    const titleEl = row.querySelector(
+      '[data-listview-item-title-container] :is(h2, h3, h4), [data-testid="list-view-item-title-container"] :is(h2, h3, h4), p',
+    );
+    const msgEl = titleEl ? Utils.removeNoise(titleEl, ['button', '[aria-hidden="true"]'])
+      : row.querySelector('[data-testid="list-view-item-title-container"] a, a.markdown-title, .js-navigation-open');
     const message = msgEl?.textContent?.replace(/\s+/g, ' ').trim() || '';
+    const commitLink = row.getAttribute('data-commit-link')
+      || row.querySelector('a[href*="/commit/"], a[href*="/commits/"]')?.getAttribute('href')
+      || '';
     const shaEl = row.querySelector('a[href*="/commit/"] code, [data-testid="commit-row-browse-repo"], a.text-mono, code');
-    const sha = shaEl?.textContent?.trim().match(/[0-9a-f]{7,64}/i)?.[0]
-      || row.querySelector<HTMLAnchorElement>('a[href*="/commit/"]')?.getAttribute('href')?.match(/\/commit\/([0-9a-f]{7,64})/i)?.[1]?.slice(0, 7)
+    const sha = commitLink.match(/\/commits?\/([0-9a-f]{7,64})/i)?.[1]?.slice(0, 7)
+      || shaEl?.textContent?.trim().match(/[0-9a-f]{7,64}/i)?.[0]
       || '';
     const author = discussionAuthor(row);
     const date = row.querySelector('relative-time')?.getAttribute('datetime') || '';
@@ -775,8 +845,7 @@ function extractIssueOrPR(metadata: Record<string, string>, isPR: boolean): stri
   const type = isPR ? 'Pull Request' : 'Issue';
   metadata.type = type;
 
-  const titleEl = document.querySelector('[data-testid="issue-title"], .js-issue-title, h1 .markdown-title');
-  const title = titleEl?.textContent?.trim() || Utils.getPageTitle();
+  const title = document.querySelector(TITLE_SELECTOR)?.textContent?.trim() || Utils.getPageTitle();
   metadata.title = title;
 
   const number = `#${window.location.pathname.split('/')[4]}`;
@@ -814,7 +883,7 @@ function extractIssueOrPR(metadata: Record<string, string>, isPR: boolean): stri
   // Body
   if (bodyEl) {
     parts.push('## Description\n');
-    parts.push(Markdown.elementToMarkdown(bodyEl));
+    parts.push(bodyToMarkdown(bodyEl));
     parts.push('');
   }
 
@@ -831,13 +900,17 @@ function appendDiscussionComments(parts: string[], bodyEl: Element | null): void
   const comments = candidates.filter((comment) => comment !== bodyEl
     && !bodyEl?.contains(comment)
     && !comment.contains(bodyEl)
-    && !candidates.some((other) => other !== comment && other.contains(comment)))
-    .map((element) => ({ element, markdown: Markdown.elementToMarkdown(element) }))
+    && !candidates.some((other) => other !== comment && other.contains(comment))
+    && !isLoadedAnswerPreview(comment))
+    .map((element) => ({ element, markdown: bodyToMarkdown(element) }))
     .filter(({ markdown }) => markdown.trim());
   if (comments.length > 0) {
     parts.push('## Comments\n');
     comments.forEach(({ element: comment, markdown }) => {
-      const container = comment.closest('.react-issue-comment, .timeline-comment, .js-timeline-item');
+      // One timeline item can hold a whole review thread, so prefer the single comment.
+      const container = answerPreview(comment)
+        || comment.closest('.react-issue-comment, .timeline-comment-group, .review-comment, .timeline-comment')
+        || comment.closest('.js-timeline-item');
       const commentAuthor = discussionAuthor(container);
       const time = container?.querySelector('relative-time');
       const commentTime = time?.getAttribute('datetime') || time?.textContent?.trim() || '';
@@ -849,8 +922,58 @@ function appendDiscussionComments(parts: string[], bodyEl: Element | null): void
   }
 }
 
+/** A discussion question shows a preview of its answer, which is usually also in the thread. */
+function answerPreview(comment: Element): Element | null {
+  const preview = comment.closest('.color-bg-success');
+  return preview?.querySelector('.js-discussions-goto-answer-button') ? preview : null;
+}
+
+function isLoadedAnswerPreview(comment: Element): boolean {
+  const href = answerPreview(comment)?.querySelector('.js-discussions-goto-answer-button')?.getAttribute('href') || '';
+  return href.startsWith('#') && Boolean(document.getElementById(href.slice(1)));
+}
+
+/** Keep code languages, suggested changes, and embedded code lines, which GitHub stores outside the code element. */
+function bodyToMarkdown(element: Element, noise: string[] = []): string {
+  const clone = Utils.removeNoise(element, noise);
+  restoreMathSource(clone);
+  for (const wrapper of clone.querySelectorAll('.highlight[class*="highlight-"]')) {
+    const pre = wrapper.querySelector('pre');
+    const language = wrapper.className.match(/\bhighlight-(?:source|text)-([\w+#.-]+)/)?.[1]
+      .replace(/^html-basic$/, 'html');
+    if (pre && language && !pre.querySelector('code')) pre.classList.add(`language-${language}`);
+  }
+  for (const table of clone.querySelectorAll('table')) {
+    const cells = Array.from(table.querySelectorAll('td.blob-code-inner, td.blob-code'))
+      .filter((cell) => cell.closest('table') === table);
+    if (cells.length === 0) continue;
+    const isDiff = cells.some((cell) => diffMarker(cell) !== ' ');
+    const pre = table.ownerDocument.createElement('pre');
+    if (isDiff) pre.className = 'language-diff';
+    pre.textContent = cells.map((cell) => {
+      const text = codeCellText(cell);
+      return isDiff ? `${diffMarker(cell)}${text}` : text;
+    }).join('\n');
+    table.replaceWith(pre);
+  }
+  return Markdown.elementToMarkdown(clone);
+}
+
+/** GitHub renders an empty source line as a cell that holds only a line break. */
+function codeCellText(cell: Element): string {
+  return (cell.textContent || '').replace(/\r?\n$/, '');
+}
+
 function discussionAuthor(container: ParentNode | null | undefined): string {
-  const author = container?.querySelector('.author, [data-testid="issue-body-header-author"], [data-testid="avatar-link"], a.Link--secondary');
+  const author = container?.querySelector([
+    '.author',
+    '[data-testid="issue-body-header-author"]',
+    '[data-testid="avatar-link"]',
+    '.commit-author',
+    'a[data-hovercard-type="user"]:not(.user-mention)',
+  ].join(', '))
+    || Array.from(container?.querySelectorAll('a.Link--secondary') || [])
+      .find((link) => !link.querySelector('relative-time'));
   const text = author?.textContent?.trim() || '';
   if (/\[bot\]$/i.test(text)) return text;
   const href = decodePathname(author?.getAttribute('href') || '');
@@ -877,7 +1000,7 @@ async function extractRepo(metadata: Record<string, string>): Promise<string> {
   const parts: string[] = [`# ${repoName}\n`];
 
   // Description
-  const descEl = document.querySelector('.f4.my-3, [itemprop="about"], .BorderGrid-cell p.f4');
+  const descEl = document.querySelector('.f4.my-3, [itemprop="about"], .BorderGrid-cell p.f4, [class*="sidebarSection"] > p[class*="description"]');
   const desc = descEl?.textContent?.trim();
   if (desc) {
     parts.push(`> ${desc}\n`);
@@ -885,13 +1008,13 @@ async function extractRepo(metadata: Record<string, string>): Promise<string> {
   }
 
   // Topics
-  const topicEls = document.querySelectorAll('.topic-tag');
-  const topics = Array.from(topicEls).map((el) => el.textContent?.trim()).filter(Boolean);
+  const topicEls = document.querySelectorAll('.topic-tag, a[class*="TopicTag"]');
+  const topics = [...new Set(Array.from(topicEls).map((el) => el.textContent?.trim()).filter(Boolean))];
   if (topics.length > 0) parts.push(`**Topics:** ${topics.join(', ')}\n`);
 
   // Languages
-  const langEls = document.querySelectorAll('.BorderGrid-cell [aria-label] .color-fg-default, .repository-lang-stats-graph + ol li a span');
-  const langs = Array.from(langEls).map((el) => el.textContent?.trim()).filter(Boolean);
+  const langEls = document.querySelectorAll('.BorderGrid-cell [aria-label] .color-fg-default, .repository-lang-stats-graph + ol li a span, [class*="languageListItem"] [class*="languageName"]');
+  const langs = [...new Set(Array.from(langEls).map((el) => el.textContent?.trim()).filter(Boolean))];
   if (langs.length > 0) parts.push(`**Languages:** ${langs.join(', ')}\n`);
 
   const items = await resolveDirectoryItems(identity, treeRoute, '');
@@ -901,8 +1024,7 @@ async function extractRepo(metadata: Record<string, string>): Promise<string> {
   const readmeEl = document.querySelector('#readme .markdown-body, article.markdown-body');
   if (readmeEl) {
     parts.push('## README\n');
-    const cleaned = Utils.removeNoise(readmeEl, ['.anchor', '.octicon']);
-    parts.push(Markdown.elementToMarkdown(cleaned));
+    parts.push(bodyToMarkdown(readmeEl, ['.anchor', '.octicon']));
   }
 
   return Markdown.buildPageMarkdown(metadata, parts.join('\n'));
@@ -928,20 +1050,20 @@ async function extractDirectoryPage(
   const identity = getRepositoryIdentity(payload);
   const repository = identity ? `${identity.owner}/${identity.repo}` : window.location.pathname.split('/').slice(1, 3).join('/');
   const directory = treeRoute.path || '/';
-  metadata.title = `${repository}/${directory}`;
+  const location = directory === '/' ? repository : `${repository}/${directory}`;
+  metadata.title = location;
   metadata.type = 'Directory';
   metadata.repository = repository;
   metadata.path = directory;
   addRepositoryMetadata(metadata, payload, treeRoute);
 
-  const parts = [`# ${repository}/${directory}`, ''];
+  const parts = [`# ${location}`, ''];
   const items = await resolveDirectoryItems(identity, treeRoute, directory === '/' ? '' : directory);
   appendDirectoryListing(parts, metadata, items, identity, treeRoute.refInfo?.name, directory);
 
   const readmeEl = document.querySelector('#readme .markdown-body, article.markdown-body');
   if (readmeEl) {
-    const cleaned = Utils.removeNoise(readmeEl, ['.anchor', '.octicon']);
-    parts.push('', '## README', '', Markdown.elementToMarkdown(cleaned));
+    parts.push('', '## README', '', bodyToMarkdown(readmeEl, ['.anchor', '.octicon']));
   }
 
   return Markdown.buildPageMarkdown(metadata, parts.join('\n'));
@@ -967,6 +1089,7 @@ async function extractBlobPage(
   let content = Array.isArray(rawLines) ? rawLines.join('\n') : '';
   let source = Array.isArray(rawLines) ? 'GitHub page data' : '';
   let fetchedFullContent = false;
+  let partialContent = false;
   if (!Array.isArray(rawLines) || blob?.truncated || (expectedLines > 0 && rawLines.length < expectedLines)) {
     const fetched = await fetchFirstRawFile(candidates, blob?.rawBlobUrl);
     if (fetched) {
@@ -976,6 +1099,8 @@ async function extractBlobPage(
       ref = fetched.candidate.ref;
       fileName = path.split('/').pop() || fileName;
       fetchedFullContent = true;
+    } else {
+      partialContent = true;
     }
   }
 
@@ -1005,9 +1130,18 @@ async function extractBlobPage(
   if (blob?.rawBlobUrl || blob?.displayUrl) metadata.raw_url = blob.rawBlobUrl || blob.displayUrl || '';
   else if (location) metadata.raw_url = githubRawUrl(location);
 
+  const heading = `# ${repository}/${path || fileName}`;
+  if (content.includes('\0')) {
+    const rawUrl = typeof metadata.raw_url === 'string' && metadata.raw_url
+      ? `\n\n**Raw file:** ${new URL(metadata.raw_url, window.location.origin).href}` : '';
+    return Markdown.buildPageMarkdown(metadata, `${heading}\n\n*Binary file. Content not copied.*${rawUrl}`);
+  }
+
   const context = Markdown.buildPageMarkdown(
     metadata,
-    `# ${repository}/${path || fileName}\n\n**Full file content from ${source}.**`,
+    partialContent
+      ? `${heading}\n\n**Partial file content from ${source}.** *The full file could not be fetched.*`
+      : `${heading}\n\n**Full file content from ${source}.**`,
   );
   return `${context}\n\n## File Contents\n\n${fenceContent(content, languageFence(fileName))}`;
 }
@@ -1030,7 +1164,7 @@ function extractLegacyCodePage(metadata: Record<string, string>): string {
   const readmeEl = document.querySelector('#readme .markdown-body');
   if (readmeEl) {
     parts.push('## README\n');
-    parts.push(Markdown.elementToMarkdown(Utils.removeNoise(readmeEl, ['.anchor', '.octicon'])));
+    parts.push(bodyToMarkdown(readmeEl, ['.anchor', '.octicon']));
   }
 
   return Markdown.buildPageMarkdown(metadata, parts.join('\n'));

@@ -5,6 +5,7 @@
 
 import { register } from '../core/registry';
 import * as Markdown from '../core/markdown';
+import { restoreMathSource } from '../core/math-source';
 import * as Utils from '../core/utils';
 
 register({
@@ -77,7 +78,7 @@ register({
     const questionBody = document.querySelector('.question .s-prose, .question .post-text, #question .js-post-body');
     if (questionBody) {
       parts.push('## Question\n');
-      parts.push(Markdown.elementToMarkdown(questionBody));
+      parts.push(postToMarkdown(questionBody));
       parts.push('');
     }
 
@@ -107,7 +108,7 @@ register({
 
         const body = answer.querySelector('.s-prose, .post-text, .js-post-body');
         if (body) {
-          parts.push(Markdown.elementToMarkdown(body));
+          parts.push(postToMarkdown(body));
           parts.push('');
         }
 
@@ -133,10 +134,16 @@ function extractComments(container: ParentNode | null): string[] {
   const commentEls = copyEls.length > 0 ? copyEls : container.querySelectorAll('.comment-body');
   const results: string[] = [];
   commentEls.forEach((el) => {
-    const md = Markdown.elementToMarkdown(el).trim();
+    const md = postToMarkdown(el).trim();
     if (md) results.push(md);
   });
   return results;
+}
+
+function postToMarkdown(element: Element): string {
+  const clone = element.cloneNode(true) as Element;
+  restoreMathSource(clone);
+  return Markdown.elementToMarkdown(clone);
 }
 
 function quoteMarkdown(markdown: string): string {
@@ -149,8 +156,17 @@ function extractPostSignature(post: Element): { author: string; date: string } {
     || (signatures.length > 0 ? signatures[signatures.length - 1] : null);
   const scope: ParentNode = ownerSig || post;
 
-  const authorEl = scope.querySelector('.user-details a, .user-details [itemprop="name"], .user-info a');
-  const author = authorEl?.textContent?.trim() || 'Anonymous';
+  // The avatar link precedes the name link, and community wiki posts start with a revision link.
+  const names = [
+    ...scope.querySelectorAll('.user-details a[href*="/users/"]'),
+    ...scope.querySelectorAll('.user-details a:not([href*="/revisions"], [id^="history-"]), .user-details [itemprop="name"], .user-info a'),
+  ].map((el) => (el.getAttribute('content') || el.textContent || '').trim());
+  // A deleted user is plain text before the reputation block.
+  const deletedName = Array.from(scope.querySelector('.user-details')?.childNodes || [])
+    .filter((node) => node.nodeType === Node.TEXT_NODE)
+    .map((node) => node.textContent?.trim())
+    .find(Boolean);
+  const author = names.find(Boolean) || deletedName || 'Anonymous';
   const dateEl = scope.querySelector('.user-action-time .relativetime, .relativetime');
   const date = dateEl?.getAttribute('title') || dateEl?.textContent?.trim() || '';
   return { author, date };

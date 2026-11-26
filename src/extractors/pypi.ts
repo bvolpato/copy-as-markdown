@@ -28,13 +28,13 @@ register({
     const requiresPython = extractSidebarField('Requires');
     const author = extractSidebarField('Author') || extractSidebarField('Author-email');
 
-    const metadata: Record<string, string> = { source: 'PyPI', package: packageName, url };
+    const heading = version ? `${packageName} ${version}` : packageName;
+    const metadata: Record<string, string> = { source: 'PyPI', title: heading, package: packageName, url };
     if (version) metadata.version = version;
     if (license) metadata.license = license;
     if (requiresPython) metadata.requires_python = requiresPython;
     if (author) metadata.author = author;
 
-    const heading = version ? `${packageName} ${version}` : packageName;
     const parts: string[] = [`# ${heading}\n`];
     if (description) parts.push(`${description}\n`);
 
@@ -65,6 +65,12 @@ function extractSidebarField(label: string): string {
     if (strongText !== prefix) continue;
     const fullText = p.textContent?.replace(/\s+/g, ' ').trim() || '';
     const value = fullText.slice(strong?.textContent?.trim().length || 0).trim();
+    if (value) return value;
+  }
+  // Current pages give each field its own titled section.
+  for (const title of document.querySelectorAll('.sidebar-section__title')) {
+    if (title.textContent?.trim().toLowerCase() !== label.toLowerCase()) continue;
+    const value = title.parentElement?.querySelector('.sidebar-section__data-block')?.textContent?.replace(/\s+/g, ' ').trim();
     if (value) return value;
   }
   return '';

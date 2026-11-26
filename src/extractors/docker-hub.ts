@@ -48,6 +48,10 @@ export const dockerHubExtractor = register({
       || document.querySelector('main');
     if (overview) {
       const cleaned = Utils.removeNoise(overview, [...Utils.NOISE_SELECTORS, 'button', 'input']);
+      // Heading anchors hold only an icon, so they would render as bare URLs.
+      cleaned.querySelectorAll(':is(h1, h2, h3, h4, h5, h6) > a').forEach((anchor) => {
+        if (!anchor.textContent?.trim() && !anchor.querySelector('img')) anchor.remove();
+      });
       const body = Markdown.elementToMarkdown(cleaned);
       if (body) parts.push('\n## Overview\n\n' + body);
     }

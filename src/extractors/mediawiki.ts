@@ -7,6 +7,7 @@ import { register } from '../core/registry';
 import * as Markdown from '../core/markdown';
 import * as Utils from '../core/utils';
 import { addExtractionMetadata, limitMarkdown } from '../core/context';
+import { prepareWikiContent } from '../core/wiki-content';
 import type { PageMetadata } from '../core/types';
 
 function isMediaWikiPage(contextDocument: Document = document): boolean {
@@ -49,7 +50,7 @@ export const mediawikiExtractor = register({
 
     const parts: string[] = [`# ${title}`];
     if (contentEl) {
-      const cleaned = Utils.removeNoise(contentEl, [
+      const cleaned = Utils.removeNoise(prepareWikiContent(contentEl), [
         ...Utils.NOISE_SELECTORS,
         '.mw-editsection',
         '.navbox',
