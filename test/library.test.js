@@ -923,18 +923,20 @@ try {
   assert.equal(linkSpacingChecks.linkMatches, true);
   assert.ok(linkSpacingChecks.elapsedMs < 1000, `Expected linear-time cleanMarkdown, took ${linkSpacingChecks.elapsedMs}ms`);
 
-  // Verify frontmatter strips Unicode watermark and bidi control channels and deduplicates consistently.
+  // Verify frontmatter strips Unicode watermark and bidi control channels and deduplicates consistently,
+  // while keeping serialized JSON metadata values valid and properly escaped.
   const watermarkMetadata = await page.evaluate(() => CopyAsMarkdown.buildPageMarkdown(
     {
       title: 'Report\u200B\u2066hidden\u2069\u{E0061}',
       author: 'Ann\u200B',
       url: 'https://example.com/?filter[status]=open',
+      filters: JSON.stringify({ env: '\u201Cprod\u201D\u200B', path: 'C\uFF1A\uFF3Ctemp' }),
     },
     'Ann will commit.\u200B',
   ));
   assert.equal(
     watermarkMetadata,
-    '---\ntitle: Reporthidden\nurl: "https://example.com/?filter[status]=open"\n---\n\nAnn will commit.',
+    '---\ntitle: Reporthidden\nurl: "https://example.com/?filter[status]=open"\nfilters: {"env":"\\"prod\\"","path":"C:\\\\temp"}\n---\n\nAnn will commit.',
   );
 
   // Verify Confluence detect rejects non-page routes with bare #main-content and accepts real page bodies.

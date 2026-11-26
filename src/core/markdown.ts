@@ -1398,13 +1398,36 @@ function sanitizeMetadataText(value: string): string {
     .join('');
 }
 
+function sanitizeJsonMetadataValue(value: unknown): unknown {
+  if (typeof value === 'string') return sanitizeMetadataText(value);
+  if (Array.isArray(value)) return value.map((item) => sanitizeJsonMetadataValue(item));
+  if (value !== null && typeof value === 'object') {
+    const result: Record<string, unknown> = Object.create(null);
+    for (const [key, item] of Object.entries(value)) {
+      result[sanitizeMetadataText(key)] = sanitizeJsonMetadataValue(item);
+    }
+    return result;
+  }
+  return value;
+}
+
+function sanitizeMetadataValue(value: string): string {
+  if (!value || PURE_PRINTABLE_ASCII.test(value)) return value;
+  if (isSafeMetadataJsonValue(value)) {
+    return JSON.stringify(sanitizeJsonMetadataValue(JSON.parse(value)))
+      .replace(/\u2028/g, '\\u2028')
+      .replace(/\u2029/g, '\\u2029');
+  }
+  return sanitizeMetadataText(value);
+}
+
 export function formatMetadata(metadata: PageMetadata, bodyMarkdown = ''): string {
   const lines = ['---'];
   const normalizedBody = normalizeContextText(normalizeUnicodeText(bodyMarkdown));
   const entries = Object.entries(metadata)
     .map(([key, value]): [string, string | number | undefined] => [
       key,
-      typeof value === 'string' ? sanitizeMetadataText(value) : value,
+      typeof value === 'string' ? sanitizeMetadataValue(value) : value,
     ])
     .filter(([key, value]) => shouldIncludeMetadata(key, value, normalizedBody))
     .sort(([left], [right]) => metadataPriority(left) - metadataPriority(right));
