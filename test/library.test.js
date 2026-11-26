@@ -1,5 +1,7 @@
 import assert from 'node:assert/strict';
+import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import puppeteer from 'puppeteer';
@@ -268,6 +270,41 @@ assert.throws(
   () => library.createExtractorMatcher({ extractors: ['missing'] }),
   /Unknown extractor: missing/,
 );
+for (const origin of ['localhost:3000', 'github.com']) {
+  assert.throws(
+    () => library.createExtractorMatcher({ extractors: ['GitHub'], origins: [origin] }),
+    /Invalid origin restriction/,
+    'an origin without a scheme must not become an opaque origin that matches file: pages',
+  );
+}
+await assert.rejects(library.loadExtractors(['github', 'missing']), /Unknown extractor id: missing/);
+await assert.rejects(library.loadExtractor('constructor'), /Unknown extractor id: constructor/);
+
+const consumer = fs.mkdtempSync(path.join(os.tmpdir(), 'copy-as-markdown-types-'));
+try {
+  fs.mkdirSync(path.join(consumer, 'node_modules', '@bvolpato'), { recursive: true });
+  fs.symlinkSync(ROOT, path.join(consumer, 'node_modules', '@bvolpato', 'copy-as-markdown'), 'dir');
+  fs.writeFileSync(path.join(consumer, 'index.mts'), `
+    import { loadExtractors, type ExtractorId } from '@bvolpato/copy-as-markdown';
+    import { createExtractorMatcher, type Extractor } from '@bvolpato/copy-as-markdown/core';
+    import { githubExtractor } from '@bvolpato/copy-as-markdown/extractors/github';
+    export const id: ExtractorId = 'github';
+    export const extractors: Promise<Extractor[]> = loadExtractors([id]);
+    const matcher = createExtractorMatcher({ extractors: [githubExtractor] });
+    // @ts-expect-error The declarations must reject an invalid URL type.
+    matcher.match({ url: 42 });
+  `);
+  for (const [module, resolution] of [['nodenext', 'nodenext'], ['esnext', 'bundler']]) {
+    const compiled = spawnSync(process.execPath, [
+      path.join(ROOT, 'node_modules', 'typescript', 'bin', 'tsc'), '--noEmit', '--strict', '--target', 'es2022',
+      '--lib', 'es2022,dom', '--types', '', '--module', module, '--moduleResolution', resolution,
+      path.join(consumer, 'index.mts'),
+    ], { cwd: consumer, encoding: 'utf8' });
+    assert.equal(compiled.status, 0, `${resolution} declarations: ${compiled.stdout}${compiled.stderr}`);
+  }
+} finally {
+  fs.rmSync(consumer, { recursive: true, force: true });
+}
 
 const domExtractor = library.defineExtractor({
   name: 'Internal DOM',
@@ -314,6 +351,25 @@ try {
   assert.ok(notionDirect.markdown.includes('Detected Notion content'));
   assert.equal(notionDirect.rejection, 'No Notion extractor matches the active browser page');
   await notionPage.close();
+
+  const retryPage = await browser.newPage();
+  let blockedChunks = 1;
+  await retryPage.setRequestInterception(true);
+  retryPage.on('request', request => {
+    const { pathname } = new URL(request.url());
+    if (pathname === '/') return request.respond({ contentType: 'text/html', body: '<!doctype html>' });
+    if (pathname.startsWith('/chunks/arxiv-') && blockedChunks-- > 0) return request.abort('internetdisconnected');
+    const file = path.join(ROOT, 'dist', 'library', pathname);
+    if (!fs.existsSync(file)) return request.respond({ status: 404 });
+    return request.respond({ contentType: 'text/javascript', body: fs.readFileSync(file) });
+  });
+  await retryPage.goto('https://retry.example/');
+  assert.deepEqual(await retryPage.evaluate(async () => {
+    const { loadExtractor } = await import('/index.js');
+    const load = () => loadExtractor('arxiv').then(({ name }) => name, () => 'failed');
+    return [await load(), await load()];
+  }), ['failed', 'arXiv'], 'a failed chunk request must not block later loads');
+  await retryPage.close();
 
   const page = await browser.newPage();
   await page.setContent(`<!doctype html>
