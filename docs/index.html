@@ -1,1294 +1,551 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" class="no-js">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Copy as Markdown — One click. Clean Markdown. Perfect LLM context.</title>
-  <meta name="description" content="Context-aware Copy as Markdown button for sharing web pages with LLMs like ChatGPT, Claude, and Gemini. Supports 50+ purpose-built extractors.">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Copy as Markdown: copy the page, leave the mess</title>
+  <meta name="description" content="One click turns the page you are on into clean Markdown for ChatGPT, Claude, Gemini, your notes, or your docs. Free extension for Chrome and Firefox, and a userscript.">
+  <link rel="canonical" href="https://bvolpato.github.io/copy-as-markdown/">
   <meta property="og:title" content="Copy as Markdown">
-  <meta property="og:description" content="One click. Clean Markdown. Perfect LLM context.">
+  <meta property="og:description" content="Copy the page. Leave the mess. One click puts clean Markdown on your clipboard.">
   <meta property="og:type" content="website">
   <meta property="og:url" content="https://bvolpato.github.io/copy-as-markdown/">
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Caveat:wght@600;700&family=Inter:wght@400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <meta property="og:image" content="https://bvolpato.github.io/copy-as-markdown/og.png">
+  <meta property="og:image:width" content="1200">
+  <meta property="og:image:height" content="630">
+  <meta property="og:image:alt" content="A cluttered web page on the left and the clean Markdown copied from it on the right">
+  <meta name="twitter:card" content="summary_large_image">
   <link rel="icon" type="image/svg+xml" href="icon.svg">
-  <style>
-    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-
-    :root {
-      --bg: #0a0a0f;
-      --bg-card: rgba(255,255,255,0.04);
-      --bg-card-hover: rgba(255,255,255,0.07);
-      --text: #e4e4e7;
-      --text-muted: #a1a1aa;
-      --text-dim: #71717a;
-      --accent: #818cf8;
-      --accent-bright: #a5b4fc;
-      --green: #34d399;
-      --green-dim: #065f46;
-      --border: rgba(255,255,255,0.08);
-      --radius: 16px;
-      --font: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
-      --mono: 'JetBrains Mono', 'Fira Code', monospace;
-    }
-
-    html { scroll-behavior: smooth; }
-
-    body {
-      font-family: var(--font);
-      background: var(--bg);
-      color: var(--text);
-      line-height: 1.6;
-      overflow-x: hidden;
-      -webkit-font-smoothing: antialiased;
-    }
-
-    /* ---- Ambient background ---- */
-    .ambient {
-      position: fixed;
-      inset: 0;
-      z-index: -1;
-      overflow: hidden;
-    }
-    .ambient::before {
-      content: '';
-      position: absolute;
-      top: -40%;
-      left: -20%;
-      width: 80%;
-      height: 80%;
-      background: radial-gradient(ellipse, rgba(99,102,241,0.12) 0%, transparent 70%);
-      animation: drift 20s ease-in-out infinite;
-    }
-    .ambient::after {
-      content: '';
-      position: absolute;
-      bottom: -30%;
-      right: -20%;
-      width: 70%;
-      height: 70%;
-      background: radial-gradient(ellipse, rgba(16,185,129,0.08) 0%, transparent 70%);
-      animation: drift 25s ease-in-out infinite reverse;
-    }
-    @keyframes drift {
-      0%, 100% { transform: translate(0, 0); }
-      50% { transform: translate(60px, 40px); }
-    }
-
-    /* ---- Subtle grid pattern ---- */
-    .grid-pattern {
-      position: fixed;
-      inset: 0;
-      z-index: -1;
-      background-image:
-        linear-gradient(rgba(255,255,255,0.02) 1px, transparent 1px),
-        linear-gradient(90deg, rgba(255,255,255,0.02) 1px, transparent 1px);
-      background-size: 60px 60px;
-      mask-image: radial-gradient(ellipse 80% 60% at 50% 30%, black 20%, transparent 70%);
-      -webkit-mask-image: radial-gradient(ellipse 80% 60% at 50% 30%, black 20%, transparent 70%);
-    }
-
-    /* ---- Scroll reveal ---- */
-    .reveal {
-      opacity: 0;
-      transform: translateY(30px);
-      transition: opacity 0.7s cubic-bezier(0.16, 1, 0.3, 1), transform 0.7s cubic-bezier(0.16, 1, 0.3, 1);
-    }
-    .reveal.visible {
-      opacity: 1;
-      transform: translateY(0);
-    }
-
-    /* ---- Container ---- */
-    .container { max-width: 1100px; margin: 0 auto; padding: 0 24px; }
-
-    /* ---- Nav ---- */
-    nav {
-      position: fixed;
-      top: 0;
-      left: 0;
-      right: 0;
-      z-index: 100;
-      padding: 16px 0;
-      backdrop-filter: blur(20px);
-      -webkit-backdrop-filter: blur(20px);
-      background: rgba(10,10,15,0.7);
-      border-bottom: 1px solid var(--border);
-    }
-    nav .container {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-    }
-    nav .logo {
-      display: flex;
-      align-items: center;
-      gap: 10px;
-      font-weight: 700;
-      font-size: 18px;
-      text-decoration: none;
-      color: var(--text);
-    }
-    nav .logo img { width: 32px; height: 32px; }
-    nav .links { display: flex; gap: 28px; align-items: center; }
-    nav .links a {
-      color: var(--text-muted);
-      text-decoration: none;
-      font-size: 14px;
-      font-weight: 500;
-      transition: color 0.2s;
-    }
-    nav .links a:hover { color: var(--text); }
-    .btn-install {
-      display: inline-flex;
-      align-items: center;
-      gap: 8px;
-      padding: 10px 22px;
-      border-radius: 12px;
-      background: linear-gradient(135deg, #6366f1, #8b5cf6);
-      color: #fff;
-      font-size: 14px;
-      font-weight: 600;
-      text-decoration: none;
-      border: none;
-      cursor: pointer;
-      transition: transform 0.2s, box-shadow 0.2s;
-    }
-    .btn-install:hover {
-      transform: translateY(-1px);
-      box-shadow: 0 8px 30px rgba(99,102,241,0.3);
-    }
-    .platform-logo {
-      width: 20px;
-      height: 20px;
-      flex: 0 0 auto;
-      object-fit: contain;
-    }
-
-    /* ---- Hero ---- */
-    .hero {
-      padding: 160px 0 100px;
-      text-align: center;
-    }
-    .hero .badge {
-      display: inline-flex;
-      align-items: center;
-      gap: 8px;
-      padding: 6px 16px;
-      border-radius: 100px;
-      background: rgba(99,102,241,0.12);
-      border: 1px solid rgba(99,102,241,0.2);
-      color: var(--accent-bright);
-      font-size: 13px;
-      font-weight: 500;
-      margin-bottom: 28px;
-    }
-    .hero h1 {
-      font-size: clamp(40px, 6vw, 72px);
-      font-weight: 900;
-      line-height: 1.08;
-      letter-spacing: -0.03em;
-      max-width: 800px;
-      margin: 0 auto 24px;
-    }
-    .hero h1 .gradient {
-      background: linear-gradient(135deg, #818cf8 0%, #34d399 50%, #a78bfa 100%);
-      background-size: 200% auto;
-      -webkit-background-clip: text;
-      -webkit-text-fill-color: transparent;
-      background-clip: text;
-      animation: shimmer 4s ease-in-out infinite;
-    }
-    @keyframes shimmer {
-      0%, 100% { background-position: 0% center; }
-      50% { background-position: 100% center; }
-    }
-    .hero .subtitle {
-      font-size: clamp(16px, 2vw, 20px);
-      color: var(--text-muted);
-      max-width: 620px;
-      margin: 0 auto 40px;
-      line-height: 1.6;
-    }
-    .hero .ctas {
-      display: flex;
-      gap: 16px;
-      justify-content: center;
-      flex-wrap: wrap;
-    }
-    .btn-secondary {
-      display: inline-flex;
-      align-items: center;
-      gap: 8px;
-      padding: 10px 22px;
-      border-radius: 12px;
-      background: var(--bg-card);
-      border: 1px solid var(--border);
-      color: var(--text);
-      font-size: 14px;
-      font-weight: 600;
-      text-decoration: none;
-      transition: all 0.2s;
-    }
-    .btn-secondary:hover {
-      background: var(--bg-card-hover);
-      border-color: rgba(255,255,255,0.15);
-    }
-    .hero .ctas .is-disabled {
-      cursor: not-allowed;
-      opacity: 0.55;
-    }
-    .hero .ctas .is-disabled:hover {
-      background: var(--bg-card);
-      border-color: var(--border);
-    }
-
-    /* ---- Demo code block ---- */
-    .demo {
-      margin: 60px auto 0;
-      max-width: 720px;
-      text-align: left;
-    }
-    .demo-window {
-      background: #111118;
-      border: 1px solid var(--border);
-      border-radius: var(--radius);
-      overflow: hidden;
-      box-shadow: 0 20px 60px rgba(0,0,0,0.5);
-    }
-    .demo-toolbar {
-      display: flex;
-      align-items: center;
-      gap: 8px;
-      padding: 14px 18px;
-      background: rgba(255,255,255,0.03);
-      border-bottom: 1px solid var(--border);
-    }
-    .demo-dot {
-      width: 12px;
-      height: 12px;
-      border-radius: 50%;
-      background: rgba(255,255,255,0.1);
-    }
-    .demo-dot:nth-child(1) { background: #ff5f56; }
-    .demo-dot:nth-child(2) { background: #ffbd2e; }
-    .demo-dot:nth-child(3) { background: #27c93f; }
-    .demo-toolbar span {
-      flex: 1;
-      text-align: center;
-      font-size: 12px;
-      color: var(--text-dim);
-    }
-    .demo pre {
-      padding: 24px;
-      overflow-x: auto;
-      font-family: var(--mono);
-      font-size: 13px;
-      line-height: 1.7;
-      color: #c4c4cc;
-    }
-    .demo pre .key { color: #818cf8; }
-    .demo pre .val { color: #34d399; }
-    .demo pre .h1 { color: #f4f4f5; font-weight: 700; }
-    .demo pre .h2 { color: #d4d4d8; font-weight: 600; }
-    .demo pre .bold { color: #e4e4e7; font-weight: 600; }
-    .demo pre .dim { color: #71717a; }
-    .demo pre .pipe { color: #52525b; }
-
-    /* ---- Problem / Solution ---- */
-    .problem-section {
-      padding: 100px 0;
-    }
-    .section-label {
-      font-size: 13px;
-      font-weight: 600;
-      text-transform: uppercase;
-      letter-spacing: 0.1em;
-      color: var(--accent);
-      margin-bottom: 12px;
-    }
-    .section-title {
-      font-size: clamp(28px, 4vw, 44px);
-      font-weight: 800;
-      line-height: 1.15;
-      letter-spacing: -0.02em;
-      margin-bottom: 20px;
-    }
-    .section-desc {
-      font-size: 17px;
-      color: var(--text-muted);
-      max-width: 600px;
-      margin-bottom: 48px;
-    }
-    .problems-grid {
-      display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
-      gap: 16px;
-    }
-    .problem-card {
-      padding: 24px;
-      border-radius: var(--radius);
-      background: var(--bg-card);
-      border: 1px solid var(--border);
-      transition: all 0.2s;
-    }
-    .problem-card:hover { background: var(--bg-card-hover); transform: translateY(-2px); }
-    .problem-card .icon { font-size: 28px; margin-bottom: 12px; }
-    .problem-card h3 { font-size: 16px; font-weight: 700; margin-bottom: 8px; }
-    .problem-card p { font-size: 14px; color: var(--text-muted); line-height: 1.5; }
-
-    /* ---- Sites grid ---- */
-    .sites-section { padding: 100px 0; }
-    .sites-grid {
-      display: grid;
-      grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
-      gap: 16px;
-    }
-    .site-card {
-      display: flex;
-      align-items: flex-start;
-      gap: 14px;
-      padding: 20px;
-      border-radius: var(--radius);
-      background: var(--bg-card);
-      border: 1px solid var(--border);
-      transition: all 0.2s;
-    }
-    .site-card:hover { background: var(--bg-card-hover); transform: translateY(-2px); }
-    .site-card .site-icon {
-      width: 40px;
-      height: 40px;
-      border-radius: 10px;
-      background: rgba(255,255,255,0.06);
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      font-size: 20px;
-      flex-shrink: 0;
-    }
-    .site-card .site-icon.site-icon--light-badge {
-      background: #f8fafc;
-      box-shadow: inset 0 0 0 1px rgba(148, 163, 184, 0.42), 0 2px 8px rgba(15, 23, 42, 0.18);
-    }
-    .site-card .site-icon img {
-      display: block;
-      width: 32px;
-      height: 32px;
-      object-fit: contain;
-    }
-    .site-card h3 { font-size: 15px; font-weight: 700; margin-bottom: 4px; }
-    .site-card p { font-size: 13px; color: var(--text-muted); line-height: 1.5; }
-
-    /* ---- Why section ---- */
-    .why-section { padding: 100px 0; }
-    .why-grid {
-      display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
-      gap: 24px;
-    }
-    .why-card {
-      padding: 32px;
-      border-radius: var(--radius);
-      background: var(--bg-card);
-      border: 1px solid var(--border);
-    }
-    .why-card .stat {
-      font-size: 48px;
-      font-weight: 900;
-      background: linear-gradient(135deg, var(--accent), var(--green));
-      -webkit-background-clip: text;
-      -webkit-text-fill-color: transparent;
-      background-clip: text;
-      line-height: 1;
-      margin-bottom: 12px;
-    }
-    .why-card h3 { font-size: 18px; font-weight: 700; margin-bottom: 8px; }
-    .why-card p { font-size: 14px; color: var(--text-muted); line-height: 1.6; }
-
-    /* ---- Install section ---- */
-    .install-section {
-      padding: 100px 0;
-      text-align: center;
-    }
-    .install-options {
-      display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
-      gap: 20px;
-      margin-top: 48px;
-    }
-    .install-card {
-      padding: 32px 24px;
-      border-radius: var(--radius);
-      background: var(--bg-card);
-      border: 1px solid var(--border);
-      text-align: center;
-      transition: all 0.2s;
-    }
-    .install-card:hover { border-color: rgba(99,102,241,0.3); transform: translateY(-2px); }
-    .install-card.is-disabled {
-      opacity: 0.72;
-      border-style: dashed;
-    }
-    .install-card.is-disabled:hover {
-      border-color: var(--border);
-      transform: none;
-    }
-    .install-card .install-logo {
-      width: 52px;
-      height: 52px;
-      margin-bottom: 16px;
-      object-fit: contain;
-    }
-    .install-card h3 { font-size: 18px; font-weight: 700; margin-bottom: 8px; }
-    .install-card p { font-size: 14px; color: var(--text-muted); margin-bottom: 20px; line-height: 1.5; }
-    .install-status {
-      display: inline-flex;
-      align-items: center;
-      justify-content: center;
-      min-height: 40px;
-      width: 100%;
-      border-radius: 12px;
-      background: rgba(245, 158, 11, 0.12);
-      border: 1px solid rgba(245, 158, 11, 0.28);
-      color: #fbbf24;
-      font-size: 13px;
-      font-weight: 700;
-      letter-spacing: 0.06em;
-      text-transform: uppercase;
-    }
-    .latest-release {
-      display: inline-block;
-      margin-top: 28px;
-      color: var(--accent);
-      font-size: 14px;
-      font-weight: 600;
-      text-decoration: none;
-    }
-    .latest-release:hover { text-decoration: underline; }
-    .install-card code {
-      display: block;
-      padding: 10px 16px;
-      border-radius: 8px;
-      background: rgba(0,0,0,0.3);
-      font-family: var(--mono);
-      font-size: 12px;
-      color: var(--text-muted);
-      word-break: break-all;
-    }
-
-    /* ---- Live demo floating button ---- */
-    .live-demo-wrapper {
-      position: fixed;
-      bottom: 24px;
-      right: 24px;
-      z-index: 9999;
-      display: flex;
-      align-items: flex-end;
-    }
-    .live-demo-btn {
-      width: 48px;
-      height: 48px;
-      padding: 0;
-      border: none;
-      background: none;
-      border-radius: 14px;
-      box-shadow: 0 4px 20px rgba(0,0,0,0.3), 0 0 0 1px rgba(255,255,255,0.08);
-      cursor: pointer;
-      opacity: 0.9;
-      transition: all 0.25s cubic-bezier(0.175, 0.885, 0.32, 1.275);
-    }
-    .live-demo-btn:hover {
-      transform: scale(1.12);
-      opacity: 1;
-      box-shadow: 0 6px 28px rgba(99,102,241,0.35), 0 0 0 1px rgba(129,140,248,0.3);
-    }
-    .live-demo-btn:active {
-      transform: scale(0.95);
-    }
-    .live-demo-btn svg {
-      width: 100%;
-      height: 100%;
-      display: block;
-    }
-    .live-demo-btn.success {
-      box-shadow: 0 6px 28px rgba(52,211,153,0.4), 0 0 0 2px rgba(52,211,153,0.5);
-    }
-
-    /* Glow pulse ring around the button */
-    @keyframes glow-pulse {
-      0%, 100% { box-shadow: 0 4px 20px rgba(0,0,0,0.3), 0 0 0 0px rgba(129,140,248,0); }
-      50% { box-shadow: 0 4px 20px rgba(0,0,0,0.3), 0 0 0 6px rgba(129,140,248,0.15); }
-    }
-    .live-demo-btn:not(.success) {
-      animation: glow-pulse 2.5s ease-in-out infinite;
-    }
-    .live-demo-btn:hover {
-      animation: none;
-    }
-
-    /* ---- Callout annotation ---- */
-    .try-it-callout {
-      position: fixed;
-      bottom: 76px;
-      right: 62px;
-      z-index: 9998;
-      pointer-events: none;
-      animation: callout-float 3s ease-in-out infinite;
-    }
-    .try-it-callout .try-label {
-      font-family: 'Caveat', cursive;
-      font-size: 22px;
-      font-weight: 700;
-      color: var(--accent-bright);
-      text-shadow: 0 2px 12px rgba(99,102,241,0.4);
-      white-space: nowrap;
-      position: absolute;
-      bottom: 18px;
-      right: 42px;
-      letter-spacing: 0.02em;
-    }
-    .try-it-callout .arrow-svg {
-      position: absolute;
-      bottom: -4px;
-      right: 0;
-    }
-    @keyframes callout-float {
-      0%, 100% { transform: translateY(0); }
-      50% { transform: translateY(-5px); }
-    }
-    .try-it-callout.hidden {
-      opacity: 0;
-      transition: opacity 0.4s ease;
-      pointer-events: none;
-    }
-    /* Animate the arrow path drawing */
-    .try-it-callout .arrow-line {
-      stroke-dasharray: 80;
-      stroke-dashoffset: 80;
-      animation: draw-arrow 1.2s 0.5s ease forwards;
-    }
-    .try-it-callout .arrow-head {
-      opacity: 0;
-      animation: show-head 0.3s 1.5s ease forwards;
-    }
-    @keyframes draw-arrow {
-      to { stroke-dashoffset: 0; }
-    }
-    @keyframes show-head {
-      to { opacity: 0.8; }
-    }
-
-    /* ---- Demo toast ---- */
-    .demo-toast {
-      position: fixed;
-      top: 80px;
-      right: 24px;
-      z-index: 99999;
-      padding: 14px 22px;
-      border-radius: 14px;
-      background: rgba(10, 10, 15, 0.92);
-      border: 1px solid rgba(52, 211, 153, 0.3);
-      color: #fff;
-      font-family: var(--font);
-      font-size: 14px;
-      font-weight: 500;
-      pointer-events: none;
-      opacity: 0;
-      transform: translateY(-12px) scale(0.95);
-      transition: all 0.35s cubic-bezier(0.175, 0.885, 0.32, 1.275);
-      backdrop-filter: blur(16px);
-      -webkit-backdrop-filter: blur(16px);
-      max-width: 380px;
-      box-shadow: 0 8px 30px rgba(0,0,0,0.4);
-    }
-    .demo-toast.visible {
-      opacity: 1;
-      transform: translateY(0) scale(1);
-    }
-    .demo-toast .toast-icon {
-      margin-right: 8px;
-    }
-
-    /* ---- Footer ---- */
-    footer {
-      padding: 40px 0;
-      border-top: 1px solid var(--border);
-      text-align: center;
-      font-size: 14px;
-      color: var(--text-dim);
-    }
-    footer a { color: var(--accent); text-decoration: none; }
-    footer a:hover { text-decoration: underline; }
-
-    @media (max-width: 640px) {
-      nav .links { display: none; }
-      .hero { padding: 120px 0 60px; }
-      .demo { margin-top: 40px; }
-      .try-it-callout { display: none; }
-    }
-    @media print {
-      .live-demo-wrapper,
-      .try-it-callout,
-      .demo-toast {
-        display: none !important;
-      }
-    }
-  </style>
+  <link rel="preload" href="fonts/recursive-latin.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="stylesheet" href="site.css">
+  <script>document.documentElement.classList.remove('no-js');</script>
 </head>
 <body>
-  <div class="ambient"></div>
-  <div class="grid-pattern"></div>
+  <a class="skip-link" href="#main">Skip to content</a>
 
-  <!-- Nav -->
-  <nav>
-    <div class="container">
-      <a href="#" class="logo">
-        <img src="icon.svg" alt="Copy as Markdown icon">
-        Copy as Markdown
-      </a>
-      <div class="links">
-        <a href="#sites">Supported Sites</a>
-        <a href="#why">Why Markdown?</a>
+  <header class="site-header">
+    <div class="wrap">
+      <a href="#main" class="logo" aria-label="Copy as Markdown, top of page"><img src="icon.svg" alt="" width="30" height="30"><span>Copy as Markdown</span></a>
+      <nav class="site-nav" aria-label="Page sections">
+        <a href="#sites">Sites</a>
+        <a href="#privacy">Privacy</a>
+        <a href="#library">Library</a>
         <a href="#install">Install</a>
-        <a href="https://github.com/bvolpato/copy-as-markdown" class="btn-install">
-          ⭐ GitHub
-        </a>
+        <a href="https://github.com/bvolpato/copy-as-markdown">GitHub</a>
+      </nav>
+      <div class="view-switch" role="group" aria-label="Show this site as">
+        <button type="button" data-view="page" aria-pressed="true">Page</button>
+        <button type="button" data-view="markdown" aria-pressed="false">Markdown</button>
       </div>
     </div>
-  </nav>
+  </header>
 
-  <!-- Hero -->
-  <section class="hero">
-    <div class="container">
-      <div class="badge">✨ Works on every website. 50+ purpose-built extractors.</div>
-      <h1>One click.<br><span class="gradient">Clean Markdown.</span><br>Perfect LLM context.</h1>
-      <p class="subtitle">
-        Context-aware “Copy as Markdown” button that works on every website. 50+ purpose-built extractors capture supported sites; the rest use smart fallback detection. One click to share with ChatGPT, Claude, or Gemini.
-      </p>
-      <div class="ctas">
-        <a href="https://github.com/bvolpato/copy-as-markdown/releases/latest/download/copy-as-markdown.user.js" class="btn-install" data-hero-install="userscript">
-          <img src="icon.svg" class="platform-logo" alt=""> Install Userscript
-        </a>
-        <a href="https://chromewebstore.google.com/detail/copy-as-markdown/pcjanmkidppaeojkanbjbmmgpjfeecol" class="btn-install" data-hero-install="chrome">
-          <img src="brands/chrome.svg" class="platform-logo" alt=""> Install Chrome
-        </a>
-        <a href="https://addons.mozilla.org/en-US/firefox/addon/copy-as-markdown-addon/" class="btn-install" data-hero-install="firefox">
-          <img src="brands/firefox.svg" class="platform-logo" alt=""> Install Firefox
-        </a>
-        <a href="https://github.com/bvolpato/copy-as-markdown" class="btn-secondary">
-          📦 View on GitHub
-        </a>
-      </div>
-    </div>
-
-    <!-- Demo output -->
-    <div class="container">
-      <div class="demo">
-        <div class="demo-window">
-          <div class="demo-toolbar">
-            <div class="demo-dot"></div>
-            <div class="demo-dot"></div>
-            <div class="demo-dot"></div>
-            <span>Clipboard — Markdown output</span>
+  <main id="main">
+    <section class="hero">
+      <div class="wrap">
+        <h1><span>Copy the page.</span> <span class="drop">Leave the mess.</span></h1>
+        <div class="hero-copy">
+          <p>One click puts clean Markdown on your clipboard: headings, tables, code, links, and the source URL. Paste it into ChatGPT, Claude, Gemini, your notes, or your docs.</p>
+          <div class="installs">
+            <a class="btn-install" data-hero-install="chrome" href="https://chromewebstore.google.com/detail/copy-as-markdown/pcjanmkidppaeojkanbjbmmgpjfeecol"><img src="brands/chrome.svg" alt="" width="20" height="20" data-md-skip>Chrome</a>
+            <a class="btn-install" data-hero-install="firefox" href="https://addons.mozilla.org/en-US/firefox/addon/copy-as-markdown-addon/"><img src="brands/firefox.svg" alt="" width="20" height="20" data-md-skip>Firefox</a>
+            <a class="btn-install" data-hero-install="userscript" href="https://github.com/bvolpato/copy-as-markdown/releases/latest/download/copy-as-markdown.user.js"><img src="icon.svg" alt="" width="20" height="20" data-md-skip>Userscript</a>
           </div>
-<pre><span class="dim">---</span>
-<span class="key">source:</span> <span class="val">Wikipedia</span>
-<span class="key">title:</span> <span class="val">Vigenère cipher</span>
-<span class="key">url:</span> <span class="val">https://en.wikipedia.org/wiki/Vigenère_cipher</span>
-<span class="key">last_modified:</span> <span class="val">15 March 2025</span>
-<span class="dim">---</span>
-
-<span class="h1"># Vigenère cipher</span>
-
-The <span class="bold">**Vigenère cipher**</span> is a method of encrypting
-alphabetic text where each letter of the plaintext is
-encoded with a different Caesar cipher...
-
-<span class="h2">## Description</span>
-
-<span class="pipe">|</span> Component <span class="pipe">|</span> Details <span class="pipe">|</span>
-<span class="pipe">|</span> --- <span class="pipe">|</span> --- <span class="pipe">|</span>
-<span class="pipe">|</span> Type <span class="pipe">|</span> Polyalphabetic substitution <span class="pipe">|</span>
-<span class="pipe">|</span> Key <span class="pipe">|</span> A repeating keyword <span class="pipe">|</span>
-<span class="pipe">|</span> Inventor <span class="pipe">|</span> Blaise de Vigenère <span class="pipe">|</span></pre>
+          <p class="fine">Free, open source, no account. Brave, Edge, and Chromium use the Chrome extension.</p>
         </div>
       </div>
+    </section>
+
+    <section class="demo" id="demo" data-md-skip aria-label="Live demo">
+      <div class="wrap">
+        <div class="demo-frame">
+          <div class="demo-bar">
+            <div class="tabs" role="tablist" aria-label="Sample page">
+              <button type="button" role="tab" aria-selected="true" data-sample="article">Article</button>
+              <button type="button" role="tab" aria-selected="false" data-sample="review">Pull request</button>
+              <button type="button" role="tab" aria-selected="false" data-sample="chat">Team chat</button>
+              <button type="button" role="tab" aria-selected="false" data-sample="paste">Paste your own</button>
+            </div>
+            <button type="button" class="run" id="run-demo"><img src="icon.svg" alt="" width="24" height="24"><span>Copy as Markdown</span></button>
+          </div>
+          <div class="demo-panes">
+            <div class="pane pane-page">
+              <div class="pane-title"><span class="pane-url mono" id="demo-url">almanac.example/tides</span></div>
+              <div class="pane-scroll" id="demo-page" tabindex="0" aria-label="Sample page">
+
+                <div class="mock" data-mock="article" data-url="https://almanac.example/tides" data-title="How to read a tide table">
+                  <div data-noise class="bleed">Home &nbsp; News &nbsp; Boats &nbsp; Forecast &nbsp; Shop &nbsp; Sign in &nbsp; Subscribe now</div>
+                  <div data-noise>Advertisement. Foul-weather gear, 40% off this week only.</div>
+                  <h3>How to read a tide table</h3>
+                  <p>A tide table lists the <strong>time</strong> and <strong>height</strong> of each high and low water at a <a href="https://almanac.example/stations">reference station</a>.</p>
+                  <table>
+                    <thead><tr><th>Water</th><th>Time</th><th>Height</th></tr></thead>
+                    <tbody>
+                      <tr><td>High</td><td>06:12</td><td>3.4 m</td></tr>
+                      <tr><td>Low</td><td>12:31</td><td>0.6 m</td></tr>
+                      <tr><td>High</td><td>18:40</td><td>3.2 m</td></tr>
+                    </tbody>
+                  </table>
+                  <div data-noise>You may also like: 12 harbors to visit. The best knots, ranked. This sailor hates her neighbors.</div>
+                  <h4>The rule of twelfths</h4>
+                  <p>The water does not rise at a steady rate. Split the rise into six hours:</p>
+                  <ol>
+                    <li>Hours 1 and 6 move <strong>one twelfth</strong> each.</li>
+                    <li>Hours 2 and 5 move <strong>two twelfths</strong> each.</li>
+                    <li>Hours 3 and 4 move <strong>three twelfths</strong> each.</li>
+                  </ol>
+                  <div data-noise>Enjoying this story? Get our newsletter. [ your email ] Sign me up</div>
+                  <div data-noise class="bleed">We and our 214 partners value your privacy. Accept all. Manage options.</div>
+                </div>
+
+                <div class="mock" data-mock="review" data-url="https://code.example/orders/pull/318" data-title="Retry only idempotent requests" hidden>
+                  <div data-noise class="bleed">Conversation 4 &nbsp; Commits 2 &nbsp; Checks 9 &nbsp; Files changed 1 &nbsp; Watch &nbsp; Star</div>
+                  <h3>Retry only idempotent requests</h3>
+                  <p><strong>Open</strong>, requested by <em>mira</em>, fixes <a href="https://code.example/orders/issues/311">#311</a></p>
+                  <div data-noise>Reviewers: none. Labels: none yet. Milestone: none. Notifications: unsubscribe.</div>
+                  <p>The client retried every timeout, so a slow <code>POST /orders</code> created the order twice.</p>
+                  <pre><code class="language-ts">const SAFE = new Set(['GET', 'HEAD', 'PUT', 'DELETE']);
+
+if (SAFE.has(request.method)) {
+  return retry(request, { attempts: 3 });
+}</code></pre>
+                  <div data-noise>Add a reaction. Copy link. Quote reply. Hide. Report content.</div>
+                  <h4>Review by tomas</h4>
+                  <blockquote><p>Can we accept <code>POST</code> when the request has an <code>Idempotency-Key</code> header?</p></blockquote>
+                  <ul>
+                    <li>Yes. I added it in the second commit.</li>
+                    <li>Tests cover a request with the header and one without it.</li>
+                  </ul>
+                  <div data-noise>All checks have passed. Merge when ready. Delete branch. Show all 9 checks.</div>
+                </div>
+
+                <div class="mock" data-mock="chat" data-url="https://chat.example/c/deploys" data-title="#deploys" hidden>
+                  <div data-noise class="bleed">Threads &nbsp; Mentions &nbsp; #general &nbsp; #deploys &nbsp; #random &nbsp; Add channel</div>
+                  <h3>#deploys</h3>
+                  <p><strong>Ana</strong> (14:02)</p>
+                  <p>Checkout latency doubled after the 13:50 deploy. Here is the <a href="https://chat.example/dash/checkout">dashboard</a>.</p>
+                  <div data-noise>Add reaction. Reply in thread. Save for later. More actions.</div>
+                  <p><strong>Ben</strong> (14:05)</p>
+                  <p>It is the new price lookup. It runs one query for each cart line:</p>
+                  <pre><code class="language-sql">SELECT price FROM prices WHERE sku = $1;</code></pre>
+                  <p><strong>Ana</strong> (14:09)</p>
+                  <p>Plan:</p>
+                  <ol>
+                    <li>Roll back now.</li>
+                    <li>Batch the lookup with <code>WHERE sku = ANY($1)</code>.</li>
+                  </ol>
+                  <div data-noise>Upgrade to keep your full message history. See plans.</div>
+                  <div data-noise>Ben is typing. Message #deploys.</div>
+                </div>
+
+                <div class="paste" data-mock="paste" hidden>
+                  <label for="paste-box">Copy part of any web page, then paste it here. It is converted in this tab and goes nowhere else.</label>
+                  <textarea id="paste-box" spellcheck="false" placeholder="Paste here"></textarea>
+                </div>
+              </div>
+            </div>
+
+            <div class="pane pane-out">
+              <div class="pane-title">
+                <div class="tabs" role="tablist" aria-label="Clipboard contents">
+                  <button type="button" role="tab" aria-selected="true" data-out="md">Copy as Markdown</button>
+                  <button type="button" role="tab" aria-selected="false" data-out="plain">Select all, copy</button>
+                </div>
+              </div>
+              <div class="pane-scroll" tabindex="0" aria-label="Clipboard contents"><pre id="demo-out"><noscript>The demo needs JavaScript. The extension converts pages in your browser in the same way.</noscript></pre></div>
+              <div class="pane-stats" id="demo-stats"></div>
+            </div>
+          </div>
+        </div>
+        <p class="fine">The sample pages are made up. The converter is the same code that ships in the extension.</p>
+      </div>
+    </section>
+
+    <section id="how">
+      <div class="wrap">
+        <div class="head"><h2>Click, then paste</h2></div>
+        <ol class="steps">
+          <li><strong>Open any page</strong> <span>An article, an issue, a dashboard, a chat. Select some text first if you only want that part.</span></li>
+          <li><strong>Copy it</strong> <span>Click the toolbar icon or press <span class="keys"><kbd>Alt</kbd> <kbd>Shift</kbd> <kbd>M</kbd></span>. The userscript puts a button on supported pages.</span></li>
+          <li><strong>Paste it</strong> <span>Your prompt, note, or document gets the content with its structure and its source.</span></li>
+        </ol>
+      </div>
+    </section>
+
+    <section id="measured" class="band">
+      <div class="wrap">
+        <div class="head">
+          <h2>Most of a page is not the page</h2>
+          <p>Markup, scripts, menus, and tracking fill the HTML. Pick a page to see how much of it reaches your clipboard, and your context window.</p>
+        </div>
+        <div class="measure">
+          <div class="scroll-x">
+            <table class="data">
+              <thead><tr><th scope="col">Page</th><th scope="col" class="num">HTML</th><th scope="col" class="num">Markdown</th><th scope="col" class="num">Size</th></tr></thead>
+              <tbody id="measured-rows">
+                <tr data-html="525371" data-md="36537">
+                  <th scope="row"><a href="https://en.wikipedia.org/wiki/Markdown">Wikipedia article</a></th><td class="num">525,371</td><td class="num">36,537</td><td class="num">7%</td>
+                </tr>
+                <tr data-html="936857" data-md="36820">
+                  <th scope="row"><a href="https://github.com/microsoft/TypeScript/issues/9998">GitHub issue thread</a></th><td class="num">936,857</td><td class="num">36,820</td><td class="num">4%</td>
+                </tr>
+                <tr data-html="353729" data-md="8906">
+                  <th scope="row"><a href="https://pypi.org/project/requests/">PyPI package</a></th><td class="num">353,729</td><td class="num">8,906</td><td class="num">3%</td>
+                </tr>
+                <tr data-html="342150" data-md="5534">
+                  <th scope="row"><a href="https://www.theguardian.com/commentisfree/2022/jul/15/the-guardian-view-on-the-james-webb-telescope-a-window-on-the-unknown">Guardian article</a></th><td class="num">342,150</td><td class="num">5,534</td><td class="num">2%</td>
+                </tr>
+                <tr data-html="88950" data-md="12460">
+                  <th scope="row"><a href="https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Array/map">MDN reference page</a></th><td class="num">88,950</td><td class="num">12,460</td><td class="num">14%</td>
+                </tr>
+                <tr data-html="188288" data-md="40020">
+                  <th scope="row"><a href="https://arxiv.org/html/1706.03762v7">arXiv paper</a></th><td class="num">188,288</td><td class="num">40,020</td><td class="num">21%</td>
+                </tr>
+                <tr data-html="101315" data-md="28549">
+                  <th scope="row"><a href="https://news.ycombinator.com/item?id=8863">Hacker News thread</a></th><td class="num">101,315</td><td class="num">28,549</td><td class="num">28%</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <figure class="field" data-md-skip>
+            <div class="cells" id="cells" role="img" aria-label=""></div>
+            <figcaption><span class="key key-kept"></span> Markdown <span class="key key-noise"></span> HTML left behind. <span id="cells-caption"></span></figcaption>
+          </figure>
+        </div>
+        <p class="fine">Sizes are in characters. Measured on November 26, 2026 in a headless browser, signed out. Markdown sizes include link URLs.</p>
+      </div>
+    </section>
+
+    <section id="output">
+      <div class="wrap">
+        <div class="head"><h2>What lands on your clipboard</h2></div>
+        <div class="scroll-x">
+          <table class="data spec">
+            <thead><tr><th scope="col">Markdown</th><th scope="col">What it keeps</th></tr></thead>
+            <tbody>
+              <tr><td><code>--- title, url ---</code></td><td>Front matter with the title, the source URL, and details such as author and date, so you can cite the page later.</td></tr>
+              <tr><td><code># ## ###</code></td><td>The heading hierarchy of the page.</td></tr>
+              <tr><td><code>| cell | cell |</code></td><td>Tables, including merged cells, infoboxes, and property lists.</td></tr>
+              <tr><td><code>```ts</code></td><td>Code, character for character, with its language. The fence grows when the code contains backticks.</td></tr>
+              <tr><td><code>[text](https://...)</code></td><td>Links and images with absolute URLs.</td></tr>
+              <tr><td><code>1. - &gt;</code></td><td>Nested lists, quotes, and comment threads with their depth.</td></tr>
+              <tr><td><code>plain text</code></td><td>Prose with smart quotes, odd spaces, and invisible watermark characters normalized.</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <section id="sites">
+      <div class="wrap">
+        <div class="head">
+          <h2><!-- count -->97<!-- /count --> sites it knows well</h2>
+          <p>Each one has its own extractor that knows where the content is, in what order, and what to leave out.</p>
+        </div>
+        <div class="site-tools" data-md-skip>
+          <label class="visually-hidden" for="site-filter">Find a site</label>
+          <input type="search" id="site-filter" placeholder="Find a site" autocomplete="off">
+          <label class="toggle"><input type="checkbox" id="site-details"> Show what each one copies</label>
+          <span class="site-result" id="site-result" role="status"></span>
+        </div>
+        <div class="site-list details" id="site-list">
+          <!-- sites:start -->
+          <section class="site-group" data-group="ai-assistants">
+            <h3>AI assistants <span class="site-count">11</span></h3>
+            <ul>
+              <li data-extractor="chatgpt"><strong>ChatGPT</strong> <span>User and assistant turns in order, canvas writing blocks, code, model, and images</span></li>
+              <li data-extractor="claude"><strong>Claude</strong> <span>User and assistant turns in order, code, citations, and images</span></li>
+              <li data-extractor="gemini"><strong>Gemini</strong> <span>User and model turns in order, code, citations, and images</span></li>
+              <li data-extractor="gemini-notebook"><strong>Gemini Notebook / NotebookLM</strong> <span>Notebook chats, grounded answers, source citations, files, and rendered Studio artifacts</span></li>
+              <li data-extractor="google-ai-studio"><strong>Google AI Studio</strong> <span>Saved and new chat prompts, system instructions, turns, model, citations, code, and files</span></li>
+              <li data-extractor="perplexity"><strong>Perplexity</strong> <span>User and assistant turns in order, with citations and source links</span></li>
+              <li data-extractor="grok"><strong>Grok</strong> <span>User and assistant turns in order, citations, code, and images</span></li>
+              <li data-extractor="meta-ai"><strong>Meta AI</strong> <span>User and assistant turns in order, citations, code, and images</span></li>
+              <li data-extractor="microsoft-copilot"><strong>Microsoft Copilot</strong> <span>Consumer chats and shared chats, citations, code, files, images, and rendered Copilot Pages</span></li>
+              <li data-extractor="mistral-vibe"><strong>Mistral Vibe / Le Chat</strong> <span>Turns in order, citations, files, code, images, workspace context, and rendered Canvas output</span></li>
+              <li data-extractor="deepseek"><strong>DeepSeek</strong> <span>Signed-in and shared chats, citations, reasoning, code, files, and images</span></li>
+            </ul>
+          </section>
+          <section class="site-group" data-group="ai-models-and-experiments">
+            <h3>AI models and experiments <span class="site-count">7</span></h3>
+            <ul>
+              <li data-extractor="hugging-face"><strong>Hugging Face</strong> <span>Model, dataset, and Space cards, metadata, tensor details, evaluation results, lineage, and file listings</span></li>
+              <li data-extractor="openrouter"><strong>OpenRouter</strong> <span>Model definitions, modalities, pricing, limits, parameters, benchmarks, and provider endpoints</span></li>
+              <li data-extractor="artificial-analysis"><strong>Artificial Analysis</strong> <span>Published leaderboards, model overviews, exact benchmark values, specifications, and FAQ</span></li>
+              <li data-extractor="deepswe"><strong>DeepSWE</strong> <span>Benchmark overview, leaderboard configurations, efficiency metrics, methodology, and task examples</span></li>
+              <li data-extractor="wandb"><strong>Weights &amp; Biases</strong> <span>Run metadata, configuration, metric summaries, sparklines, and sampled history tables</span></li>
+              <li data-extractor="mlflow"><strong>MLflow</strong> <span>Self-hosted run metadata, chart comparisons for visible runs, and metric-history tables</span></li>
+              <li data-extractor="leetllm"><strong>LeetLLM</strong> <span>Lessons, glossary pages, practice content, code, and links</span></li>
+            </ul>
+          </section>
+          <section class="site-group" data-group="code-and-packages">
+            <h3>Code and packages <span class="site-count">10</span></h3>
+            <ul>
+              <li data-extractor="github"><strong>GitHub</strong> <span>Issues, pull requests, repositories with READMEs, full code files, and canonical patches</span></li>
+              <li data-extractor="gitlab"><strong>GitLab</strong> <span>Repositories, trees, code files, issues, merge requests, comments, and visible diffs</span></li>
+              <li data-extractor="bitbucket"><strong>Bitbucket</strong> <span>Repositories, source files, pull requests, issues, comments, and visible diffs</span></li>
+              <li data-extractor="gitea"><strong>Codeberg / Gitea / Forgejo</strong> <span>Repositories, source files, issues, and pull requests on hosted or self-hosted instances</span></li>
+              <li data-extractor="npm"><strong>npm</strong> <span>Package version, description, README, dependencies, and metadata</span></li>
+              <li data-extractor="pypi"><strong>PyPI</strong> <span>Package version, summary, install command, and README</span></li>
+              <li data-extractor="crates-io"><strong>crates.io</strong> <span>Crate version, metadata, and README</span></li>
+              <li data-extractor="pkg-go"><strong>pkg.go.dev</strong> <span>Go package documentation, index, functions, types, and examples</span></li>
+              <li data-extractor="rubygems"><strong>RubyGems</strong> <span>Gem version, description, dependencies, and metadata</span></li>
+              <li data-extractor="docker-hub"><strong>Docker Hub</strong> <span>Repository and official image overviews with metadata</span></li>
+            </ul>
+          </section>
+          <section class="site-group" data-group="documentation-and-reference">
+            <h3>Documentation and reference <span class="site-count">7</span></h3>
+            <ul>
+              <li data-extractor="documentation"><strong>Documentation frameworks</strong> <span>Sphinx, Read the Docs, Docusaurus, MkDocs, VitePress, Starlight, mdBook, Nextra, Mintlify, GitBook, Fumadocs, and Fern, on any domain</span></li>
+              <li data-extractor="mdn"><strong>MDN Web Docs</strong> <span>Reference pages, guides, code examples, and compatibility tables</span></li>
+              <li data-extractor="datadog-docs"><strong>Datadog Documentation</strong> <span>Authored Markdown source when the site serves it, cleaned page content otherwise</span></li>
+              <li data-extractor="openapi-docs"><strong>OpenAPI docs</strong> <span>Rendered Swagger UI, Redoc, and Scalar API references on any domain</span></li>
+              <li data-extractor="wikipedia"><strong>Wikipedia</strong> <span>Article body, tables, infoboxes, citations, and references</span></li>
+              <li data-extractor="mediawiki"><strong>MediaWiki</strong> <span>ArchWiki, Fandom, Wiktionary, and other MediaWiki sites on any domain</span></li>
+              <li data-extractor="grokipedia"><strong>Grokipedia</strong> <span>Full article content with metadata</span></li>
+            </ul>
+          </section>
+          <section class="site-group" data-group="work-and-documents">
+            <h3>Work and documents <span class="site-count">10</span></h3>
+            <ul>
+              <li data-extractor="google-docs"><strong>Google Docs</strong> <span>Full document export with headings, lists, tables, links, images, and off-screen content</span></li>
+              <li data-extractor="google-sheets"><strong>Google Sheets</strong> <span>The complete active sheet or the selected range</span></li>
+              <li data-extractor="google-slides"><strong>Google Slides</strong> <span>The current slide or the full deck, with titles, text, links, and speaker notes when available</span></li>
+              <li data-extractor="gmail"><strong>Gmail</strong> <span>Full threads with participants, message bodies, links, images, and attachments</span></li>
+              <li data-extractor="outlook"><strong>Outlook on the web</strong> <span>Email threads with subject, participants, and message bodies</span></li>
+              <li data-extractor="notion"><strong>Notion</strong> <span>Pages and databases with properties, rich blocks, tables, code, and rendered rows</span></li>
+              <li data-extractor="linear"><strong>Linear</strong> <span>Issues, projects, and documents with properties, descriptions, links, and visible comments</span></li>
+              <li data-extractor="jira"><strong>Jira</strong> <span>Issue fields, descriptions, comments, and links, from the API or the rendered page</span></li>
+              <li data-extractor="confluence"><strong>Confluence</strong> <span>Page body, labels, tables, code, and visible comments, from the API or the rendered page</span></li>
+              <li data-extractor="microsoft-office"><strong>Microsoft 365</strong> <span>Word, Excel, and PowerPoint web content</span></li>
+            </ul>
+          </section>
+          <section class="site-group" data-group="chat-and-communities">
+            <h3>Chat and communities <span class="site-count">9</span></h3>
+            <ul>
+              <li data-extractor="slack"><strong>Slack</strong> <span>Loaded channel and thread messages with authors, timestamps, reactions, and attachments</span></li>
+              <li data-extractor="microsoft-teams"><strong>Microsoft Teams</strong> <span>Loaded chats, channels, and threads with authors, timestamps, replies, reactions, and code</span></li>
+              <li data-extractor="discord"><strong>Discord</strong> <span>Loaded channels and threads with authors, timestamps, replies, reactions, and attachments</span></li>
+              <li data-extractor="whatsapp"><strong>WhatsApp Web</strong> <span>Loaded chat messages with sender, timestamp, and media indicators</span></li>
+              <li data-extractor="reddit"><strong>Reddit</strong> <span>Post, subreddit, author, score, and threaded comments with depth</span></li>
+              <li data-extractor="hackernews"><strong>Hacker News</strong> <span>Story, link, score, author, and nested comments with depth</span></li>
+              <li data-extractor="lobsters"><strong>Lobsters</strong> <span>Story, link, tags, and nested comments</span></li>
+              <li data-extractor="stackoverflow"><strong>Stack Overflow / Stack Exchange</strong> <span>Question, votes, tags, all answers with the accepted one marked, and comments</span></li>
+              <li data-extractor="discourse"><strong>Discourse</strong> <span>Forum topics and posts on any Discourse instance</span></li>
+            </ul>
+          </section>
+          <section class="site-group" data-group="observability">
+            <h3>Observability <span class="site-count">4</span></h3>
+            <ul>
+              <li data-extractor="datadog-dashboard"><strong>Datadog dashboards</strong> <span>Timeframe, template variables, grouped widget values, top lists, and chart annotations</span></li>
+              <li data-extractor="datadog-notebook"><strong>Datadog notebooks</strong> <span>Metadata, narrative, ordered visualization cells, and chart annotations</span></li>
+              <li data-extractor="grafana"><strong>Grafana</strong> <span>Dashboards and Explore on self-hosted or Grafana Cloud instances</span></li>
+              <li data-extractor="sentry"><strong>Sentry</strong> <span>Issues, stack traces, tags, and breadcrumbs</span></li>
+            </ul>
+          </section>
+          <section class="site-group" data-group="search-engines">
+            <h3>Search engines <span class="site-count">7</span></h3>
+            <ul>
+              <li data-extractor="google-search"><strong>Google Search</strong> <span>Query, featured snippets, knowledge panel, ranked results, and People Also Ask</span></li>
+              <li data-extractor="bing"><strong>Bing</strong> <span>Query, results, knowledge sidebar, and related searches</span></li>
+              <li data-extractor="duckduckgo"><strong>DuckDuckGo</strong> <span>Query, ranked results, snippets, destination links, and related searches</span></li>
+              <li data-extractor="brave-search"><strong>Brave Search</strong> <span>Query, answer cards, ranked results, discussions, and related searches</span></li>
+              <li data-extractor="yahoo-search"><strong>Yahoo Search</strong> <span>Query, ranked results, snippets, and destination links</span></li>
+              <li data-extractor="yandex-search"><strong>Yandex Search</strong> <span>Query, answer cards, ranked results, and related searches</span></li>
+              <li data-extractor="baidu-search"><strong>Baidu Search</strong> <span>Query, ranked results, abstracts, and destination links</span></li>
+            </ul>
+          </section>
+          <section class="site-group" data-group="research-filings-and-markets">
+            <h3>Research, filings, and markets <span class="site-count">8</span></h3>
+            <ul>
+              <li data-extractor="arxiv"><strong>arXiv</strong> <span>Title, authors, abstract, subjects, DOI, and the full body from HTML pages</span></li>
+              <li data-extractor="openreview"><strong>OpenReview</strong> <span>Papers, abstracts, reviews, rebuttals, and decisions</span></li>
+              <li data-extractor="pubmed"><strong>PubMed / PMC</strong> <span>Citation, authors, abstract, and identifiers</span></li>
+              <li data-extractor="semantic-scholar"><strong>Semantic Scholar</strong> <span>Paper title, authors, abstract, and metadata</span></li>
+              <li data-extractor="google-scholar"><strong>Google Scholar</strong> <span>Search results and author profiles</span></li>
+              <li data-extractor="sec-edgar"><strong>SEC EDGAR</strong> <span>10-K, 10-Q, 8-K, S-1, and other filings</span></li>
+              <li data-extractor="polymarket"><strong>Polymarket</strong> <span>Market, outcome probabilities, volume, and resolution rules</span></li>
+              <li data-extractor="kalshi"><strong>Kalshi</strong> <span>Market, outcome prices, and rules</span></li>
+            </ul>
+          </section>
+          <section class="site-group" data-group="social-video-and-entertainment">
+            <h3>Social, video, and entertainment <span class="site-count">14</span></h3>
+            <ul>
+              <li data-extractor="youtube"><strong>YouTube</strong> <span>Title, channel, views, description, chapters, comments, and transcript</span></li>
+              <li data-extractor="x-twitter"><strong>X (Twitter)</strong> <span>Posts with loaded replies and media, timelines, and searches with engagement counts</span></li>
+              <li data-extractor="bluesky"><strong>Bluesky</strong> <span>Post threads and profiles</span></li>
+              <li data-extractor="mastodon"><strong>Mastodon</strong> <span>Posts and threads on any Mastodon instance</span></li>
+              <li data-extractor="linkedin"><strong>LinkedIn</strong> <span>Profiles, posts with reactions and comments, and articles</span></li>
+              <li data-extractor="facebook"><strong>Facebook</strong> <span>Posts and reels with author, caption, engagement, and visible comments</span></li>
+              <li data-extractor="instagram"><strong>Instagram</strong> <span>Posts and reels with captions, media descriptions, engagement, and visible comments</span></li>
+              <li data-extractor="tiktok"><strong>TikTok</strong> <span>Videos with creator, caption, engagement, transcript or captions, and visible comments</span></li>
+              <li data-extractor="pinterest"><strong>Pinterest</strong> <span>Pins with creator, description, destination, media, and visible comments</span></li>
+              <li data-extractor="vk"><strong>VK</strong> <span>Posts with author, timestamp, text, media, and visible comments</span></li>
+              <li data-extractor="twitch"><strong>Twitch</strong> <span>Channels, streams, videos, and clips with game, viewers, tags, and description</span></li>
+              <li data-extractor="netflix"><strong>Netflix</strong> <span>Title, synopsis, cast, genres, ratings, seasons, and visible episodes</span></li>
+              <li data-extractor="imdb"><strong>IMDb</strong> <span>Title, rating, cast, and synopsis</span></li>
+              <li data-extractor="fox"><strong>FOX</strong> <span>Shows, episodes, movies, and videos with synopsis and details</span></li>
+            </ul>
+          </section>
+          <section class="site-group" data-group="news-and-publishing">
+            <h3>News and publishing <span class="site-count">6</span></h3>
+            <ul>
+              <li data-extractor="news"><strong>News sites</strong> <span>CNN, BBC, NYT, Reuters, Fox News, and more: article body, author, date, and paywall detection</span></li>
+              <li data-extractor="globo"><strong>Globo</strong> <span>Articles and videos with headline, author, date, and body</span></li>
+              <li data-extractor="medium"><strong>Medium</strong> <span>Article, author, publication, claps, and reading time</span></li>
+              <li data-extractor="substack"><strong>Substack</strong> <span>Newsletter posts with author, date, likes, and paywall state</span></li>
+              <li data-extractor="devto"><strong>DEV Community</strong> <span>Article, author, tags, reactions, and comments</span></li>
+              <li data-extractor="ghost"><strong>Ghost / Obsidian Publish</strong> <span>Posts and notes on any custom domain</span></li>
+            </ul>
+          </section>
+          <section class="site-group" data-group="shopping-travel-and-weather">
+            <h3>Shopping, travel, and weather <span class="site-count">4</span></h3>
+            <ul>
+              <li data-extractor="amazon"><strong>Amazon</strong> <span>Title, ASIN, price, rating, features, specifications, and top reviews</span></li>
+              <li data-extractor="temu"><strong>Temu</strong> <span>Title, price, availability, ratings, variants, specifications, and description</span></li>
+              <li data-extractor="booking"><strong>Booking.com</strong> <span>Hotels and search results with prices, scores, facilities, policies, and availability</span></li>
+              <li data-extractor="weather"><strong>Weather.com</strong> <span>Current conditions, alerts, hourly outlook, and daily forecast</span></li>
+            </ul>
+          </section>
+          <!-- sites:end -->
+        </div>
+        <p class="site-any" id="site-any"><strong>Any other website</strong> works too. The general extractor finds the main article, or copies exactly what you selected.</p>
+        <p class="fine">Copies contain what the page has loaded. Expand or scroll to older messages first. Nothing here gets around a login or a paywall.</p>
+      </div>
+    </section>
+
+    <section id="privacy">
+      <div class="wrap split">
+        <div>
+          <div class="head">
+            <h2>Your pages stay yours</h2>
+            <p>The conversion runs in your browser and the result goes to your clipboard. There is no server to send it to.</p>
+          </div>
+          <ul class="checks">
+            <li>No account, no ads, no analytics</li>
+            <li>Runs only when you ask it to</li>
+            <li>Some signed-in pages are read through that site's own API, with the session you already have</li>
+            <li>This page loads nothing from third parties</li>
+          </ul>
+          <p class="fine"><a href="privacy.html">Read the privacy policy</a></p>
+        </div>
+        <table class="data">
+          <thead><tr><th scope="col">Extension permission</th><th scope="col">Why</th></tr></thead>
+          <tbody>
+            <tr><td><code>activeTab</code></td><td>Read the current page after you click.</td></tr>
+            <tr><td><code>scripting</code></td><td>Run the packaged extraction script in that tab.</td></tr>
+            <tr><td><code>clipboardWrite</code></td><td>Write the Markdown to your clipboard.</td></tr>
+            <tr><td>Datadog and W&amp;B pages</td><td>Show an inline button on dashboards, notebooks, and runs. It still waits for your click.</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <section id="library">
+      <div class="wrap split">
+        <div class="head">
+          <h2>Build with it</h2>
+          <p>The same extractors ship as an ESM library with no runtime dependencies. Load only the sites you need. It never touches the page UI or the clipboard.</p>
+          <p><a href="https://github.com/bvolpato/copy-as-markdown/blob/main/LIBRARY.md">Read the library guide</a></p>
+        </div>
+        <div>
+          <pre class="snippet"><code>pnpm add @bvolpato/copy-as-markdown</code></pre>
+          <pre class="snippet"><code class="language-ts">import {
+  createExtractorMatcher,
+  loadExtractors,
+} from '@bvolpato/copy-as-markdown';
+
+const extractors = await loadExtractors(['github', 'jira']);
+const matcher = createExtractorMatcher({ extractors });
+
+const match = matcher.match({ url: location.href, document });
+if (match) console.log(await match.extract());</code></pre>
+        </div>
+      </div>
+    </section>
+
+    <section id="questions">
+      <div class="wrap">
+        <div class="head"><h2>Questions</h2></div>
+        <div class="faq">
+          <details>
+            <summary>Chrome asked for access to the site. Is that expected?</summary>
+            <p>Yes. The extension has no standing access to most sites. If Chrome shows "Wants access to this site", click Allow, then click the icon again.</p>
+          </details>
+          <details>
+            <summary>Why not give the model the URL?</summary>
+            <p>Many tools cannot open it, and a page behind your login is out of reach for them. The copy is what you see, with your session.</p>
+          </details>
+          <details>
+            <summary>Part of a long conversation is missing. Why?</summary>
+            <p>Many apps keep only recent messages in the page. Scroll up to load the older ones, then copy again. The output says when older content was not loaded.</p>
+          </details>
+          <details>
+            <summary>The userscript button is in the way. Can I move it?</summary>
+            <p>Drag it. The position is saved for each site.</p>
+          </details>
+          <details>
+            <summary>My site already has a copy button. How do I turn yours off?</summary>
+            <p>Give any element the ID <code>copy_as_markdown_btn</code> and the page button stays hidden. The toolbar icon still works. This page does that.</p>
+          </details>
+        </div>
+      </div>
+    </section>
+
+    <section id="install" class="band band-install">
+      <div class="wrap">
+        <div class="head"><h2>Install it</h2></div>
+        <div class="install-options">
+          <div class="install-card" data-install="chrome">
+            <img src="brands/chrome.svg" class="install-logo" alt="" width="46" height="46" data-md-skip>
+            <h3>Chrome, Brave, Edge</h3>
+            <p>One toolbar button for every site, from the Chrome Web Store.</p>
+            <a class="btn-install" href="https://chromewebstore.google.com/detail/copy-as-markdown/pcjanmkidppaeojkanbjbmmgpjfeecol">Add to Chrome</a>
+          </div>
+          <div class="install-card" data-install="firefox">
+            <img src="brands/firefox.svg" class="install-logo" alt="" width="46" height="46" data-md-skip>
+            <h3>Firefox</h3>
+            <p>One toolbar button for every site, signed by Firefox Add-ons.</p>
+            <a class="btn-install" href="https://addons.mozilla.org/en-US/firefox/addon/copy-as-markdown-addon/">Add to Firefox</a>
+          </div>
+          <div class="install-card" data-install="userscript">
+            <img src="icon.svg" class="install-logo" alt="" width="46" height="46" data-md-skip>
+            <h3>Userscript</h3>
+            <p>A button on the page itself, in any browser that has Tampermonkey or Violentmonkey.</p>
+            <a class="btn-install" href="https://github.com/bvolpato/copy-as-markdown/releases/latest/download/copy-as-markdown.user.js">Install userscript</a>
+          </div>
+        </div>
+        <p class="install-foot"><a class="latest-release" href="https://github.com/bvolpato/copy-as-markdown/releases/latest">Release notes and downloads</a> <a href="https://github.com/bvolpato/copy-as-markdown#install">Build from source</a></p>
+      </div>
+    </section>
+  </main>
+
+  <section id="markdown-view" aria-labelledby="markdown-title">
+    <div class="wrap">
+      <div class="md-bar">
+        <h2 id="markdown-title" tabindex="-1">This page, as Markdown</h2>
+        <span id="markdown-stats"></span>
+        <button type="button" class="btn-install" id="copy-view">Copy</button>
+      </div>
+      <pre id="markdown-out"></pre>
     </div>
   </section>
 
-  <!-- Problem -->
-  <section class="problem-section reveal">
-    <div class="container">
-      <div class="section-label">The Problem</div>
-      <h2 class="section-title">Sharing web pages with LLMs is broken</h2>
-      <p class="section-desc">You want to give your AI the full context of a web page. Every option is bad — until now.</p>
-
-      <div class="problems-grid">
-        <div class="problem-card">
-          <div class="icon">📋</div>
-          <h3>Copy-paste raw text</h3>
-          <p>Loses all structure. Headers become blobs. Tables vanish. Links disappear.</p>
-        </div>
-        <div class="problem-card">
-          <div class="icon">🔗</div>
-          <h3>Share a URL</h3>
-          <p>The LLM can't browse it — or worse, hallucinates what it says.</p>
-        </div>
-        <div class="problem-card">
-          <div class="icon">📸</div>
-          <h3>Screenshot</h3>
-          <p>Eats your token budget on image processing. Can't search or quote.</p>
-        </div>
-        <div class="problem-card">
-          <div class="icon">✏️</div>
-          <h3>Manually reformat</h3>
-          <p>Life's too short. You have better things to do.</p>
-        </div>
-      </div>
-    </div>
-  </section>
-
-  <!-- Supported Sites -->
-  <section class="sites-section reveal" id="sites">
-    <div class="container">
-      <div class="section-label">First-Class Extractors</div>
-      <h2 class="section-title">50+ purpose-built. Every site supported.</h2>
-      <p class="section-desc">These sites and frameworks get tuned extractors that capture the signal and strip the noise. Content detection recognizes custom-domain Notion, Sphinx, and Read the Docs pages before generic article/main fallback.</p>
-
-      <div class="sites-grid">
-        <div class="site-card">
-          <div class="site-icon" data-favicon-url="https://wikipedia.org">📚</div>
-          <div><h3>Wikipedia</h3><p>Article body, tables, infoboxes — edit buttons and references stripped</p></div>
-        </div>
-        <div class="site-card">
-          <div class="site-icon" data-favicon-url="https://docs.google.com">📝</div>
-          <div><h3>Google Docs</h3><p>Full document export — headings, lists, tables, links, images</p></div>
-        </div>
-        <div class="site-card">
-          <div class="site-icon" data-favicon-url="https://sheets.google.com">📋</div>
-          <div><h3>Google Sheets</h3><p>Active sheet or selected range as a clean, bounded table</p></div>
-        </div>
-        <div class="site-card">
-          <div class="site-icon" data-favicon-url="https://slides.google.com">🖥️</div>
-          <div><h3>Google Slides</h3><p>Choose current slide or full deck, with ordered titles, text, links, and speaker notes when available</p></div>
-        </div>
-        <div class="site-card">
-          <div class="site-icon" data-favicon-url="https://mail.google.com">✉️</div>
-          <div><h3>Gmail</h3><p>Full authenticated threads — participants, message bodies, links, and attachments</p></div>
-        </div>
-        <div class="site-card">
-          <div class="site-icon" data-favicon-url="https://notion.so">⬛</div>
-          <div><h3>Notion</h3><p>Pages and databases with properties, rich blocks, code, and tables</p></div>
-        </div>
-        <div class="site-card">
-          <div class="site-icon" data-favicon-url="https://readthedocs.org">📖</div>
-          <div><h3>Sphinx / Read the Docs</h3><p>Content-detected documentation with navigation stripped and code languages preserved</p></div>
-        </div>
-        <div class="site-card">
-          <div class="site-icon" data-favicon-url="https://www.microsoft365.com">▦</div>
-          <div><h3>Microsoft 365</h3><p>Structured Word, Excel, and PowerPoint web content</p></div>
-        </div>
-        <div class="site-card">
-          <div class="site-icon" data-favicon-url="https://slack.com">🟣</div>
-          <div><h3>Slack</h3><p>Loaded channels and threads with authors, timestamps, reactions, and attachments</p></div>
-        </div>
-        <div class="site-card">
-          <div class="site-icon" data-favicon-url="https://discord.com">🎮</div>
-          <div><h3>Discord</h3><p>Loaded messages and threads with authors, replies, reactions, and attachments</p></div>
-        </div>
-        <div class="site-card">
-          <div class="site-icon" data-favicon-url="https://www.atlassian.com/software/jira">🎫</div>
-          <div><h3>Jira</h3><p>Authenticated REST fields, ADF descriptions/comments, links, and rendered DOM fallback</p></div>
-        </div>
-        <div class="site-card">
-          <div class="site-icon" data-favicon-url="https://www.atlassian.com/software/confluence">📘</div>
-          <div><h3>Confluence</h3><p>Authenticated REST page body, labels, tables, code, visible comments, and DOM fallback</p></div>
-        </div>
-        <div class="site-card">
-          <div class="site-icon" data-favicon-url="https://datadoghq.com">📈</div>
-          <div><h3>Datadog dashboards</h3><p>Filters, groups, widget values, top lists, visible chart annotations</p></div>
-        </div>
-        <div class="site-card">
-          <div class="site-icon" data-favicon-url="https://datadoghq.com">📓</div>
-          <div><h3>Datadog notebooks</h3><p>Metadata, narrative, ordered visualization cells, visible chart snapshots</p></div>
-        </div>
-        <div class="site-card">
-          <div class="site-icon" data-favicon-url="https://datadoghq.com">📚</div>
-          <div><h3>Datadog Documentation</h3><p>Authored Markdown source when available, cleaned rendered DOM otherwise</p></div>
-        </div>
-        <div class="site-card">
-          <div class="site-icon" data-favicon-url="https://wandb.ai">📉</div>
-          <div><h3>Weights & Biases</h3><p>Run configuration, metric summaries, sparklines, and sampled history tables</p></div>
-        </div>
-        <div class="site-card">
-          <div class="site-icon" data-favicon-url="https://mlflow.org">🧪</div>
-          <div><h3>MLflow</h3><p>Self-hosted run metadata and chart comparisons for visible runs and loaded metrics</p></div>
-        </div>
-        <div class="site-card">
-          <div class="site-icon" data-favicon-url="https://google.com">🔍</div>
-          <div><h3>Google Search</h3><p>Query, featured snippets, knowledge panel, ranked results</p></div>
-        </div>
-        <div class="site-card">
-          <div class="site-icon" data-favicon-url="https://github.com">💻</div>
-          <div><h3>GitHub</h3><p>Issues, PRs, repos, README files, code — with metadata</p></div>
-        </div>
-        <div class="site-card">
-          <div class="site-icon" data-favicon-url="https://gitlab.com">🦊</div>
-          <div><h3>GitLab</h3><p>Repositories, source files, issues, merge requests, comments, and diffs</p></div>
-        </div>
-        <div class="site-card">
-          <div class="site-icon" data-favicon-url="https://bitbucket.org">🪣</div>
-          <div><h3>Bitbucket</h3><p>Repositories, source files, pull requests, issues, comments, and diffs</p></div>
-        </div>
-        <div class="site-card">
-          <div class="site-icon" data-favicon-url="https://perplexity.ai">🔮</div>
-          <div><h3>Perplexity</h3><p>Conversations with role labels, citations, and source links</p></div>
-        </div>
-        <div class="site-card">
-          <div class="site-icon" data-favicon-url="https://grok.com">✦</div>
-          <div><h3>Grok</h3><p>Conversations with role labels, citations, code, and images</p></div>
-        </div>
-        <div class="site-card">
-          <div class="site-icon" data-favicon-url="https://youtube.com">📺</div>
-          <div><h3>YouTube</h3><p>Title, channel, views, description, chapters, comments, transcript</p></div>
-        </div>
-        <div class="site-card">
-          <div class="site-icon" data-favicon-url="https://reddit.com">🗣️</div>
-          <div><h3>Reddit</h3><p>Post, subreddit, author, score, threaded comments with depth</p></div>
-        </div>
-        <div class="site-card">
-          <div class="site-icon" data-favicon-url="https://x.com">𝕏</div>
-          <div><h3>X (Twitter)</h3><p>Posts with replies, timelines with engagement stats</p></div>
-        </div>
-        <div class="site-card">
-          <div class="site-icon">📰</div>
-          <div><h3>News (20+ sites)</h3><p>CNN, BBC, NYT, Reuters — article body, author, date, paywall detection</p></div>
-        </div>
-        <div class="site-card">
-          <div class="site-icon" data-favicon-url="https://stackoverflow.com">❓</div>
-          <div><h3>Stack Overflow</h3><p>Question, all answers (✅ accepted), vote counts, comments</p></div>
-        </div>
-        <div class="site-card">
-          <div class="site-icon" data-favicon-url="https://news.ycombinator.com">🟧</div>
-          <div><h3>Hacker News</h3><p>Title, link, score, nested comment threads</p></div>
-        </div>
-        <div class="site-card">
-          <div class="site-icon" data-favicon-url="https://linkedin.com">💼</div>
-          <div><h3>LinkedIn</h3><p>Profiles, posts, articles — with reactions and comments</p></div>
-        </div>
-        <div class="site-card">
-          <div class="site-icon" data-favicon-url="https://facebook.com">f</div>
-          <div><h3>Facebook</h3><p>Posts and reels with captions, engagement, media, and visible comments</p></div>
-        </div>
-        <div class="site-card">
-          <div class="site-icon" data-favicon-url="https://instagram.com">◎</div>
-          <div><h3>Instagram</h3><p>Posts and reels with captions, media descriptions, engagement, and comments</p></div>
-        </div>
-        <div class="site-card">
-          <div class="site-icon" data-favicon-url="https://tiktok.com">♪</div>
-          <div><h3>TikTok</h3><p>Videos with creator metadata, captions or transcripts, engagement, and comments</p></div>
-        </div>
-        <div class="site-card">
-          <div class="site-icon" data-favicon-url="https://amazon.com">🛒</div>
-          <div><h3>Amazon</h3><p>Product title, price, rating, features, reviews (8 TLDs)</p></div>
-        </div>
-        <div class="site-card">
-          <div class="site-icon" data-favicon-url="https://arxiv.org">📄</div>
-          <div><h3>arXiv</h3><p>Paper title, authors, abstract, full body from HTML pages</p></div>
-        </div>
-        <div class="site-card">
-          <div class="site-icon" data-favicon-url="https://polymarket.com">📊</div>
-          <div><h3>Polymarket</h3><p>Market odds, resolution rules, volume, comments</p></div>
-        </div>
-        <div class="site-card">
-          <div class="site-icon" data-favicon-url="https://bing.com">🔎</div>
-          <div><h3>Bing Search</h3><p>Results, knowledge sidebar, related searches</p></div>
-        </div>
-        <div class="site-card">
-          <div class="site-icon" data-favicon-url="https://web.whatsapp.com">💬</div>
-          <div><h3>WhatsApp Web</h3><p>Chat messages with sender, timestamp, media indicators</p></div>
-        </div>
-        <div class="site-card">
-          <div class="site-icon" data-favicon-url="https://medium.com">✍️</div>
-          <div><h3>Medium</h3><p>Articles with author, publication, claps, reading time, full body</p></div>
-        </div>
-        <div class="site-card">
-          <div class="site-icon" data-favicon-url="https://substack.com">📨</div>
-          <div><h3>Substack</h3><p>Newsletter posts with author, likes, paywall detection</p></div>
-        </div>
-        <div class="site-card">
-          <div class="site-icon" data-favicon-url="https://dev.to">👩‍💻</div>
-          <div><h3>Dev.to</h3><p>Developer articles with tags, reactions, comments</p></div>
-        </div>
-        <div class="site-card">
-          <div class="site-icon" data-favicon-url="https://developer.mozilla.org">📖</div>
-          <div><h3>MDN Web Docs</h3><p>Developer docs with code examples, browser compat tables</p></div>
-        </div>
-        <div class="site-card">
-          <div class="site-icon site-icon--light-badge" data-favicon-url="https://chatgpt.com">🤖</div>
-          <div><h3>ChatGPT</h3><p>Shared conversations with user/assistant role labels</p></div>
-        </div>
-        <div class="site-card">
-          <div class="site-icon" data-favicon-url="https://claude.ai">🧠</div>
-          <div><h3>Claude</h3><p>Conversations with user/assistant role labels</p></div>
-        </div>
-        <div class="site-card">
-          <div class="site-icon" data-favicon-url="https://gemini.google.com">✨</div>
-          <div><h3>Gemini</h3><p>Conversations with user/model role labels</p></div>
-        </div>
-        <div class="site-card">
-          <div class="site-icon" data-favicon-url="https://grokipedia.com">📜</div>
-          <div><h3>Grokipedia</h3><p>Full article content with title and URL</p></div>
-        </div>
-        <div class="site-card">
-          <div class="site-icon" data-favicon-url="https://npmjs.com">📦</div>
-          <div><h3>NPM</h3><p>Package info, version, downloads, README, dependencies</p></div>
-        </div>
-        <div class="site-card">
-          <div class="site-icon" data-favicon-url="https://pypi.org">🐍</div>
-          <div><h3>PyPI</h3><p>Python packages with version, description, full README</p></div>
-        </div>
-        <div class="site-card">
-          <div class="site-icon" data-favicon-url="https://meta.ai">∞</div>
-          <div><h3>Meta AI</h3><p>Conversations with ordered user/assistant turns, citations, code, and images</p></div>
-        </div>
-        <div class="site-card">
-          <div class="site-icon" data-favicon-url="https://leetllm.com">🧑‍🏫</div>
-          <div><h3>LeetLLM</h3><p>Lessons, glossary pages, practice content, code, links, and learning context</p></div>
-        </div>
-        <div class="site-card">
-          <div class="site-icon" data-favicon-url="https://duckduckgo.com">🦆</div>
-          <div><h3>DuckDuckGo Search</h3><p>Query, ranked results, snippets, and related searches</p></div>
-        </div>
-        <div class="site-card">
-          <div class="site-icon" data-favicon-url="https://yahoo.com">Y!</div>
-          <div><h3>Yahoo Search</h3><p>Query, ranked results, snippets, and destination links</p></div>
-        </div>
-        <div class="site-card">
-          <div class="site-icon" data-favicon-url="https://yandex.com">Я</div>
-          <div><h3>Yandex Search</h3><p>Query, answer cards, ranked results, and related searches</p></div>
-        </div>
-        <div class="site-card">
-          <div class="site-icon" data-favicon-url="https://baidu.com">百</div>
-          <div><h3>Baidu Search</h3><p>Query, ranked results, abstracts, and destination links</p></div>
-        </div>
-        <div class="site-card">
-          <div class="site-icon" data-favicon-url="https://search.brave.com">🦁</div>
-          <div><h3>Brave Search</h3><p>Query, answer cards, ranked results, discussions, and related searches</p></div>
-        </div>
-        <div class="site-card">
-          <div class="site-icon" data-favicon-url="https://netflix.com">N</div>
-          <div><h3>Netflix</h3><p>Title metadata, synopsis, cast, genres, ratings, seasons, and episodes when visible</p></div>
-        </div>
-        <div class="site-card">
-          <div class="site-icon" data-favicon-url="https://pinterest.com">P</div>
-          <div><h3>Pinterest</h3><p>Pins with creator, description, destination, media, engagement, and comments</p></div>
-        </div>
-        <div class="site-card">
-          <div class="site-icon" data-favicon-url="https://temu.com">🛍️</div>
-          <div><h3>Temu</h3><p>Product title, price, availability, ratings, variants, specifications, and description</p></div>
-        </div>
-        <div class="site-card">
-          <div class="site-icon" data-favicon-url="https://weather.com">🌦️</div>
-          <div><h3>Weather.com</h3><p>Current conditions, alerts, hourly outlook, and daily forecast</p></div>
-        </div>
-        <div class="site-card">
-          <div class="site-icon" data-favicon-url="https://twitch.tv">◉</div>
-          <div><h3>Twitch</h3><p>Channels, live streams, videos, and clips with game, viewers, tags, and description</p></div>
-        </div>
-        <div class="site-card">
-          <div class="site-icon" data-favicon-url="https://vk.com">VK</div>
-          <div><h3>VK</h3><p>Posts with author, timestamp, text, media, engagement, and visible comments</p></div>
-        </div>
-        <div class="site-card">
-          <div class="site-icon" data-favicon-url="https://globo.com">G</div>
-          <div><h3>Globo</h3><p>Articles and videos with headline, author, date, structured metadata, and clean body</p></div>
-        </div>
-        <div class="site-card">
-          <div class="site-icon" data-favicon-url="https://fox.com">FOX</div>
-          <div><h3>FOX</h3><p>Shows, episodes, movies, and videos with synopsis and structured details</p></div>
-        </div>
-        <div class="site-card">
-          <div class="site-icon" data-favicon-url="https://booking.com">🏨</div>
-          <div><h3>Booking.com</h3><p>Hotels and search results with prices, scores, facilities, policies, and availability</p></div>
-        </div>
-        <div class="site-card">
-          <div class="site-icon">🌐</div>
-          <div><h3>Any website</h3><p>Fallback extractor: highlights or full page content via article/main detection</p></div>
-        </div>
-      </div>
-    </div>
-  </section>
-
-  <!-- Why Markdown -->
-  <section class="why-section reveal" id="why">
-    <div class="container">
-      <div class="section-label">Why Markdown for LLMs?</div>
-      <h2 class="section-title">Structure = Understanding</h2>
-      <p class="section-desc">Markdown is the lingua franca of AI conversations. Every major LLM understands it natively.</p>
-
-      <div class="why-grid">
-        <div class="why-card">
-          <div class="stat">&gt;90%</div>
-          <h3>Noise Reduction</h3>
-          <p>A typical Wikipedia article: ~200K characters in HTML. Copy as Markdown output: ~15K characters. More room for your actual conversation.</p>
-        </div>
-        <div class="why-card">
-          <div class="stat">100%</div>
-          <h3>Structure Preserved</h3>
-          <p>Headers → #, Tables → pipes, Code → fenced blocks, Links → [text](url). Hierarchy and semantics stay intact.</p>
-        </div>
-        <div class="why-card">
-          <div class="stat">0</div>
-          <h3>Dependencies</h3>
-          <p>Single self-contained JS file. No build tools, no frameworks, no runtime dependencies. Install and go.</p>
-        </div>
-      </div>
-    </div>
-  </section>
-
-  <!-- Install -->
-  <section class="install-section reveal" id="install">
-    <div class="container">
-      <div class="section-label">Get Started</div>
-      <h2 class="section-title">Install in 30 seconds</h2>
-      <p class="section-desc" style="margin: 0 auto 0;">Install from the Chrome Web Store, Firefox Add-ons, or use the latest userscript release.</p>
-
-      <div class="install-options">
-        <div class="install-card" data-install="userscript">
-          <img src="icon.svg" class="install-logo" alt="Copy as Markdown">
-          <h3>Userscript</h3>
-          <p>Install with Tampermonkey or Violentmonkey. Works across supported browsers.</p>
-          <a href="https://github.com/bvolpato/copy-as-markdown/releases/latest/download/copy-as-markdown.user.js" class="btn-install" style="width:100%;justify-content:center;">
-            Install Userscript
-          </a>
-        </div>
-        <div class="install-card" data-install="chrome">
-          <img src="brands/chrome.svg" class="install-logo" alt="Google Chrome">
-          <h3>Chrome Extension</h3>
-          <p>Install the approved extension directly from the Chrome Web Store.</p>
-          <a href="https://chromewebstore.google.com/detail/copy-as-markdown/pcjanmkidppaeojkanbjbmmgpjfeecol" class="btn-install" style="width:100%;justify-content:center;">
-            Install Chrome Extension
-          </a>
-        </div>
-        <div class="install-card" data-install="firefox">
-          <img src="brands/firefox.svg" class="install-logo" alt="Firefox">
-          <h3>Firefox Extension</h3>
-          <p>Install the signed extension directly from Firefox Add-ons.</p>
-          <a href="https://addons.mozilla.org/en-US/firefox/addon/copy-as-markdown-addon/" class="btn-install" style="width:100%;justify-content:center;">
-            Install Firefox Extension
-          </a>
-        </div>
-      </div>
-      <a class="latest-release" href="https://github.com/bvolpato/copy-as-markdown/releases/latest">Release notes and downloads →</a>
-    </div>
-  </section>
-
-  <!-- Footer -->
-  <footer>
-    <div class="container">
-      <p>MIT © <a href="https://github.com/bvolpato">Bruno Volpato</a> · <a href="https://github.com/bvolpato/copy-as-markdown">GitHub</a></p>
+  <footer class="site-footer">
+    <div class="wrap">
+      <p>MIT, by <a href="https://github.com/bvolpato">Bruno Volpato</a></p>
+      <a href="https://github.com/bvolpato/copy-as-markdown">GitHub</a>
+      <a href="https://github.com/bvolpato/copy-as-markdown/issues">Report a problem</a>
+      <a href="privacy.html">Privacy</a>
     </div>
   </footer>
-  <!-- Live demo: floating button (identical to the plugin) -->
-  <div class="live-demo-wrapper" id="demo-wrapper">
-    <button class="live-demo-btn" id="copy_as_markdown_btn" title="Copy this page as Markdown">
-      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128">
-        <defs>
-          <linearGradient id="demoGrad" x1="0%" y1="0%" x2="100%" y2="100%">
-            <stop offset="0%" stop-color="#4f46e5"/>
-            <stop offset="100%" stop-color="#10b981"/>
-          </linearGradient>
-          <linearGradient id="demoFold" x1="0%" y1="0%" x2="100%" y2="100%">
-            <stop offset="0%" stop-color="#ffffff" stop-opacity="0.9"/>
-            <stop offset="100%" stop-color="#e2e8f0" stop-opacity="0.9"/>
-          </linearGradient>
-        </defs>
-        <rect x="0" y="0" width="128" height="128" rx="28" fill="url(#demoGrad)"/>
-        <path d="M 28 24 C 24 24 20 28 20 32 L 20 80 C 20 84 24 88 28 88 L 84 88 C 88 88 92 84 92 80 L 92 52 L 64 24 Z" fill="#ffffff" opacity="0.95"/>
-        <path d="M 92 52 L 68 52 C 65.79 52 64 50.21 64 48 L 64 24 Z" fill="url(#demoFold)"/>
-        <path d="M 30 68 L 30 48 L 37 48 L 42 58 L 47 48 L 54 48 L 54 68 L 48 68 L 48 56 L 43 64 L 41 64 L 36 56 L 36 68 Z" fill="#1e293b"/>
-        <rect x="66" y="48" width="14" height="14" rx="2.5" fill="#1e293b"/>
-        <rect x="60" y="54" width="14" height="14" rx="2.5" fill="#1e293b" stroke="#ffffff" stroke-width="2.5"/>
-      </svg>
-    </button>
+
+  <div class="live-demo-wrapper">
+    <button type="button" class="live-demo-btn" id="copy_as_markdown_btn" title="Copy this page as Markdown" aria-label="Copy this page as Markdown"><img src="icon.svg" alt="" width="52" height="52"></button>
   </div>
+  <div class="demo-toast" id="demo-toast" role="status"></div>
 
-  <!-- Callout annotation -->
-  <div class="try-it-callout" id="try-callout">
-    <span class="try-label">Try it!</span>
-    <svg class="arrow-svg" width="40" height="36" viewBox="0 0 40 36" fill="none" xmlns="http://www.w3.org/2000/svg">
-      <path class="arrow-line" d="M 4 2 C 12 4, 22 8, 28 16 C 32 22, 33 28, 34 32" stroke="#818cf8" stroke-width="2" stroke-linecap="round" fill="none" opacity="0.8"/>
-      <path class="arrow-head" d="M 30 28 L 34 34 L 38 27" stroke="#818cf8" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
-    </svg>
-  </div>
-
-  <!-- Toast -->
-  <div class="demo-toast" id="demo-toast"></div>
-
-  <script>
-  (function() {
-    var btn = document.getElementById('copy_as_markdown_btn');
-    var toast = document.getElementById('demo-toast');
-    var callout = document.getElementById('try-callout');
-
-    function extractPageAsMarkdown() {
-      var url = window.location.href;
-      var title = document.title.split('\u2014')[0].trim();
-
-      var lines = [
-        '---',
-        'source: Copy as Markdown (Live Demo)',
-        'title: ' + title,
-        'url: ' + url,
-        'extracted: ' + new Date().toISOString(),
-        '---',
-        '',
-        '# ' + title,
-        '',
-      ];
-
-      // Extract hero subtitle
-      var subtitle = document.querySelector('.hero .subtitle');
-      if (subtitle) {
-        lines.push(subtitle.textContent.trim());
-        lines.push('');
-      }
-
-      // Extract "The Problem" section
-      var problemCards = document.querySelectorAll('.problem-card');
-      if (problemCards.length) {
-        lines.push('## The Problem');
-        lines.push('');
-        lines.push('Sharing web pages with LLMs is broken:');
-        lines.push('');
-        problemCards.forEach(function(card) {
-          var h3 = card.querySelector('h3');
-          var p = card.querySelector('p');
-          if (h3 && p) lines.push('- **' + h3.textContent.trim() + '** \u2014 ' + p.textContent.trim());
-        });
-        lines.push('');
-      }
-
-      // Extract supported sites as a table
-      var siteCards = document.querySelectorAll('.site-card');
-      if (siteCards.length) {
-        lines.push('## Supported Sites');
-        lines.push('');
-        lines.push("| Site | What's Extracted |");
-        lines.push('| --- | --- |');
-        siteCards.forEach(function(card) {
-          var h3 = card.querySelector('h3');
-          var p = card.querySelector('p');
-          if (h3 && p) lines.push('| **' + h3.textContent.trim() + '** | ' + p.textContent.trim() + ' |');
-        });
-        lines.push('');
-      }
-
-      // Extract "Why" stats
-      var whyCards = document.querySelectorAll('.why-card');
-      if (whyCards.length) {
-        lines.push('## Why Markdown for LLMs?');
-        lines.push('');
-        whyCards.forEach(function(card) {
-          var stat = card.querySelector('.stat');
-          var h3 = card.querySelector('h3');
-          var p = card.querySelector('p');
-          if (stat && h3) lines.push('- **' + stat.textContent.trim() + ' ' + h3.textContent.trim() + '** \u2014 ' + (p ? p.textContent.trim() : ''));
-        });
-        lines.push('');
-      }
-
-      return lines.join('\n');
-    }
-
-    function showToast(msg, duration) {
-      toast.innerHTML = msg;
-      toast.classList.add('visible');
-      setTimeout(function() { toast.classList.remove('visible'); }, duration || 3000);
-    }
-
-    btn.addEventListener('click', function() {
-      // Hide the callout after first click
-      if (callout) callout.classList.add('hidden');
-
-      var md = extractPageAsMarkdown();
-      navigator.clipboard.writeText(md).then(function() {
-        btn.classList.add('success');
-        showToast('<span class="toast-icon">\u2705</span> Copied! ' + md.length.toLocaleString() + ' chars of Markdown', 3500);
-        setTimeout(function() { btn.classList.remove('success'); }, 2000);
-      }).catch(function() {
-        // Fallback: textarea method
-        var ta = document.createElement('textarea');
-        ta.value = md;
-        ta.style.position = 'fixed';
-        ta.style.opacity = '0';
-        document.body.appendChild(ta);
-        ta.select();
-        document.execCommand('copy');
-        document.body.removeChild(ta);
-        btn.classList.add('success');
-        showToast('<span class="toast-icon">\u2705</span> Copied! ' + md.length.toLocaleString() + ' chars of Markdown', 3500);
-        setTimeout(function() { btn.classList.remove('success'); }, 2000);
-      });
-    });
-  })();
-
-  // Favicon fetches use fixed service URLs. Keep each emoji as a fallback when a logo is unavailable.
-  (function() {
-    var faviconEndpoint = 'https://t1.gstatic.com/faviconV2?client=SOCIAL&type=FAVICON&fallback_opts=TYPE,SIZE,URL&url=';
-    var icons = document.querySelectorAll('.site-icon[data-favicon-url]');
-
-    function loadFavicon(icon) {
-      var siteUrl = icon.getAttribute('data-favicon-url');
-      if (!siteUrl || icon.dataset.faviconRequested) return;
-      icon.dataset.faviconRequested = 'true';
-
-      var image = new Image(32, 32);
-      image.alt = '';
-      image.decoding = 'async';
-      image.referrerPolicy = 'no-referrer';
-      image.addEventListener('load', function() {
-        if (image.naturalWidth && image.naturalHeight) icon.replaceChildren(image);
-      });
-      image.src = faviconEndpoint + encodeURIComponent(siteUrl) + '&size=32&drop_404_icon=true';
-    }
-
-    if (!('IntersectionObserver' in window)) {
-      icons.forEach(loadFavicon);
-      return;
-    }
-
-    var observer = new IntersectionObserver(function(entries) {
-      entries.forEach(function(entry) {
-        if (entry.isIntersecting) {
-          loadFavicon(entry.target);
-          observer.unobserve(entry.target);
-        }
-      });
-    }, { rootMargin: '160px 0px' });
-    icons.forEach(function(icon) { observer.observe(icon); });
-  })();
-
-  // Scroll-reveal observer
-  (function() {
-    var reveals = document.querySelectorAll('.reveal');
-    if (!('IntersectionObserver' in window)) {
-      reveals.forEach(function(el) { el.classList.add('visible'); });
-      return;
-    }
-    var observer = new IntersectionObserver(function(entries) {
-      entries.forEach(function(entry) {
-        if (entry.isIntersecting) {
-          entry.target.classList.add('visible');
-          observer.unobserve(entry.target);
-        }
-      });
-    }, { threshold: 0.12, rootMargin: '0px 0px -40px 0px' });
-    reveals.forEach(function(el) { observer.observe(el); });
-  })();
-  </script>
-
+  <script src="converter.js" defer></script>
+  <script src="site.js" defer></script>
 </body>
 </html>

@@ -134,10 +134,12 @@
     "test:matchers": "pnpm build && node test/matchers.test.js",
     "test:ai-chat": "pnpm build && node test/ai-chat.test.js",
     "test:install": "node --test test/install.test.js",
-    "test:regression": "pnpm build && node --test test/install.test.js && node test/facebook-detector.test.js && tsx --test test/atlassian.test.ts && node test/library.test.js && node test/matchers.test.js && node test/catalog.test.js && node test/ai-chat.test.js && node test/background.test.js && node test/test-sites.js --regression && tsx test/fixtures/security.test.ts && tsx test/fixtures/verify.ts",
+    "test:homepage": "pnpm build && tsx build/site.ts --check && node --test test/homepage.test.js",
+    "test:regression": "pnpm build && tsx build/site.ts --check && node --test test/install.test.js && node --test test/homepage.test.js && node test/facebook-detector.test.js && tsx --test test/atlassian.test.ts && node test/library.test.js && node test/matchers.test.js && node test/catalog.test.js && node test/ai-chat.test.js && node test/background.test.js && node test/test-sites.js --regression && tsx test/fixtures/security.test.ts && tsx test/fixtures/verify.ts",
     "test:site": "pnpm build && node test/test-sites.js",
     "fixtures:capture": "pnpm build && tsx test/fixtures/capture.ts",
     "fixtures:verify": "pnpm build && tsx test/fixtures/verify.ts",
+    "build:site": "tsx build/site.ts",
     "pack:library": "pnpm pack --dry-run",
     "prepack": "pnpm build:library"
   },
@@ -167,7 +169,7 @@
   "bugs": {
     "url": "https://github.com/bvolpato/copy-as-markdown/issues"
   },
-  "homepage": "https://github.com/bvolpato/copy-as-markdown#readme",
+  "homepage": "https://bvolpato.github.io/copy-as-markdown/",
   "devDependencies": {
     "@types/chrome": "^0.3.0",
     "@types/node": "^26.2.0",

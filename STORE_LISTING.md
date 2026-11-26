@@ -63,13 +63,13 @@ English
 
 Upload these 3 images from `docs/screenshots/`:
 
-1. `1-wikipedia.png` — Wikipedia article showing the Copy as Markdown extension
-2. `2-github.png` — GitHub repo page with the copy success toast notification
-3. `3-before-after.png` — Side-by-side: messy copy-paste vs clean Markdown output
+1. `1-wikipedia.png`: a Wikipedia article with the inline button and the success message
+2. `2-github.png`: a GitHub source file with the success message
+3. `3-before-after.png`: excerpts of the same Wikipedia article, as a plain copy and as Markdown
 
-Do not upload `5-all-sites.png`. Its multi-site grid can look like brand or keyword stuffing.
+All three are real captures of live pages. Do not use generated images.
 
-**Small promo tile** (440×280): Create from the icon + tagline "One click. Clean Markdown."
+**Small promo tile** (440×280): Create from the icon and the tagline "Copy the page. Leave the mess."
 
 **Marquee promo tile** (1400×560): Create from hero section of landing page
 
