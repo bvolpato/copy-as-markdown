@@ -27,8 +27,8 @@ const MAX_SLIDES = 200;
 
 register({
   name: 'Microsoft 365',
-  // Leave m365.cloud.microsoft/chat* for the Microsoft Copilot extractor.
-  pathnameRegex: /^(?!\/chat(?:\/|$))/i,
+  // Leave m365.cloud.microsoft/chat* and /chats* for the Microsoft Copilot extractor.
+  pathnameRegex: /^(?!\/chats?(?:\/|$))/i,
   matches: [
     '*://www.office.com/launch/word*',
     '*://www.office.com/launch/excel*',

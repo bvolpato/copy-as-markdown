@@ -309,9 +309,11 @@ function getAxisScale(container: Element, canvas: HTMLCanvasElement): AxisScale 
   const ticks = Array.from(axis.querySelectorAll('.tick')).map((tick) => {
     const transform = tick.getAttribute('transform') || '';
     const match = transform.match(/translate\(\s*[-+\d.]+(?:px)?[\s,]+([-+\d.]+)/i);
-    const value = parseAxisNumber(textOf(tick.querySelector('text')));
-    return match && value !== null ? { y: Number(match[1]), value } : null;
-  }).filter((tick): tick is { y: number; value: number } => !!tick);
+    const parsed = parseAxisTick(textOf(tick.querySelector('text')));
+    return match && parsed !== null
+      ? { y: Number(match[1]), value: parsed.value, isTimeUnit: parsed.isTimeUnit }
+      : null;
+  }).filter((tick): tick is { y: number; value: number; isTimeUnit: boolean } => !!tick);
   if (ticks.length < 2) return null;
 
   const first = ticks[0];
@@ -322,22 +324,25 @@ function getAxisScale(container: Element, canvas: HTMLCanvasElement): AxisScale 
     || Number.parseFloat(canvas.style.height)
     || canvas.height;
   const slope = (last.value - first.value) / (last.y - first.y);
+  const hasTimeUnitTicks = ticks.some((tick) => tick.isTimeUnit);
   return {
     slope,
     intercept: first.value - slope * first.y,
     cssHeight,
-    unit: getAxisUnit(axis),
+    unit: getAxisUnit(axis, hasTimeUnitTicks),
   };
 }
 
-function parseAxisNumber(value: string): number | null {
+const TIME_UNITS = new Set(['ns', 'us', 'µs', 'μs', 'ms', 's']);
+
+function parseAxisTick(value: string): { value: number; isTimeUnit: boolean } | null {
   const cleaned = value.replace(/[$,%]/g, '').replace(/,/g, '').trim();
   const match = cleaned.match(/^([-+]?(?:\d+(?:\.\d+)?|\.\d+))\s*(k|K|m|M|g|G|t|T|kb|mb|gb|tb|kib|mib|gib|tib|b|ms|s|us|µs|μs|ns|req\/s)?$/i);
   if (!match) return null;
   const rawUnit = match[2] || '';
   const unitLower = rawUnit.toLowerCase();
   // Distinguish SI milli (`m` = 1e-3) from mega (`M` = 1e6), and normalize sub-second time units to seconds.
-  if (rawUnit === 'm') return Number(match[1]) * 1e-3;
+  if (rawUnit === 'm') return { value: Number(match[1]) * 1e-3, isTimeUnit: false };
   const multipliers: Record<string, number> = {
     k: 1e3,
     m: 1e6,
@@ -358,11 +363,24 @@ function parseAxisNumber(value: string): number | null {
     ms: 1e-3,
     s: 1,
   };
-  return Number(match[1]) * (multipliers[unitLower] ?? 1);
+  return {
+    value: Number(match[1]) * (multipliers[unitLower] ?? 1),
+    isTimeUnit: TIME_UNITS.has(unitLower),
+  };
 }
 
-function getAxisUnit(axis: Element): string {
+function getAxisUnit(axis: Element, hasTimeUnitTicks: boolean): string {
   const label = textOf(axis.querySelector('.dataviz_y-axis__label'));
+  if (hasTimeUnitTicks) {
+    if (!label) return 's';
+    if (/^(?:ns|us|µs|μs|ms|s|nanoseconds?|microseconds?|milliseconds?|seconds?)$/i.test(label)) {
+      return 's';
+    }
+    const replaced = label.replace(/\((?:ns|us|µs|μs|ms|nanoseconds?|microseconds?|milliseconds?)\)/i, '(s)');
+    if (replaced !== label) return replaced;
+    if (/\((?:s|seconds?)\)/i.test(label)) return label;
+    return `${label} (s)`;
+  }
   if (label) return label;
   const tick = textOf(axis.querySelector('.tick text'));
   if (tick.includes('%')) return '%';
