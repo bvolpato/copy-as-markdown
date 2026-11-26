@@ -65,12 +65,13 @@ register({
     const captured = userCount + assistantCount;
     const loadMore = hasUnrenderedHistory();
     const structuralIncomplete = limitedTurns.truncated || loadMore;
-    parts.push('', structuralIncomplete
-      ? '> **Coverage:** Visible rendered conversation only; older or virtualized history was not loaded.'
-      : '> **Coverage:** Visible rendered conversation only; unloaded page history is not included.');
-    if (!captured) {
+    if (captured) {
+      parts.push('', structuralIncomplete
+        ? '> **Coverage:** Visible rendered conversation only; older or virtualized history was not loaded.'
+        : '> **Coverage:** Visible rendered conversation only; unloaded page history is not included.');
+    } else {
       const fallback = document.querySelector('main, [role="main"], #__next');
-      if (fallback) parts.push('', Markdown.elementToMarkdown(clean(fallback)));
+      if (fallback) parts.push('', messageToMarkdown(clean(fallback)));
     }
 
     metadata.turn_count = captured;

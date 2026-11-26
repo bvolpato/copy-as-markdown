@@ -204,7 +204,7 @@ async function extractConversation(config: AiConversationConfig): Promise<string
       if (!captured) {
         const fallback = queryFirst(document, config.fallbackSelectors);
         if (fallback) {
-          const fallbackMarkdown = Markdown.elementToMarkdown(clean(fallback));
+          const fallbackMarkdown = messageToMarkdown(clean(fallback));
           if (fallbackMarkdown) parts.push('', fallbackMarkdown);
         }
       }
@@ -289,34 +289,57 @@ export function isInText(contentNodes: Element[], node: Element): boolean {
 export function createTurnOwner<T extends Turn>(
   turns: T[],
 ): (turn: T, node: Element, role?: Role) => boolean {
-  const groups = new Map<Element, T[]>();
+  type Group = { candidates: T[]; owners: Map<Element, T | null> };
+  const groups = new Map<Element, Record<Role | 'any', Group>>();
+  const groupOf = (candidates: T[]): Group => ({ candidates, owners: new Map() });
   return (turn, node, role) => {
     let group = groups.get(turn.container);
     if (!group) {
-      group = turns.filter((candidate) => composedContains(turn.container, candidate.element));
+      const inside = turns.filter((candidate) => composedContains(turn.container, candidate.element));
+      group = {
+        any: groupOf(inside),
+        user: groupOf(inside.filter((candidate) => candidate.role === 'user')),
+        assistant: groupOf(inside.filter((candidate) => candidate.role === 'assistant')),
+      };
       groups.set(turn.container, group);
     }
-    const candidates = role ? group.filter((candidate) => candidate.role === role) : group;
+    const { candidates, owners } = group[role || 'any'];
     if (candidates.length < 2) return true;
-
-    const distances = new Map<Element, number>();
-    for (let current: Element | null = node; current; current = composedParent(current)) {
-      distances.set(current, distances.size);
-    }
-    let owner: T | null = null;
-    let nearest = Infinity;
-    for (const candidate of candidates) {
-      let shared: Element | null = candidate.element;
-      while (shared && !distances.has(shared)) shared = composedParent(shared);
-      const distance = shared ? distances.get(shared)! : Infinity;
-      const precedes = candidate.element.compareDocumentPosition(node) & Node.DOCUMENT_POSITION_FOLLOWING;
-      if (distance < nearest || (distance === nearest && precedes)) {
-        owner = candidate;
-        nearest = distance;
-      }
+    let owner = owners.get(node);
+    if (owner === undefined) {
+      owner = nearestTurn(candidates, node);
+      owners.set(node, owner);
     }
     return owner === turn;
   };
+}
+
+function nearestTurn<T extends Turn>(candidates: T[], node: Element): T | null {
+  const distances = new Map<Element, number>();
+  for (let current: Element | null = node; current; current = composedParent(current)) {
+    distances.set(current, distances.size);
+  }
+  let owner: T | null = null;
+  let nearest = Infinity;
+  for (const candidate of candidates) {
+    let shared: Element | null = candidate.element;
+    while (shared && !distances.has(shared)) shared = composedParent(shared);
+    const distance = shared ? distances.get(shared)! : Infinity;
+    const precedes = candidate.element.compareDocumentPosition(node) & Node.DOCUMENT_POSITION_FOLLOWING;
+    if (distance < nearest || (distance === nearest && precedes)) {
+      owner = candidate;
+      nearest = distance;
+    }
+  }
+  return owner;
+}
+
+/** Keep the outermost rendered blocks. Behind a dialog the whole page is hidden, so keep them all. */
+export function renderedBlocks(blocks: Element[]): Element[] {
+  const outer = blocks.filter((block) => !blocks.some((other) => other !== block && other.contains(block)));
+  const isVisible = Utils.createVisibilityChecker();
+  const visible = outer.filter((block) => isVisible(block));
+  return visible.length ? visible : outer;
 }
 
 /** Clone a message with literal line breaks, TeX math, and labeled code fences. */
@@ -336,9 +359,14 @@ export function cloneMessage(element: Element): Element {
 
 /** Convert a cloned message whose text nodes already have their rendered whitespace. */
 export function messageToMarkdown(clone: Element): string {
-  const markdown = Markdown.cleanMarkdown(
+  let markdown = Markdown.cleanMarkdown(
     Markdown.nodeToMarkdown(clone, { preserveWhitespace: true }),
   );
+  // Table cells double each backslash, which changes the TeX.
+  for (const math of clone.querySelectorAll('td [data-tex], th [data-tex]')) {
+    const tex = Markdown.normalizeWhitespace(math.textContent || '');
+    markdown = markdown.split(Markdown.escapeMarkdownTableCell(tex)).join(tex.replace(/\|/g, '\\|'));
+  }
   return clone.querySelector('pre') ? markdown : closeFence(markdown);
 }
 
@@ -391,6 +419,7 @@ function mathReplacement(element: Element): Element | null {
   const display = element.matches('.math-block, .katex-display .katex, math[display="block"]')
     || element.querySelector('.katex-display, math[display="block"]') !== null;
   const replacement = element.ownerDocument.createElement(display ? 'div' : 'span');
+  replacement.setAttribute('data-tex', '');
   replacement.textContent = display ? `$$${tex}$$` : `$${tex}$`;
   return replacement;
 }

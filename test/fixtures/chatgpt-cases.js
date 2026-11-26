@@ -165,8 +165,9 @@ export const CHATGPT_CASES = [
       <section data-testid="conversation-turn-2" data-turn="assistant">
         <div data-message-author-role="assistant" data-message-id="1"><div class="markdown"><p>Preamble.</p></div></div>
         <div>Searched the web</div>
-        <div data-message-author-role="assistant" data-message-id="2"><div class="markdown"><p>Final answer for <span role="math" data-math-source="h_r"><span class="katex"><span class="katex-html" aria-hidden="true">hr</span></span></span>.
-          <span data-testid="webpage-citation-pill"><a href="https://docs.example/a"><img alt="" src="https://www.google.com/s2/favicons?domain=docs.example">Docs</a></span><sup><a href="#fn-1">1</a></sup></p></div></div>
+        <div style="display: none"><div data-message-author-role="assistant"><div class="markdown"><p>Hidden answer.</p></div></div></div>
+        <div data-message-author-role="assistant"><div data-message-author-role="assistant" data-message-id="2"><div class="markdown"><p>Final answer for <span role="math" data-math-source="h_r"><span class="katex"><span class="katex-html" aria-hidden="true">hr</span></span></span>.
+          <span data-testid="webpage-citation-pill"><a href="https://docs.example/a"><img alt="" src="https://www.google.com/s2/favicons?domain=docs.example">Docs</a></span><sup><a href="#fn-1">1</a></sup></p></div></div></div>
         <button aria-label="Previous response"></button></section>
     </main></body></html>`,
     ordered: [
@@ -174,7 +175,7 @@ export const CHATGPT_CASES = [
       '## 🤖 Assistant', 'Preamble.', 'Final answer for $h_r$.', '### Sources', '- [Docs](https://docs.example/a)',
     ],
     contains: ['unloaded page history is not included'],
-    excludes: ['You said:', 'favicons', '#fn-1', 'older or virtualized history'],
-    occurrences: { '## 🤖 Assistant': 1, '### Sources': 1 },
+    excludes: ['You said:', 'favicons', '#fn-1', 'older or virtualized history', 'Hidden answer.'],
+    occurrences: { '## 🤖 Assistant': 1, '### Sources': 1, 'Final answer': 1 },
   },
 ];

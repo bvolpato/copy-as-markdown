@@ -6,7 +6,7 @@ import * as Utils from '../core/utils';
 import { addExtractionMetadata, limitCollection, limitMarkdown } from '../core/context';
 import {
   cloneMessage, conversationPageTitle, conversationUrl, createTurnOwner, hasHistoryControl,
-  isAriaHidden, isFaviconUrl, isInText, isPageAnchor, messageToMarkdown, type Role,
+  isAriaHidden, isFaviconUrl, isInText, isPageAnchor, messageToMarkdown, renderedBlocks, type Role,
 } from '../core/ai-conversation';
 
 const MAX_TURNS = 200;
@@ -79,12 +79,13 @@ register({
     const captured = userCount + assistantCount;
     const loadMore = hasUnrenderedHistory();
     const structuralIncomplete = limitedTurns.truncated || loadMore;
-    parts.push('', structuralIncomplete
-      ? '> **Coverage:** Visible rendered conversation only; older or virtualized history was not loaded.'
-      : '> **Coverage:** Visible rendered conversation only; unloaded page history is not included.');
-    if (!captured) {
+    if (captured) {
+      parts.push('', structuralIncomplete
+        ? '> **Coverage:** Visible rendered conversation only; older or virtualized history was not loaded.'
+        : '> **Coverage:** Visible rendered conversation only; unloaded page history is not included.');
+    } else {
       const fallback = document.querySelector('main, [role="main"], #react-root, #__next');
-      if (fallback) parts.push('', Markdown.elementToMarkdown(clean(fallback)));
+      if (fallback) parts.push('', messageToMarkdown(clean(fallback)));
     }
 
     metadata.turn_count = captured;
@@ -181,11 +182,8 @@ function roleFor(element: Element): Role | null {
 }
 
 function buildTurn(role: Role, message: Element, container: Element): Turn {
-  const blocks = Array.from(message.querySelectorAll('.response-content-markdown'))
-    .filter((block, _index, all) => (
-      !block.closest('[data-testid="conversation-trace"]')
-      && !all.some((other) => other !== block && other.contains(block))
-    ));
+  const blocks = renderedBlocks(Array.from(message.querySelectorAll('.response-content-markdown'))
+    .filter((block) => !block.closest('[data-testid="conversation-trace"]')));
   return {
     role,
     element: blocks[0] || messageContent(message) || message,
@@ -196,7 +194,6 @@ function buildTurn(role: Role, message: Element, container: Element): Turn {
 
 function messageContent(element: Element): Element | null {
   return queryFirst(element, [
-    '[data-bubble-text]',
     '.response-content-markdown',
     '[data-testid="message-content"]',
     '[data-testid="markdown-content"]',
@@ -314,12 +311,13 @@ function hasUnrenderedHistory(): boolean {
   )) || hasUnmountedRows();
 }
 
-/** The virtual transcript only mounts its edge rows when no turn is missing beside them. */
+/** The virtual transcript also unmounts its empty edge rows, which take 212px. The shortest turn takes 48px. */
 function hasUnmountedRows(): boolean {
-  return document.querySelector('[data-plane-row]') !== null && !(
-    document.querySelector('[data-plane-row^="transcript:top"]')
-    && document.querySelector('[data-plane-row^="transcript:bottom"]')
-  );
+  const rows = Array.from(document.querySelectorAll('[data-plane-row]'));
+  const isMounted = (edge: string) => rows.some((row) => row.matches(`[data-plane-row^="transcript:${edge}"]`));
+  if (!rows.length || (isMounted('top') && isMounted('bottom'))) return false;
+  const mounted = rows.reduce((height, row) => height + row.getBoundingClientRect().height, 0);
+  return rows[0].parentElement!.getBoundingClientRect().height - mounted > 240;
 }
 
 function conversationRoute(path: string): string {

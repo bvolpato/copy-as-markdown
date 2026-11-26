@@ -46,28 +46,38 @@ export const AI_CHAT_CASES = [
       <h1>Rocket chat</h1>
       <share-turn-viewer>
         <user-query><button><img alt="Uploaded image preview" src="https://images.example/upload.png"></button>
-          <div class="query-text"><h5 class="cdk-visually-hidden">You said Draw a rock...</h5><p class="query-text-line">Draw a rocket.</p></div></user-query>
+          <div class="query-text"><h5 class="cdk-visually-hidden">You said Draw a rock...</h5><p class="query-text-line">Draw a rocket.</p><p class="query-text-line"><span>    With  fins.</span></p></div></user-query>
         <response-container><model-thoughts><div class="markdown markdown-main-panel"><p>Hidden thoughts.</p></div></model-thoughts>
           <message-content><div class="markdown markdown-main-panel"><p>Here it is.</p>
             <div class="math-block" data-math="r^3"><span class="katex-display"><span class="katex"><math><semantics><msup><mi>r</mi><mn>3</mn></msup><annotation encoding="application/x-tex">r^3</annotation></semantics></math></span></span></div>
             <generated-image><button><img alt=", AI generated" src="https://images.example/rocket.png"></button></generated-image>
             <code-block><div class="code-block-decoration"><span>Python</span><button>Copy</button></div><div><pre><code>launch()</code></pre></div></code-block>
-          </div></message-content></response-container>
+          </div></message-content>
+          <message-content style="display: none"><div class="markdown markdown-main-panel"><p>Hidden draft.</p></div></message-content></response-container>
       </share-turn-viewer></share-viewer></main></body></html>`,
     ordered: [
-      '# Rocket chat', '## 👤 User', 'Draw a rocket.', '![Uploaded image preview](https://images.example/upload.png)',
+      '# Rocket chat', '## 👤 User', 'Draw a rocket.\n    With  fins.', '![Uploaded image preview](https://images.example/upload.png)',
       '## 🤖 Gemini', 'Here it is.', '$$r^3$$', '```python\nlaunch()\n```', '![, AI generated](https://images.example/rocket.png)',
       '> **Coverage:** Visible rendered conversation only; unloaded page history is not included.',
     ],
     contains: [],
-    excludes: ['You said', 'Hidden thoughts.', 'direct access', '\nPython\n'],
+    excludes: ['You said', 'Hidden thoughts.', 'Hidden draft.', 'direct access', '\nPython\n'],
     occurrences: { 'upload.png': 1, 'rocket.png': 1, 'r^3': 1 },
+  },
+  {
+    id: 'gemini',
+    extractor: 'Gemini',
+    url: 'https://gemini.google.com/share/shared-document',
+    html: '<!doctype html><html><head><title>Gemini</title></head><body><main><h1>Design notes</h1><p>Document body.</p></main></body></html>',
+    ordered: ['# Design notes', 'Document body.'],
+    contains: [],
+    excludes: ['**Coverage:**'],
   },
   {
     id: 'grok',
     extractor: 'Grok',
     url: 'https://grok.com/share/current-transcript',
-    html: `<!doctype html><html><head><title>Sort check | Shared Grok Conversation</title></head><body><div data-transcript-renderer="plane"><div>
+    html: `<!doctype html><html><head><title>Sort check | Shared Grok Conversation</title></head><body><div data-transcript-renderer="plane"><div style="height: 4000px">
       <div data-plane-row="response:1"><div role="article" data-testid="user-message" class="message-bubble"><h2 class="sr-only" data-no-copy="true">You</h2>
         <span data-bubble-text style="white-space: pre-wrap">class A {
   int b;
@@ -84,6 +94,41 @@ export const AI_CHAT_CASES = [
     contains: [],
     excludes: ['Shared Grok', '## You', '## Grok'],
     occurrences: { '## 🤖 Grok': 1, 'banner.png': 1 },
+  },
+  {
+    id: 'grok',
+    extractor: 'Grok',
+    url: 'https://grok.com/share/complete-transcript',
+    html: `<!doctype html><html><head><title>Files | Shared Grok Conversation</title></head><body><div data-transcript-renderer="plane"><div style="height: 612px">
+      <div data-plane-row="response:1" style="height: 200px"><div role="article" data-testid="user-message" class="message-bubble">
+        <a href="https://files.example/report.pdf">report.pdf</a><span data-bubble-text>Quoted text.</span><span data-bubble-text>Summarize it.</span></div></div>
+      <div data-plane-row="response:2" style="height: 200px"><div role="article" data-testid="assistant-message" class="message-bubble">
+        <div class="response-content-markdown"><table><tbody><tr><th>Form</th></tr><tr><td><span class="katex"><math><semantics><mi>a</mi><annotation encoding="application/x-tex">\\frac{a}{b} | x</annotation></semantics></math></span></td></tr></tbody></table></div>
+        <div style="display: none"><div class="response-content-markdown"><p>Earlier answer.</p></div></div></div></div>
+      <div data-plane-row="transcript:bottom-spacing"></div>
+    </div></div></body></html>`,
+    ordered: [
+      '[report.pdf](https://files.example/report.pdf)', 'Quoted text.', 'Summarize it.',
+      '| $\\frac{a}{b} \\| x$ |', 'unloaded page history is not included',
+    ],
+    contains: [],
+    excludes: ['Earlier answer.'],
+  },
+  {
+    id: 'grok',
+    extractor: 'Grok',
+    url: 'https://grok.com/c/shared-container',
+    html: `<main><article>${[1, 2].map((turn) => `
+      <div data-testid="user-message"><div class="prose">Question ${turn}.</div></div><img alt="Uploaded image" src="https://images.example/upload-${turn}.png">
+      <div data-testid="assistant-message"><div class="response-content-markdown"><p>Answer ${turn}.</p></div></div><img alt="Generated image" src="https://images.example/generated-${turn}.png"><sup><a href="https://docs.example/${turn}">Docs ${turn}</a></sup>
+    `).join('')}</article></main>`,
+    ordered: [1, 2].flatMap((turn) => [
+      `Question ${turn}.`, `upload-${turn}.png`, `Answer ${turn}.`, `generated-${turn}.png`, `- [Docs ${turn}]`,
+    ]),
+    contains: [],
+    occurrences: Object.fromEntries([1, 2].flatMap((turn) => [
+      [`upload-${turn}.png`, 1], [`generated-${turn}.png`, 1], [`- [Docs ${turn}]`, 1],
+    ])),
   },
   {
     id: 'perplexity',

@@ -9,7 +9,7 @@ import * as Utils from '../core/utils';
 import { addExtractionMetadata, limitCollection, limitMarkdown } from '../core/context';
 import {
   cloneMessage, conversationPageTitle, conversationUrl, createTurnOwner, hasHistoryControl,
-  isAriaHidden, isFaviconUrl, isInText, isPageAnchor, messageToMarkdown, type Role,
+  isAriaHidden, isFaviconUrl, isInText, isPageAnchor, messageToMarkdown, renderedBlocks, type Role,
 } from '../core/ai-conversation';
 
 const MAX_TURNS = 200;
@@ -35,7 +35,8 @@ register({
   pathnameRegex: /^(?:\/u\/\d+)?\/(?:app|share|chat|gem|spark|canvas)(?:\/|$)/,
 
   async extract() {
-    const sharedTitle = document.querySelector('share-viewer h1')?.textContent?.trim();
+    const sharedTitle = Array.from(document.querySelectorAll('share-viewer h1'))
+      .find((heading) => !heading.closest('share-turn-viewer'))?.textContent?.trim();
     const title = sharedTitle || cleanTitle(conversationPageTitle()) || 'Gemini Conversation';
     const metadata: Record<string, string | number> = {
       source: 'Gemini',
@@ -83,12 +84,13 @@ register({
 
     const captured = userCount + assistantCount;
     const structuralIncomplete = turns.truncated || hasUnrenderedHistory();
-    parts.push('', structuralIncomplete
-      ? '> **Coverage:** Visible rendered conversation only; older or virtualized history was not loaded.'
-      : '> **Coverage:** Visible rendered conversation only; unloaded page history is not included.');
-    if (!captured) {
+    if (captured) {
+      parts.push('', structuralIncomplete
+        ? '> **Coverage:** Visible rendered conversation only; older or virtualized history was not loaded.'
+        : '> **Coverage:** Visible rendered conversation only; unloaded page history is not included.');
+    } else {
       const fallback = document.querySelector('#chat-history, main, [role="main"], [data-testid*="conversation"]');
-      if (fallback) parts.push('', Markdown.elementToMarkdown(clean(fallback)));
+      if (fallback) parts.push('', messageToMarkdown(clean(fallback)));
     }
 
     metadata.turn_count = captured;
@@ -207,10 +209,8 @@ function roleFor(element: Element): Role | null {
 function buildTurn(role: Role, message: Element, container: Element): Turn {
   // Expanded thoughts and canvas documents use the same panels as the answer.
   const selector = role === 'assistant' ? '.markdown.markdown-main-panel' : '.query-text, .query-text-line';
-  const blocks = Array.from(message.querySelectorAll(selector)).filter((block, _index, all) => (
-    !block.closest('model-thoughts, .thoughts-container')
-    && !all.some((other) => other !== block && other.contains(block))
-  ));
+  const blocks = renderedBlocks(Array.from(message.querySelectorAll(selector))
+    .filter((block) => !block.closest('model-thoughts, .thoughts-container')));
   return {
     role,
     element: blocks[0] || messageContent(message) || message,
@@ -300,7 +300,14 @@ function standaloneImages(
 }
 
 function clean(element: Element): Element {
-  return Utils.removeNoise(cloneMessage(element), [
+  const clone = cloneMessage(element);
+  // Each prompt line is a paragraph that the page collapses, so pasted code needs its source text.
+  const lines = element.querySelectorAll('.query-text-line');
+  clone.querySelectorAll('.query-text-line').forEach((line, index) => {
+    const content = lines[index].querySelector(':not(span)') ? line.childNodes : [lines[index].textContent || ''];
+    line.replaceWith(...content, document.createElement('br'));
+  });
+  return Utils.removeNoise(clone, [
     ...Utils.NOISE_SELECTORS,
     'button', '[data-testid*="actions"]', '[data-testid*="feedback"]',
     '[class*="toolbar"]:not(.code-toolbar)', '[class*="avatar"]', 'textarea',

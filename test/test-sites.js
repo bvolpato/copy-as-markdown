@@ -3091,6 +3091,14 @@ async function runExpandedPlatformChecks(browser, scriptContent) {
       expected: ['| Model | Cost USD |', '| Fixture Frontier | $4.00 |', '### Which model leads?'],
     },
     {
+      name: 'Artificial Analysis article',
+      extractor: 'Artificial Analysis',
+      url: 'https://artificialanalysis.ai/insights/fixture-article',
+      html: `<main><article><h1>Fixture article</h1><p>Fixture finding.</p>
+        <table><tbody><tr><th><button>Model</button></th></tr><tr><td>Fixture Frontier</td></tr></tbody></table><p>Fixture conclusion.</p></article></main>`,
+      expected: ['Fixture finding.', '| Model |', 'Fixture conclusion.'],
+    },
+    {
       name: 'OpenRouter',
       extractor: 'OpenRouter',
       url: 'https://openrouter.ai/fixture/model-v1',

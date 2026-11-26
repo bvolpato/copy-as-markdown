@@ -10,7 +10,7 @@ import * as Utils from '../core/utils';
 import { addExtractionMetadata, limitCollection, limitMarkdown } from '../core/context';
 import {
   cloneMessage, conversationPageTitle, conversationUrl, createTurnOwner, hasHistoryControl,
-  isAriaHidden, isFaviconUrl, isInText, isPageAnchor, messageToMarkdown, type Role,
+  isAriaHidden, isFaviconUrl, isInText, isPageAnchor, messageToMarkdown, renderedBlocks, type Role,
 } from '../core/ai-conversation';
 
 const MAX_TURNS = 200;
@@ -96,7 +96,7 @@ register({
     if (!captured) {
       const fallback = document.querySelector('[data-chatgpt-conversation-selection-target], [data-thread-find-target="conversation"]')
         || document.querySelector('main, [role="main"], [class*="thread"], #__next');
-      if (fallback) parts.push('', Markdown.elementToMarkdown(clean(fallback)));
+      if (fallback) parts.push('', messageToMarkdown(clean(fallback)));
     }
 
     metadata.turn_count = captured;
@@ -138,13 +138,15 @@ function collectTurns(): Turn[] {
       const explicitRole = roleFor(root);
       if (explicitRole) {
         // One turn can hold several messages, such as a preamble before a tool call.
-        const messages = Array.from(root.querySelectorAll(`[data-message-author-role="${explicitRole}"]`));
+        const messages = renderedBlocks(
+          Array.from(root.querySelectorAll(`[data-message-author-role="${explicitRole}"]`)),
+        );
         const blocks = messages.length > 1
           ? messages.map((message) => messageContent(message) || message)
           : undefined;
         result.push({
           role: explicitRole,
-          element: blocks?.[0] || messageContent(root) || root,
+          element: blocks?.[0] || messageContent(messages[0] || root) || messageContent(root) || root,
           container: root,
           blocks,
         });

@@ -104,11 +104,13 @@ function extractCollectionPage(): string {
   const intro = homepageIntro(titleElement);
   if (intro) parts.push(intro);
 
+  const faq = findJsonLdObjects('FAQPage')[0];
   const hasDatasets = appendHomepageDatasets(parts, datasets);
-  const hasTables = !hasDatasets && appendDomTables(parts);
+  // Leaderboards publish an FAQ. Other pages, such as articles, have prose around their tables.
+  const hasTables = !hasDatasets && Boolean(faq) && appendDomTables(parts);
   if (!hasDatasets && !hasTables) appendDomFallback(parts, title);
   appendDatasetProvenance(parts, datasets[0]);
-  appendFaq(parts, findJsonLdObjects('FAQPage')[0]);
+  appendFaq(parts, faq);
 
   const limited = limitMarkdown(Markdown.cleanMarkdown(parts.join('\n\n')));
   return Markdown.buildPageMarkdown({
@@ -119,14 +121,18 @@ function extractCollectionPage(): string {
 }
 
 /** Leaderboards render their column and model names as controls. */
+function cloneWithTableText(element: Element): Element {
+  const clone = element.cloneNode(true) as Element;
+  clone.querySelectorAll('table :is(svg, img)').forEach((node) => node.remove());
+  clone.querySelectorAll('table button').forEach((button) => button.replaceWith(...button.childNodes));
+  clone.querySelectorAll('th span').forEach((line) => line.after(' '));
+  return clone;
+}
+
 function appendDomTables(parts: string[]): boolean {
-  const tables = Array.from(document.querySelectorAll('main table')).map((element) => {
-    const cleaned = element.cloneNode(true) as Element;
-    cleaned.querySelectorAll('svg, img').forEach((node) => node.remove());
-    cleaned.querySelectorAll('button').forEach((button) => button.replaceWith(...button.childNodes));
-    cleaned.querySelectorAll('th span').forEach((line) => line.after(' '));
-    return Markdown.tableToMarkdown(cleaned);
-  }).filter(Boolean);
+  const tables = Array.from(document.querySelectorAll('main table'))
+    .map((element) => Markdown.tableToMarkdown(cloneWithTableText(element)))
+    .filter(Boolean);
   if (tables.length > 0) parts.push(`## Tables\n\n${tables.join('\n\n')}`);
   return tables.length > 0;
 }
@@ -134,7 +140,7 @@ function appendDomTables(parts: string[]): boolean {
 function appendDomFallback(parts: string[], title: string): void {
   const container = document.querySelector('main, article, [role="main"]');
   if (!container) return;
-  const cleaned = Utils.removeNoise(container, [
+  const cleaned = Utils.removeNoise(cloneWithTableText(container), [
     ...Utils.NOISE_SELECTORS,
     'button', 'svg', 'form', 'input', 'select', 'textarea',
     '#cam-copy-btn', '[data-cam-instance]',
