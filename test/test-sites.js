@@ -961,6 +961,19 @@ index 1111111..2222222 100644
               <div>NOISE_RESIZE_HANDLE</div>
             </div>
           </div>
+          <div class="dashboard_widget" data-testid="widget-latency">
+            <div class="widget timeseries"><h3 data-testid="widget-title">API latency</h3>
+              <svg><g class="dataviz_y-axis left">
+                <text class="dataviz_y-axis__label">ms</text>
+                <g class="tick" transform="translate(0, 0)"><text>100 ms</text></g>
+                <g class="tick" transform="translate(0, 24)"><text>50 ms</text></g>
+                <g class="tick" transform="translate(0, 48)"><text>0 ms</text></g>
+              </g></svg>
+              <div class="rendering-layers-container"><div class="rendering-layer">
+                <canvas class="fixture-latency" width="160" height="48"></canvas>
+              </div></div>
+            </div>
+          </div>
         </div>
       </div>
       <div class="multi-size-layout__group" data-testid="group-traffic">
@@ -1018,6 +1031,16 @@ index 1111111..2222222 100644
       };
       drawSeries('#2384ba', [[0, 40], [30, 32], [60, 35], [90, 18], [120, 22], [159, 6]]);
       drawSeries('#e763fa', [[0, 8], [30, 14], [60, 10], [90, 26], [120, 30], [159, 42]]);
+      const latencyCanvas = document.querySelector('.fixture-latency');
+      const latencyCtx = latencyCanvas.getContext('2d');
+      latencyCtx.strokeStyle = '#2384ba';
+      latencyCtx.lineWidth = 2;
+      latencyCtx.beginPath();
+      [[0, 24], [80, 24], [159, 24]].forEach(([x, y], index) => {
+        if (index === 0) latencyCtx.moveTo(x, y);
+        else latencyCtx.lineTo(x, y);
+      });
+      latencyCtx.stroke();
     });
     await datadogPage.waitForFunction(() => {
       const button = document.querySelector('#cam-copy-btn');
@@ -1075,6 +1098,12 @@ index 1111111..2222222 100644
         && lineFor('Requests and deploys').includes('last')
         && lineFor('Requests and deploys').includes('Requests/s'),
       `Datadog canvas sparklines missing: ${lineFor('Requests and deploys')} FETCHES=${JSON.stringify(datadogFixtureFetches)}`,
+    );
+    assertCheck(
+      lineFor('API latency').includes('≈ first 0.05')
+        && /\bs\b/.test(lineFor('API latency'))
+        && !lineFor('API latency').includes('0.05 ms'),
+      `Datadog latency axis unit mismatch: ${lineFor('API latency')}`,
     );
     assertCheck(
       markdown.includes('### Top endpoints')

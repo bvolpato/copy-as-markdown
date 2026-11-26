@@ -923,15 +923,60 @@ try {
   assert.equal(linkSpacingChecks.linkMatches, true);
   assert.ok(linkSpacingChecks.elapsedMs < 1000, `Expected linear-time cleanMarkdown, took ${linkSpacingChecks.elapsedMs}ms`);
 
-  // Verify catalog routing fixes (Microsoft Copilot not shadowed by Microsoft 365, Sentry EU orgs, W&B subdomains).
+  // Verify frontmatter strips Unicode watermark and bidi control channels and deduplicates consistently,
+  // while keeping serialized JSON metadata values valid and properly escaped.
+  const watermarkMetadata = await page.evaluate(() => CopyAsMarkdown.buildPageMarkdown(
+    {
+      title: 'Report\u200B\u2066hidden\u2069\u{E0061}',
+      author: 'Ann\u200B',
+      url: 'https://example.com/?filter[status]=open',
+      filters: JSON.stringify({ env: '\u201Cprod\u201D\u200B', path: 'C\uFF1A\uFF3Ctemp' }),
+    },
+    'Ann will commit.\u200B',
+  ));
+  assert.equal(
+    watermarkMetadata,
+    '---\ntitle: Reporthidden\nurl: "https://example.com/?filter[status]=open"\nfilters: {"env":"\\"prod\\"","path":"C:\\\\temp"}\n---\n\nAnn will commit.',
+  );
+
+  // Verify Confluence detect rejects non-page routes with bare #main-content and accepts real page bodies.
+  const confluenceDetectResult = await page.evaluate(async () => {
+    const confluence = await CopyAsMarkdown.loadExtractor('confluence');
+    const matcher = CopyAsMarkdown.createExtractorMatcher({ extractors: [confluence] });
+    const parse = (html) => new DOMParser().parseFromString(html, 'text/html');
+    const nonPage = parse(
+      '<html><head><meta name="application-name" content="Confluence"></head><body><div id="main-content">Home</div></body></html>',
+    );
+    const wikiPage = parse(
+      '<html><head><meta name="application-name" content="Confluence"></head><body><div id="main-content"><div class="wiki-content"><p>Doc</p></div></div></body></html>',
+    );
+    const cloudPage = parse(
+      '<html><head><meta name="application-name" content="Confluence"></head><body><main><div class="ak-renderer-document"><p>Doc</p></div></main></body></html>',
+    );
+    return {
+      nonPageMatch: matcher.match({ url: 'https://confluence.corp.example/wiki/home', document: nonPage })?.name || null,
+      wikiPageMatch: matcher.match({ url: 'https://wiki.internal.example/page', document: wikiPage })?.name || null,
+      cloudPageMatch: matcher.match({ url: 'https://wiki.internal.example/page', document: cloudPage })?.name || null,
+    };
+  });
+  assert.equal(confluenceDetectResult.nonPageMatch, null);
+  assert.equal(confluenceDetectResult.wikiPageMatch, 'Confluence');
+  assert.equal(confluenceDetectResult.cloudPageMatch, 'Confluence');
+
+  // Verify catalog routing fixes (Microsoft Copilot not shadowed by Microsoft 365, Mistral Vibe queries, Sentry EU orgs, W&B subdomains).
   const routedExtractors = await library.loadExtractors([
     'microsoft-office',
     'microsoft-copilot',
+    'mistral-vibe',
     'sentry',
     'wandb',
   ]);
   const fullMatcher = library.createExtractorMatcher({ extractors: routedExtractors });
   assert.equal(fullMatcher.match({ url: 'https://m365.cloud.microsoft/chat' })?.name, 'Microsoft Copilot');
+  assert.equal(fullMatcher.match({ url: 'https://m365.cloud.microsoft/chats/123' })?.name, 'Microsoft Copilot');
+  assert.equal(fullMatcher.match({ url: 'https://chat.mistral.ai/?ref=1' })?.name, 'Mistral Vibe');
+  assert.equal(fullMatcher.match({ url: 'https://chat.mistral.ai/chat?model=x' })?.name, 'Mistral Vibe');
+  assert.equal(fullMatcher.match({ url: 'https://chat.mistral.ai/settings' }), null);
   assert.equal(fullMatcher.match({ url: 'https://de.sentry.io/organizations/acme/issues/12345/' })?.name, 'Sentry');
   assert.equal(fullMatcher.match({ url: 'https://acme.wandb.ai/team/proj/runs/abc123' })?.name, 'Weights & Biases');
 } finally {

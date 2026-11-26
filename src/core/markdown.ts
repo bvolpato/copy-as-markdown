@@ -1388,10 +1388,47 @@ export function elementToMarkdown(element: Element): string {
  * values duplicate visible content and waste agent context. Filter them here
  * so every extractor follows the same compact output contract.
  */
+const ESCAPED_METADATA_CONTROL_RE = /([\u0000-\u001F\u007F-\u009F\uD800-\uDFFF\u2028\u2029]+)/u;
+
+function sanitizeMetadataText(value: string): string {
+  if (!value || PURE_PRINTABLE_ASCII.test(value)) return value;
+  return value
+    .split(ESCAPED_METADATA_CONTROL_RE)
+    .map((part, index) => (index % 2 === 1 ? part : normalizeUnicodeText(part)))
+    .join('');
+}
+
+function sanitizeJsonMetadataValue(value: unknown): unknown {
+  if (typeof value === 'string') return sanitizeMetadataText(value);
+  if (Array.isArray(value)) return value.map((item) => sanitizeJsonMetadataValue(item));
+  if (value !== null && typeof value === 'object') {
+    const result: Record<string, unknown> = Object.create(null);
+    for (const [key, item] of Object.entries(value)) {
+      result[sanitizeMetadataText(key)] = sanitizeJsonMetadataValue(item);
+    }
+    return result;
+  }
+  return value;
+}
+
+function sanitizeMetadataValue(value: string): string {
+  if (!value || PURE_PRINTABLE_ASCII.test(value)) return value;
+  if (isSafeMetadataJsonValue(value)) {
+    return JSON.stringify(sanitizeJsonMetadataValue(JSON.parse(value)))
+      .replace(/\u2028/g, '\\u2028')
+      .replace(/\u2029/g, '\\u2029');
+  }
+  return sanitizeMetadataText(value);
+}
+
 export function formatMetadata(metadata: PageMetadata, bodyMarkdown = ''): string {
   const lines = ['---'];
-  const normalizedBody = normalizeContextText(bodyMarkdown);
+  const normalizedBody = normalizeContextText(normalizeUnicodeText(bodyMarkdown));
   const entries = Object.entries(metadata)
+    .map(([key, value]): [string, string | number | undefined] => [
+      key,
+      typeof value === 'string' ? sanitizeMetadataValue(value) : value,
+    ])
     .filter(([key, value]) => shouldIncludeMetadata(key, value, normalizedBody))
     .sort(([left], [right]) => metadataPriority(left) - metadataPriority(right));
   for (const [key, value] of entries) {

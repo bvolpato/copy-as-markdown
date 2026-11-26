@@ -32,12 +32,23 @@ type ConfluenceApiExtraction = {
   contentSource: string;
 };
 
+const CONFLUENCE_BODY_SELECTORS = [
+  '#main-content [data-testid="renderer-container"] .ak-renderer-document',
+  '[data-testid="renderer-container"] .ak-renderer-document',
+  '#main-content .wiki-content',
+  '#content .wiki-content',
+  '.wiki-content',
+  'article [data-testid="renderer-container"]',
+  'main .ak-renderer-document',
+];
+
 function isSelfHostedConfluencePage(contextDocument: Document = document): boolean {
   const hasPageId = Boolean(contextDocument.querySelector('meta[name="ajs-page-id"]')?.getAttribute('content')?.trim());
   const hasSpaceKey = Boolean(contextDocument.querySelector('meta[name="ajs-space-key"]')?.getAttribute('content')?.trim());
   if (hasPageId && hasSpaceKey) return true;
   const appName = contextDocument.querySelector('meta[name="application-name"]')?.getAttribute('content') || '';
-  return /^confluence$/i.test(appName.trim()) && Boolean(contextDocument.querySelector('#main-content, .wiki-content, [data-testid="ak-renderer-document"]'));
+  return /^confluence$/i.test(appName.trim())
+    && Boolean(contextDocument.querySelector(CONFLUENCE_BODY_SELECTORS.join(', ')));
 }
 
 export const confluenceExtractor = register({
@@ -247,16 +258,6 @@ function extractApiLabels(value: unknown): string[] {
     .map((label) => stringValue(label.name) || stringValue(label.label))
     .filter(Boolean);
 }
-
-const CONFLUENCE_BODY_SELECTORS = [
-  '#main-content [data-testid="renderer-container"] .ak-renderer-document',
-  '[data-testid="renderer-container"] .ak-renderer-document',
-  '#main-content .wiki-content',
-  '#content .wiki-content',
-  '.wiki-content',
-  'article [data-testid="renderer-container"]',
-  'main .ak-renderer-document',
-];
 
 const CONFLUENCE_BODY_NOISE = [
   ...Utils.NOISE_SELECTORS,

@@ -563,7 +563,9 @@ function extractSelectionMarkdown(sourceName: string): string | null {
         try {
           history[method] = function (this: History, ...args: Parameters<History['pushState']>) {
             const ret = original.apply(this, args);
-            scheduleCheck(true);
+            try {
+              scheduleCheck(true);
+            } catch { /* never interfere with host SPA navigation */ }
             return ret;
           } as History[typeof method];
         } catch { /* read-only history in restricted environments */ }
