@@ -116,7 +116,7 @@ function parseRoute(pathname: string): Route {
   if (rest[0] === 'src' || rest[0] === 'browse') {
     const refAndPath = rest.slice(1).join('/');
     const looksDirectory = pathname.endsWith('/') || Boolean(document.querySelector(
-      '[data-testid="source-browser-directory"], [data-testid="file-tree"], table[data-qa="source-table"], table.files-table',
+      '[data-testid="source-browser-directory"], [data-testid="file-tree"], table[data-qa="source-table"], table[data-qa="repository-directory"], table.files-table',
     ));
     return { repository, kind: looksDirectory ? 'tree' : 'blob', refAndPath };
   }
@@ -134,17 +134,19 @@ function extractRepository(
     '[data-testid="source-browser-directory"] [data-testid="source-item"]',
     '[data-testid="file-tree"] [role="treeitem"]',
     'table[data-qa="source-table"] tbody tr',
+    'table[data-qa="repository-directory"] tbody tr',
     'table.files-table tbody tr',
     '.source-list tr',
   ]);
   const limited = limitCollection(rows, MAX_ITEMS);
   const entries = limited.items.map((row) => {
-    const link = row.querySelector<HTMLAnchorElement>('a[href*="/src/"], a[href*="/browse/"]');
+    const link = row.querySelector<HTMLAnchorElement>('a[aria-label^="Directory, "], a[aria-label^="File, "]')
+      || row.querySelector<HTMLAnchorElement>('a[href*="/src/"], a[href*="/browse/"]');
     const name = link?.textContent?.trim() || row.textContent?.trim().split('\n')[0]?.trim() || '';
     if (!name) return '';
     const href = link?.href || '';
     const isDirectory = row.getAttribute('data-type') === 'directory'
-      || Boolean(row.querySelector('[data-testid*="folder"], [aria-label*="folder" i]'));
+      || Boolean(row.querySelector('[data-testid*="folder"], [aria-label*="folder" i], a[aria-label^="Directory, "]'));
     return href
       ? `- [${escapeLinkText(name)}](${href}) (${isDirectory ? 'directory' : 'file'})`
       : `- ${name} (${isDirectory ? 'directory' : 'file'})`;
@@ -152,7 +154,7 @@ function extractRepository(
 
   const parts = [`# ${route.repository || title}`];
   if (entries.length) parts.push('', '## Files', '', ...entries);
-  const readme = document.querySelector('[data-testid="readme"], .readme, article.markdown-body');
+  const readme = document.querySelector('[data-testid="readme"], [data-qa="readme-container"], .readme, article.markdown-body');
   if (readme) parts.push('', '## README', '', Markdown.elementToMarkdown(clean(readme)));
   if (!entries.length && !readme) parts.push('', '*No repository content found in rendered page.*');
 
@@ -162,17 +164,17 @@ function extractRepository(
   return finish(metadata, parts.join('\n'), limited.total, entries.length, incomplete);
 }
 
-function extractBlob(
+async function extractBlob(
   metadata: Record<string, string | number>,
   route: Route,
   title: string,
-): string {
+): Promise<string> {
   metadata.type = 'Code';
   metadata.ref_and_path = route.refAndPath || '';
   const code = document.querySelector(
     '[data-testid="source-code"] pre, [data-qa="source-code"] pre, .source-code pre, .file-source pre, .source-container pre, table.highlight',
   );
-  const content = code?.textContent?.replace(/^\n/, '').replace(/\n$/, '') || '';
+  const content = code?.textContent?.replace(/^\n/, '').replace(/\n$/, '') || await fetchRawSource();
   const fileName = route.refAndPath?.split('/').pop() || title;
   const pageTruncated = Boolean(document.querySelector(
     '[data-testid*="truncated"], [data-qa*="truncated"], .file-source .too-large, button[data-qa="load-full-file"]',
@@ -184,6 +186,23 @@ function extractBlob(
     ? `# ${route.repository}/${fileName}\n\n## File Contents\n\n${fence(content, language(fileName))}${pageTruncated ? '\n\n*File is not fully rendered by Bitbucket.*' : ''}`
     : `# ${route.repository}/${fileName}\n\n*No file content found in rendered page.*`;
   return finish(metadata, body, 1, content ? 1 : 0, pageTruncated || !content);
+}
+
+/** The cloud source viewer renders only the visible lines, so read the file itself. */
+async function fetchRawSource(): Promise<string> {
+  const match = window.location.pathname.match(/^\/[^/]+\/[^/]+\/src\//);
+  if (window.location.hostname !== 'bitbucket.org' || !match) return '';
+  try {
+    const response = await Utils.fetchWithTimeout(
+      new URL(window.location.pathname.replace('/src/', '/raw/'), window.location.origin).href,
+      { credentials: 'same-origin', headers: { Accept: 'text/plain' } },
+    );
+    if (!response.ok || /^text\/html\b/i.test(response.headers.get('content-type') || '')) return '';
+    const text = await response.text();
+    return text.includes('\0') ? '' : text.replace(/\n$/, '');
+  } catch {
+    return '';
+  }
 }
 
 function extractWorkItem(
@@ -198,9 +217,15 @@ function extractWorkItem(
       ? 'Pull Request Commits'
       : (isPullRequest ? 'Pull Request' : 'Issue');
   if (route.id) metadata.number = route.id;
-  const state = text('[data-testid="issue-status"], [data-testid="pull-request-status"], [data-qa="status"], .issue-status');
-  const author = text('[data-testid="author-name"], [data-qa="author"], .author-name');
-  const created = attr('time[datetime]', 'datetime');
+  const branchesAndState = Array.from(document.querySelectorAll('[data-qa="pr-branches-and-state-styles"] > *'));
+  const state = text('[data-testid="issue-status"], [data-testid="pull-request-status"], [data-qa="status"], .issue-status')
+    || (branchesAndState.length > 3 ? normalize(branchesAndState[branchesAndState.length - 1].textContent || '') : '');
+  const author = text('[data-testid="author-name"], [data-qa="author"], .author-name, [data-qa="pr-header-author"]');
+  const created = Array.from(document.querySelectorAll('time[datetime]'))
+    .find((time) => !time.closest('[data-testid="comment"], [data-qa="comment"], [data-qa="pull-request-activity"], .comment'))
+    ?.getAttribute('datetime')?.trim()
+    || text('[data-testid="pr-header"]').match(/\bCreated (\d{4}-\d{2}-\d{2})\b/)?.[1]
+    || '';
   if (state) metadata.state = state;
   if (author) metadata.author = author;
   if (created) metadata.created = created;
@@ -212,9 +237,10 @@ function extractWorkItem(
   if (isPullRequest) appendBranches(parts, metadata);
 
   const description = document.querySelector(
-    '[data-testid="issue-description"], [data-testid="pull-request-description"], [data-qa="description"], .issue-description, .description-content',
+    '[data-testid="issue-description"], [data-testid="pull-request-description"], [data-qa="pull-request-description"], [data-qa="description"], .issue-description, .description-content',
   );
-  if (description) parts.push('', '## Description', '', Markdown.elementToMarkdown(clean(description)));
+  const descriptionMarkdown = description ? Markdown.elementToMarkdown(clean(description)) : '';
+  if (descriptionMarkdown) parts.push('', '## Description', '', descriptionMarkdown);
 
   if (route.kind === 'pull_request_commits') {
     appendCommitsTable(parts);
@@ -223,6 +249,7 @@ function extractWorkItem(
   const diffElements = selectFirst([
     '[data-testid="diff-file"]',
     '[data-qa="diff-file"]',
+    '[data-qa="branch-diff-file"], article[aria-label^="Diff of file "]',
     '.diff-container .file',
   ]);
   const diffsTruncated = (route.kind === 'diff' || diffElements.length > 0)
@@ -248,7 +275,9 @@ function extractWorkItem(
     const normalizedBody = normalize(markdown);
     if (!normalizedBody || (descriptionText && descriptionText === normalize(cleanedBody.textContent || ''))) continue;
 
-    const commentAuthor = comment.querySelector('[data-testid="author-name"], [data-qa="author"], .author')?.textContent?.trim() || 'Comment';
+    const commentAuthor = comment.querySelector(
+      '[data-testid="author-name"], [data-qa="author"], .author, [data-testid="comment-header"] [role="presentation"]',
+    )?.textContent?.trim() || 'Comment';
     const commentTime = comment.querySelector('time')?.getAttribute('datetime') || '';
     const dedupeKey = normalizedBody.length >= 25
       ? normalizedBody
@@ -287,6 +316,7 @@ function extractCommit(
   const diffElements = selectFirst([
     '[data-testid="diff-file"]',
     '[data-qa="diff-file"]',
+    '[data-qa="branch-diff-file"], article[aria-label^="Diff of file "]',
     '.diff-container .file',
   ]);
   const diffsTruncated = appendDiffs(parts, metadata, diffElements);
@@ -372,16 +402,28 @@ function appendDiffs(parts: string[], metadata: Record<string, string | number>,
   const limited = limitCollection(diffs, MAX_ITEMS);
   let captured = 0;
   for (const diff of limited.items) {
-    const path = diff.querySelector('[data-testid="file-path"], [data-qa="file-path"], .file-path')?.textContent?.trim() || 'File';
+    const path = diff.querySelector('[data-testid="file-path"], [data-qa="file-path"], [data-qa="bk-filepath"], .file-path')?.textContent?.trim() || 'File';
     const body = diff.querySelector('[data-testid="diff-content"], [data-qa="diff-content"], .diff-content, table');
-    const content = body?.textContent?.trim() || '';
+    const content = extractDiffLines(diff) || body?.textContent?.trim() || '';
     if (!content) continue;
     if (!captured) parts.push('', '## Changes');
     parts.push('', `### ${path}`, '', fence(content, 'diff'));
     captured += 1;
   }
   metadata.diff_file_count = captured;
-  return limited.truncated;
+  const pending = document.querySelectorAll('[data-testid="pr-diff-placeholder-wrapper"]').length;
+  if (pending > 0) parts.push('', `*${pending} changed files are not rendered yet. Scroll through the diff to load them.*`);
+  return limited.truncated || pending > 0;
+}
+
+function extractDiffLines(diff: Element): string {
+  const lines: string[] = [];
+  for (const element of diff.querySelectorAll('[data-qa="code-line"] pre, div')) {
+    const text = element.textContent || '';
+    if (element.tagName === 'PRE') lines.push(text.replace(/\n$/, ''));
+    else if (element.childElementCount === 0 && /^@@ .* @@/.test(text)) lines.push(text);
+  }
+  return lines.join('\n');
 }
 
 function finish(

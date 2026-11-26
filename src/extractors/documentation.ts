@@ -2,6 +2,7 @@
 
 import { addExtractionMetadata, limitMarkdown } from '../core/context';
 import * as Markdown from '../core/markdown';
+import { restoreMathSource } from '../core/math-source';
 import { register } from '../core/registry';
 import { type PageMetadata } from '../core/types';
 import * as Utils from '../core/utils';
@@ -137,6 +138,16 @@ const FALLBACK_ROOT_SELECTORS = [
   'main',
 ];
 
+const HEADING_ANCHOR_SELECTOR = [
+  'a.headerlink',
+  'a.header-anchor',
+  'a.hash-link',
+  'a.anchor-link',
+  'a.subheading-anchor',
+  'a[aria-label^="Direct link to heading"]',
+  'a[aria-label^="Permalink to"]',
+].join(', ');
+
 export const documentationExtractor = register({
   // Keep established name stable for library callers and saved UI state.
   name: 'Sphinx / Read the Docs',
@@ -187,6 +198,9 @@ export const documentationExtractor = register({
     }
 
     const clone = root.cloneNode(true) as HTMLElement;
+    restoreMathSource(clone);
+    unwrapHeadingAnchors(clone);
+    labelTabPanels(clone);
     removeDocumentationNoise(clone);
     unwrapStructuralFigureCaptions(clone);
     annotateCodeLanguages(clone);
@@ -293,7 +307,7 @@ function detectFramework(contextDocument: Document = document): DocumentationFra
   if ((
     /\bmdBook\b/i.test(generator)
     || Boolean(contextDocument.querySelector('#mdbook-sidebar'))
-    || Boolean(contextDocument.querySelector('#menu-bar') && contextDocument.querySelector('main .content, #content main'))
+    || Boolean(contextDocument.querySelector('#menu-bar') && contextDocument.querySelector('#content main'))
   ) && hasDocumentationRoot(contextDocument, 'mdBook')) return 'mdBook';
 
   if ((
@@ -323,6 +337,36 @@ function detectFramework(contextDocument: Document = document): DocumentationFra
   ) && hasDocumentationRoot(contextDocument, 'Sphinx')) return 'Sphinx';
 
   return null;
+}
+
+/** Some themes wrap the whole heading in its anchor, so removing the anchor would remove the text. */
+function unwrapHeadingAnchors(root: HTMLElement): void {
+  root.querySelectorAll<HTMLElement>('h1, h2, h3, h4, h5, h6').forEach((heading) => {
+    const text = Markdown.normalizeWhitespace(heading.textContent || '');
+    heading.querySelectorAll(HEADING_ANCHOR_SELECTOR).forEach((anchor) => {
+      if (text && Markdown.normalizeWhitespace(anchor.textContent || '') === text) {
+        anchor.replaceWith(...Array.from(anchor.childNodes));
+      }
+    });
+  });
+}
+
+/** Stylesheets hide inactive panels, so the copy holds all of them and each one needs its label. */
+function labelTabPanels(root: HTMLElement): void {
+  root.querySelectorAll('.tabbed-set, .vp-code-group').forEach((group) => {
+    const labelList = group.querySelector(':scope > .tabbed-labels, :scope > .tabs');
+    const labels = Array.from(labelList?.querySelectorAll('label') || []);
+    const panels = Array.from(group.querySelectorAll(':scope > .tabbed-content > .tabbed-block, :scope > .blocks > div'));
+    if (!labelList || labels.length === 0 || labels.length !== panels.length) return;
+    panels.forEach((panel, index) => {
+      const label = root.ownerDocument.createElement('p');
+      const strong = root.ownerDocument.createElement('strong');
+      strong.textContent = Markdown.normalizeWhitespace(labels[index].textContent || '');
+      label.append(strong);
+      panel.prepend(label);
+    });
+    labelList.remove();
+  });
 }
 
 function unwrapStructuralFigureCaptions(root: HTMLElement): void {
@@ -368,6 +412,14 @@ function findDocumentationRoot(
       sections.forEach((section) => aggregate.append(cloneCompleteDocumentationSection(section)));
       return aggregate;
     }
+  }
+
+  // A Docusaurus blog list has one article for each post.
+  if (framework === 'Docusaurus' && !contextDocument.querySelector('.theme-doc-markdown')) {
+    const main = selectDocumentationElements(contextDocument, 'main').find((element) => (
+      Array.from(element.querySelectorAll('article')).filter((article) => !article.parentElement?.closest('article')).length > 1
+    ));
+    if (main) return main;
   }
 
   const selectors = [...ROOT_SELECTORS[framework], ...FALLBACK_ROOT_SELECTORS];
@@ -422,21 +474,42 @@ function isVisibleDocumentationRoot(element: HTMLElement): boolean {
 }
 
 function getTitle(root: HTMLElement | null): string {
-  const heading = Markdown.normalizeWhitespace(root?.querySelector('h1')?.textContent || '');
-  if (heading) return cleanHeadingTitle(heading);
+  const heading = cleanHeadingTitle(root?.querySelector('h1') || null);
+  if (heading) return heading;
   return Utils.getPageTitle()
     .replace(/\s+(?:—|\||-)\s+.+?(?:documentation|docs)\s*$/i, '')
     .trim() || 'Documentation';
 }
 
-function cleanHeadingTitle(value: string): string {
-  return value.replace(/[¶#]+$/g, '').trim();
+function cleanHeadingTitle(heading: Element | null): string {
+  if (!heading) return '';
+  const clone = heading.cloneNode(true) as HTMLElement;
+  clone.querySelectorAll('a').forEach((anchor) => {
+    if (/^[¶#§]*$/.test(Markdown.normalizeWhitespace(anchor.textContent || ''))) anchor.remove();
+  });
+  return Markdown.normalizeWhitespace(clone.textContent || '').replace(/(?:¶|\s#)+$/, '').trim();
 }
 
 function ensureTitle(markdown: string, title: string, hasDomHeading = false): string {
   const clean = stripSourceFrontmatter(markdown).trim();
-  if (hasDomHeading || /^#\s+/m.test(clean)) return clean;
+  if (hasDomHeading || hasTopHeading(clean)) return clean;
   return `# ${title}\n\n${clean}`.trim();
+}
+
+/** A shell comment in a code block looks like a heading, so ignore fenced lines. */
+function hasTopHeading(markdown: string): boolean {
+  let fence: { marker: string; length: number } | null = null;
+  for (const line of markdown.split(/\r?\n/)) {
+    const match = parseMarkdownFence(line);
+    if (match && !fence) {
+      fence = match;
+    } else if (match && fence && match.marker === fence.marker && match.length >= fence.length && !match.trailing.trim()) {
+      fence = null;
+    } else if (!fence && /^#\s+/.test(line)) {
+      return true;
+    }
+  }
+  return false;
 }
 
 function stripSourceFrontmatter(markdown: string): string {
@@ -863,16 +936,15 @@ function countRepeatedCharacter(value: string, start: number, character: string)
 }
 
 function removeDocumentationNoise(root: HTMLElement): void {
+  // A header that holds the page or post title also holds its description.
+  root.querySelectorAll('header').forEach((header) => {
+    const isPostHeader = header.parentElement?.tagName === 'ARTICLE' && header.querySelector('h2');
+    if (!header.querySelector('h1') && !isPostHeader) header.remove();
+  });
   root.querySelectorAll([
-    ...Utils.NOISE_SELECTORS,
+    ...Utils.NOISE_SELECTORS.filter((selector) => selector !== 'header'),
     'button',
-    'a.headerlink',
-    'a.header-anchor',
-    'a.hash-link',
-    'a.anchor-link',
-    'a.subheading-anchor',
-    'a[aria-label^="Direct link to heading"]',
-    'a[aria-label^="Permalink to"]',
+    HEADING_ANCHOR_SELECTOR,
     '.copybtn',
     '.edit-this-page',
     '.show-source',
@@ -899,6 +971,8 @@ function removeDocumentationNoise(root: HTMLElement): void {
     '.md-source-file',
     '.md-headerlink',
     '.VPDocFooter',
+    'code.hide-boring .boring',
+    '.vp-doc [class*="language-"] > .lang',
     '.VPDocAside',
     '.nextra-breadcrumb',
     '.nextra-toc',
@@ -910,7 +984,7 @@ function removeDocumentationNoise(root: HTMLElement): void {
     '[data-testid^="ai-chat-"]',
     '[data-page-feedback]',
     '[data-gitbook-assistant]',
-    '[class~="group/ask-ai"]',
+    '[class~="group/ask-ai"]:not([data-ask-ai-paragraph])',
     '[class~="group/input"]',
     '[aria-label="Ask AI"]',
     '[aria-label^="Ask GitBook"]',
@@ -945,6 +1019,10 @@ function removeDocumentationNoise(root: HTMLElement): void {
     '.docsify-copy-code-button',
     '.sidebar-toggle',
   ].join(', ')).forEach((element) => element.remove());
+  // Icon links have no text, so they would render as bare URLs.
+  root.querySelectorAll('a').forEach((anchor) => {
+    if (!anchor.textContent?.trim() && !anchor.querySelector('img, picture, video')) anchor.remove();
+  });
 }
 
 function annotateCodeLanguages(root: HTMLElement): void {
@@ -983,8 +1061,9 @@ function annotateCodeLanguages(root: HTMLElement): void {
     }
     const code = root.ownerDocument.createElement('code');
     code.className = `language-${language}`;
-    code.textContent = pre.textContent || '';
-    pre.replaceChildren(code);
+    // Keep the elements that separate lines, because the converter reads them.
+    code.append(...pre.childNodes);
+    pre.append(code);
   });
 }
 

@@ -22,6 +22,33 @@ function detectOpenApiViewer(contextDocument: Document = document): 'swagger' | 
   return null;
 }
 
+/** Redoc and Scalar put endpoint paths, response codes, and nested property names in buttons. */
+function keepContentButtons(root: Element): Element {
+  const clone = root.cloneNode(true) as Element;
+  clone.querySelectorAll('button').forEach((button) => {
+    const text = (selector: string) => Markdown.normalizeWhitespace(button.querySelector(selector)?.textContent || '');
+    const verb = text('.http-verb');
+    const code = text(':scope > strong, .parameter-item-name');
+    const all = Markdown.normalizeWhitespace(button.textContent || '');
+    if (verb) {
+      const endpoint = button.ownerDocument.createElement('p');
+      const literal = button.ownerDocument.createElement('code');
+      literal.textContent = `${verb.toUpperCase()} ${all.slice(verb.length).trim()}`;
+      endpoint.append(literal);
+      button.replaceWith(endpoint);
+    } else if (/^(?:\d(?:\d\d|XX)|default)$/i.test(code)) {
+      const response = button.ownerDocument.createElement('p');
+      const status = button.ownerDocument.createElement('strong');
+      status.textContent = code;
+      response.append(status, ` ${all.slice(code.length).trim()}`);
+      button.replaceWith(response);
+    } else if (button.querySelector('.property-name')) {
+      button.replaceWith(all);
+    }
+  });
+  return clone;
+}
+
 export const openapiDocsExtractor = register({
   name: 'OpenAPI Docs',
   matches: [],
@@ -70,7 +97,7 @@ export const openapiDocsExtractor = register({
     } else if (viewer === 'redoc') {
       const root = document.querySelector('.redoc-wrap .api-content, redoc .api-content') || document.body;
       title = Markdown.normalizeWhitespace(root.querySelector('h1')?.textContent || Utils.getPageTitle());
-      const cleaned = Utils.removeNoise(root, [
+      const cleaned = Utils.removeNoise(keepContentButtons(root), [
         ...Utils.NOISE_SELECTORS,
         'button',
         '.menu-content',
@@ -80,7 +107,7 @@ export const openapiDocsExtractor = register({
     } else {
       const root = document.querySelector('.scalar-api-reference main, .scalar-api-reference, .scalar-app') || document.body;
       title = Markdown.normalizeWhitespace(root.querySelector('h1')?.textContent || Utils.getPageTitle());
-      const cleaned = Utils.removeNoise(root, [
+      const cleaned = Utils.removeNoise(keepContentButtons(root), [
         ...Utils.NOISE_SELECTORS,
         'aside',
         'button',

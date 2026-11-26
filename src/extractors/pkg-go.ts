@@ -69,8 +69,11 @@ export const pkgGoExtractor = register({
         '.Documentation-indexHeading',
         '.go-Clipboard',
         '.Documentation-number',
+        '.go-Tooltip > p',
+        'a[href^="#"][aria-label^="Go to "]',
         'button',
       ]);
+      restoreExampleCode(contentEl, cleaned);
       const body = Markdown.elementToMarkdown(cleaned);
       if (body) parts.push('\n' + body);
     }
@@ -84,3 +87,17 @@ export const pkgGoExtractor = register({
     return Markdown.buildPageMarkdown(metadata, limited.markdown);
   },
 });
+
+/** Example editors are textareas, and their code exists only as the live value. */
+function restoreExampleCode(source: Element, clone: Element): void {
+  const selector = 'textarea.Documentation-exampleCode';
+  const targets = clone.querySelectorAll(selector);
+  source.querySelectorAll<HTMLTextAreaElement>(selector).forEach((editor, index) => {
+    const code = editor.value || editor.textContent || '';
+    if (!code.trim()) return;
+    const pre = editor.ownerDocument.createElement('pre');
+    pre.className = 'language-go';
+    pre.textContent = code;
+    targets[index]?.replaceWith(pre);
+  });
+}

@@ -6,6 +6,8 @@ import * as Utils from '../core/utils';
 const MAX_METRICS = 50;
 const HISTORY_SAMPLES = 500;
 const MAX_METADATA_VALUE_LENGTH = 2_000;
+// The CoreWeave host serves the same application below a /wandb prefix.
+const RUN_PATH_RE = /^(?:\/wandb)?\/([^/]+)\/([^/]+)\/runs\/([^/?#]+)(?:\/.*)?$/;
 
 register({
   name: 'Weights & Biases',
@@ -26,10 +28,10 @@ register({
       const run = await fetchRun(apiHost, route);
       const allMetricKeys = getNumericMetricKeys(run.historyKeys);
       const metricKeys = allMetricKeys.slice(0, MAX_METRICS);
-      const rows = metricKeys.length > 0
+      const samples = metricKeys.length > 0
         ? await fetchSampledHistory(apiHost, route, metricKeys)
         : [];
-      const series = historyRowsToSeries(rows, metricKeys);
+      const series = historyRowsToSeries(samples, metricKeys);
       const summary = parseJsonRecord(run.summaryMetrics);
       const resolvedSeries = series.length > 0 ? series : summaryToSeries(summary);
       return buildRunMarkdown(route, run, resolvedSeries, allMetricKeys.length);
@@ -64,9 +66,7 @@ type WandbRun = {
 };
 
 function getWandbRunRoute(): WandbRoute | null {
-  const match = window.location.pathname.match(
-    /^\/([^/]+)\/([^/]+)\/runs\/([^/?#]+)(?:\/.*)?$/,
-  );
+  const match = window.location.pathname.match(RUN_PATH_RE);
   if (!match) return null;
   try {
     return {
@@ -88,7 +88,7 @@ function isWandbRunPage(contextDocument: Document = document): boolean {
   } catch {
     return false;
   }
-  if (!/^\/[^/]+\/[^/]+\/runs\/[^/?#]+(?:\/.*)?$/.test(url.pathname)) return false;
+  if (!RUN_PATH_RE.test(url.pathname)) return false;
   if (/(?:^|\.)wandb\.ai$/i.test(url.hostname)) return true;
   const marker = [
     contextDocument.title,
@@ -109,6 +109,7 @@ function getWandbApiHost(): string {
   if (hostname === 'wandb.ai' || hostname.endsWith('.wandb.ai')) {
     return 'https://api.wandb.ai';
   }
+  if (hostname === 'forge.coreweave.com') return `${window.location.origin}/api/wandb`;
   if (hostname.startsWith('app.')) {
     return `${window.location.protocol}//api.${hostname.slice(4)}${portSuffix()}`;
   }
@@ -144,7 +145,7 @@ async function fetchSampledHistory(
   apiHost: string,
   route: WandbRoute,
   metricKeys: string[],
-): Promise<Array<Record<string, unknown>>> {
+): Promise<Array<Array<Record<string, unknown>>>> {
   const query = `query RunSampledHistory($project: String!, $entity: String!, $name: String!, $specs: [JSONString!]!) {
     project(name: $project, entityName: $entity) {
       run(name: $name) { sampledHistory(specs: $specs) }
@@ -154,15 +155,19 @@ async function fetchSampledHistory(
     entity: route.entity,
     project: route.project,
     name: route.runId,
-    specs: [JSON.stringify({ keys: ['_step', '_timestamp', ...metricKeys], samples: HISTORY_SAMPLES })],
+    // One spec returns only rows that contain all of its keys, so metrics logged at different steps need their own.
+    specs: metricKeys.map((key) => JSON.stringify({ keys: ['_step', '_timestamp', key], samples: HISTORY_SAMPLES })),
   });
   const project = asRecord(payload.project);
   const run = project ? asRecord(project.run) : null;
   const sampled = run?.sampledHistory;
-  const rows = Array.isArray(sampled) && Array.isArray(sampled[0]) ? sampled[0] : sampled;
-  return Array.isArray(rows)
-    ? rows.map(asRecord).filter((row): row is Record<string, unknown> => !!row)
-    : [];
+  if (!Array.isArray(sampled)) return [];
+  const samples: unknown[][] = sampled.some(Array.isArray)
+    ? sampled.map((rows) => (Array.isArray(rows) ? rows : []))
+    : [sampled];
+  return samples.map((rows) => rows
+    .map(asRecord)
+    .filter((row): row is Record<string, unknown> => !!row));
 }
 
 async function fetchGraphql(
@@ -198,12 +203,12 @@ function getNumericMetricKeys(rawHistoryKeys: unknown): string[] {
 }
 
 function historyRowsToSeries(
-  rows: Array<Record<string, unknown>>,
+  samples: Array<Array<Record<string, unknown>>>,
   metricKeys: string[],
 ): MetricSeries[] {
-  return metricKeys.map((name) => ({
+  return metricKeys.map((name, index) => ({
     name,
-    points: rows.flatMap((row) => {
+    points: (samples.length === metricKeys.length ? samples[index] : samples.flat()).flatMap((row) => {
       const value = numberValue(row[name]);
       if (value === null) return [];
       const step = numberValue(row._step);
