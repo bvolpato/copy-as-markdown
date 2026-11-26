@@ -6,8 +6,8 @@ import { register } from './registry';
 import type { Extractor, ExtractorConfig, PageMetadata } from './types';
 import * as Utils from './utils';
 
-type Role = 'user' | 'assistant';
-type Turn = { role: Role; element: Element; container: Element };
+export type Role = 'user' | 'assistant';
+export type Turn = { role: Role; element: Element; container: Element };
 
 export interface VisibleValueSelector {
   selector: string;
@@ -66,12 +66,16 @@ const DEFAULT_ATTACHMENT_SELECTORS = [
 
 const DEFAULT_UNRENDERED_SELECTORS = [
   '[data-testid*="load-more"]',
-  'button[aria-label*="older" i]',
-  'button[aria-label*="previous" i]',
   '[data-virtualized="true"]',
   '[class*="virtual-scroll"]',
   'cdk-virtual-scroll-viewport',
 ];
+
+// Branch, draft, and carousel arrows also say "previous", and "folder" contains "older".
+const HISTORY_CONTROL_LABEL = /\bolder\b|^load\b.*\bprevious\b|\bprevious (?:\w+ )?(?:messages|turns|history|replies)\b|\b(?:show|view|see) previous$/i;
+const FAVICON_URL = /^https?:\/\/(?:www\.google\.[a-z.]+\/s2\/favicons|t\d+\.gstatic\.com\/faviconV2|icons\.duckduckgo\.com\/)|\/favicon\.(?:ico|png|svg)(?:[?#]|$)/i;
+const MATH_SELECTOR = '.math-inline[data-math], .math-block[data-math], [data-math-source], .katex, math';
+const CODE_HEADER_SELECTOR = '.code-block-decoration, .md-code-block-banner-wrap, .md-code-block-banner';
 
 export function registerAiConversationExtractor(config: AiConversationConfig): Extractor {
   return register({
@@ -101,7 +105,7 @@ async function extractConversation(config: AiConversationConfig): Promise<string
       const metadata: PageMetadata = {
         source: config.source,
         title,
-        url: Utils.getCanonicalUrl(),
+        url: conversationUrl(),
         route: config.route(window.location.pathname),
       };
       const model = readVisibleValue(config.modelSelectors || []);
@@ -128,17 +132,24 @@ async function extractConversation(config: AiConversationConfig): Promise<string
       let imageCount = 0;
       let codeBlockCount = 0;
       const capturedTurnContent: Element[] = [];
+      const owns = createTurnOwner(turns.items);
 
       for (const turn of turns.items) {
         const cleaned = clean(turn.element, true);
-        let content = Markdown.elementToMarkdown(cleaned);
-        const images = standaloneImages(turn.container, turn.element);
-        const citations = extractCitations(turn.container, config.citationSelectors || []);
+        let content = messageToMarkdown(cleaned);
+        const ownsNode = (node: Element) => owns(turn, node);
+        const images = standaloneImages(turn.container, turn.element, ownsNode);
+        const citations = extractCitations(
+          turn.container,
+          config.citationSelectors || [],
+          (link) => owns(turn, link, turn.role),
+        );
         const attachments = standaloneAttachments(
           turn.container,
           turn.element,
           citations.map(({ href }) => href),
           config.attachmentSelectors || [],
+          ownsNode,
         );
         if (images.length) content = `${content}\n\n${images.join('\n')}`.trim();
         if (attachments.length) {
@@ -193,7 +204,7 @@ async function extractConversation(config: AiConversationConfig): Promise<string
       if (!captured) {
         const fallback = queryFirst(document, config.fallbackSelectors);
         if (fallback) {
-          const fallbackMarkdown = Markdown.elementToMarkdown(clean(fallback));
+          const fallbackMarkdown = messageToMarkdown(clean(fallback));
           if (fallbackMarkdown) parts.push('', fallbackMarkdown);
         }
       }
@@ -219,6 +230,249 @@ async function extractConversation(config: AiConversationConfig): Promise<string
         complete: false,
       });
       return Markdown.buildPageMarkdown(metadata, output.markdown);
+}
+
+/** App shells can keep a site-wide canonical link after a client-side navigation. */
+export function conversationUrl(): string {
+  const canonical = Utils.getCanonicalUrl();
+  const trimmed = (pathname: string) => pathname.replace(/\/+$/, '');
+  try {
+    if (trimmed(new URL(canonical).pathname) === trimmed(window.location.pathname)) return canonical;
+  } catch {
+    // Fall back to the address bar.
+  }
+  return window.location.href;
+}
+
+/** App shells update the document title, but can keep a site-wide Open Graph title. */
+export function conversationPageTitle(): string {
+  return document.title.trim() || Utils.getPageTitle();
+}
+
+export function hasHistoryControl(): boolean {
+  return historyControls().length > 0;
+}
+
+function historyControls(): Element[] {
+  return queryAll(document, ['button[aria-label]'])
+    .filter((button) => HISTORY_CONTROL_LABEL.test((button.getAttribute('aria-label') || '').trim()));
+}
+
+/** Footnote references only point at another part of the same page. */
+export function isPageAnchor(link: Element): boolean {
+  return (link.getAttribute('href') || '').trim().startsWith('#');
+}
+
+export function isFaviconUrl(value: string): boolean {
+  return FAVICON_URL.test(value);
+}
+
+export function isAriaHidden(container: Element, node: Element): boolean {
+  const hidden = node.closest('[aria-hidden="true"]');
+  return hidden !== null && composedContains(container, hidden);
+}
+
+/** Cleaning removes controls, so an image inside a button is not part of the message text. */
+export function isInText(contentNodes: Element[], node: Element): boolean {
+  const control = node.closest('button');
+  return contentNodes.some((content) => (
+    composedContains(content, node)
+    && !isAriaHidden(content, node)
+    && (!control || control === content || !composedContains(content, control))
+  ));
+}
+
+/**
+ * Content beside the messages of a shared container belongs to one turn: the
+ * nearest message in the tree, or the closest one before it.
+ */
+export function createTurnOwner<T extends Turn>(
+  turns: T[],
+): (turn: T, node: Element, role?: Role) => boolean {
+  type Group = { candidates: T[]; owners: Map<Element, T | null> };
+  const groups = new Map<Element, Record<Role | 'any', Group>>();
+  const groupOf = (candidates: T[]): Group => ({ candidates, owners: new Map() });
+  return (turn, node, role) => {
+    let group = groups.get(turn.container);
+    if (!group) {
+      const inside = turns.filter((candidate) => composedContains(turn.container, candidate.element));
+      group = {
+        any: groupOf(inside),
+        user: groupOf(inside.filter((candidate) => candidate.role === 'user')),
+        assistant: groupOf(inside.filter((candidate) => candidate.role === 'assistant')),
+      };
+      groups.set(turn.container, group);
+    }
+    const { candidates, owners } = group[role || 'any'];
+    if (candidates.length < 2) return true;
+    let owner = owners.get(node);
+    if (owner === undefined) {
+      owner = nearestTurn(candidates, node);
+      owners.set(node, owner);
+    }
+    return owner === turn;
+  };
+}
+
+function nearestTurn<T extends Turn>(candidates: T[], node: Element): T | null {
+  const distances = new Map<Element, number>();
+  for (let current: Element | null = node; current; current = composedParent(current)) {
+    distances.set(current, distances.size);
+  }
+  let owner: T | null = null;
+  let nearest = Infinity;
+  for (const candidate of candidates) {
+    let shared: Element | null = candidate.element;
+    while (shared && !distances.has(shared)) shared = composedParent(shared);
+    const distance = shared ? distances.get(shared)! : Infinity;
+    const precedes = candidate.element.compareDocumentPosition(node) & Node.DOCUMENT_POSITION_FOLLOWING;
+    if (distance < nearest || (distance === nearest && precedes)) {
+      owner = candidate;
+      nearest = distance;
+    }
+  }
+  return owner;
+}
+
+/** Keep the outermost rendered blocks. Behind a dialog the whole page is hidden, so keep them all. */
+export function renderedBlocks(blocks: Element[]): Element[] {
+  const outer = blocks.filter((block) => !blocks.some((other) => other !== block && other.contains(block)));
+  const isVisible = Utils.createVisibilityChecker();
+  const visible = outer.filter((block) => isVisible(block));
+  return visible.length ? visible : outer;
+}
+
+/** Clone a message with literal line breaks, TeX math, and labeled code fences. */
+export function cloneMessage(element: Element): Element {
+  const clone = element.cloneNode(true) as Element;
+  const sourceText = document.createTreeWalker(element, NodeFilter.SHOW_TEXT);
+  const cloneText = document.createTreeWalker(clone, NodeFilter.SHOW_TEXT);
+  const literal = new Map<Element, boolean>();
+  while (sourceText.nextNode() && cloneText.nextNode()) {
+    cloneText.currentNode.textContent = renderedText(sourceText.currentNode, literal);
+  }
+  replaceMath(clone);
+  absorbCodeHeaders(clone);
+  removeFavicons(clone);
+  return clone;
+}
+
+/** Convert a cloned message whose text nodes already have their rendered whitespace. */
+export function messageToMarkdown(clone: Element): string {
+  const markdown = Markdown.cleanMarkdown(
+    Markdown.nodeToMarkdown(clone, { preserveWhitespace: true }),
+  );
+  return clone.querySelector('pre') ? markdown : closeFence(markdown);
+}
+
+/** Collapse whitespace like the browser does, but keep it where the page renders it. */
+function renderedText(node: Node, literal: Map<Element, boolean>): string {
+  const value = node.textContent || '';
+  const root = node.parentElement ? null : node.getRootNode();
+  const parent = node.parentElement || (root instanceof ShadowRoot ? root.host : null);
+  if (!parent) return value;
+  let keep = literal.get(parent);
+  if (keep === undefined) {
+    const whiteSpace = parent.ownerDocument.defaultView?.getComputedStyle(parent).whiteSpace || '';
+    keep = /^(?:pre|break-spaces)/.test(whiteSpace) || parent.closest('pre') !== null;
+    literal.set(parent, keep);
+  }
+  return keep ? value : value.replace(/\s+/g, ' ');
+}
+
+/** Close an unfinished fence in literal text, which would swallow the next turns. */
+function closeFence(markdown: string): string {
+  let open = '';
+  for (const line of markdown.split('\n')) {
+    const fence = line.match(/^ {0,3}(`{3,}|~{3,})(.*)$/);
+    if (!fence) continue;
+    if (!open) {
+      if (fence[1][0] === '~' || !fence[2].includes('`')) open = fence[1];
+    } else if (fence[1].startsWith(open) && !fence[2].trim()) {
+      open = '';
+    }
+  }
+  return open ? `${markdown.trimEnd()}\n${open}` : markdown;
+}
+
+/** Replace rendered math with its TeX source. The conversion repeats or drops it otherwise. */
+export function replaceMath(root: Element): void {
+  for (const element of root.querySelectorAll(MATH_SELECTOR)) {
+    if (!root.contains(element)) continue;
+    const replacement = mathReplacement(element);
+    if (replacement) element.replaceWith(replacement);
+  }
+}
+
+function mathReplacement(element: Element): Element | null {
+  if (!element.matches(MATH_SELECTOR)) return null;
+  const tex = (element.getAttribute('data-math')
+    || element.getAttribute('data-math-source')
+    || element.querySelector('annotation[encoding="application/x-tex"]')?.textContent
+    || '').replace(/\s+/g, ' ').trim();
+  if (!tex) return null;
+  const display = element.matches('.math-block, .katex-display .katex, math[display="block"]')
+    || element.querySelector('.katex-display, math[display="block"]') !== null;
+  if (element.closest('td, th')) {
+    // Table cells escape the backslashes of prose, but not those of code.
+    const code = element.ownerDocument.createElement('code');
+    const cell = element.ownerDocument.createElement('span');
+    code.textContent = tex;
+    cell.append('$', code, '$');
+    return cell;
+  }
+  const replacement = element.ownerDocument.createElement(display ? 'div' : 'span');
+  replacement.textContent = display ? `$$${tex}$$` : `$${tex}$`;
+  return replacement;
+}
+
+/** Move a visible language label into its code fence, so that it does not read as prose. */
+function absorbCodeHeaders(root: Element): void {
+  for (const pre of root.querySelectorAll('pre')) {
+    const code = pre.querySelector('code');
+    const declared = code?.getAttribute('data-code-language') || '';
+    const language = declared
+      || [code, pre].map((element) => (
+        element?.getAttribute('data-language')
+        || element?.className.match(/\blanguage-([\w.+#-]+)/)?.[1]
+        || ''
+      )).find(Boolean)
+      || '';
+    if (declared) pre.setAttribute('data-language', declared);
+
+    let current: Element = pre;
+    for (let depth = 0; depth < 3 && current !== root; depth += 1) {
+      let header = current.previousElementSibling;
+      while (header && !header.matches(CODE_HEADER_SELECTOR) && !headerLabel(header)) {
+        header = header.previousElementSibling;
+      }
+      if (header) {
+        const label = headerLabel(header);
+        const isHeader = header.matches(CODE_HEADER_SELECTOR) || (
+          /^(?:DIV|SPAN)$/.test(header.tagName) && label.toLowerCase() === language.toLowerCase()
+        );
+        if (isHeader) {
+          if (!language && /^[\w.+#-]+$/.test(label)) pre.setAttribute('data-language', label.toLowerCase());
+          header.remove();
+        }
+        break;
+      }
+      if (!current.parentElement) break;
+      current = current.parentElement;
+    }
+  }
+}
+
+function headerLabel(element: Element): string {
+  const clone = element.cloneNode(true) as Element;
+  clone.querySelectorAll('button, svg, [role="button"]').forEach((control) => control.remove());
+  return normalize(clone.textContent || '');
+}
+
+function removeFavicons(root: Element): void {
+  root.querySelectorAll('img[src]').forEach((image) => {
+    if (isFaviconUrl(image.getAttribute('src') || '')) image.remove();
+  });
 }
 
 type ExtractionCache = {
@@ -361,6 +615,7 @@ function turnContentScore(turn: Turn): number {
 function extractCitations(
   container: Element,
   siteSelectors: string[],
+  ownsNode: (node: Element) => boolean,
 ): Array<{ label: string; href: string }> {
   const links = sortElements(queryAll<HTMLAnchorElement>(container, [
     ...siteSelectors,
@@ -369,7 +624,7 @@ function extractCitations(
   const seen = new Set<string>();
   const citations: Array<{ label: string; href: string }> = [];
   for (const link of links) {
-    if (!isComputedVisible(link)) continue;
+    if (!isComputedVisible(link) || isPageAnchor(link) || !ownsNode(link)) continue;
     const href = safeHttpUrl(link.href);
     if (!href || seen.has(href)) continue;
     seen.add(href);
@@ -386,6 +641,7 @@ function standaloneAttachments(
   content: Element,
   citationUrls: string[],
   siteSelectors: string[],
+  ownsNode: (node: Element) => boolean,
 ): string[] {
   const citations = new Set(citationUrls);
   const seen = new Set<string>();
@@ -394,7 +650,7 @@ function standaloneAttachments(
     ...siteSelectors,
     ...DEFAULT_ATTACHMENT_SELECTORS,
   ]))) {
-    if (!isComputedVisible(link) || composedContains(content, link)) continue;
+    if (!isComputedVisible(link) || composedContains(content, link) || !ownsNode(link)) continue;
     const href = safeHttpUrl(link.href);
     if (!href || citations.has(href) || seen.has(href)) continue;
     seen.add(href);
@@ -407,18 +663,24 @@ function standaloneAttachments(
   return attachments;
 }
 
-function standaloneImages(container: Element, content: Element): string[] {
+function standaloneImages(
+  container: Element,
+  content: Element,
+  ownsNode: (node: Element) => boolean,
+): string[] {
+  const inText = (image: Element) => isComputedVisible(image) && isInText([content], image);
   const existing = new Set(
     queryAll<HTMLImageElement>(content, ['img[src]'])
+      .filter(inText)
       .map(imageSource)
       .map(safeImageUrl)
       .filter(Boolean),
   );
   const images: string[] = [];
   for (const image of sortElements(queryAll<HTMLImageElement>(container, ['img[src]']))) {
-    if (!isComputedVisible(image) || composedContains(content, image)) continue;
+    if (!isComputedVisible(image) || inText(image) || !ownsNode(image)) continue;
     const source = safeImageUrl(imageSource(image));
-    if (!source || existing.has(source)) continue;
+    if (!source || existing.has(source) || isFaviconUrl(source)) continue;
     const alt = image.getAttribute('alt') || '';
     const rect = image.getBoundingClientRect();
     const size = Math.max(
@@ -507,7 +769,9 @@ function editableValue(element: Element): string {
 }
 
 function clean(element: Element, keepEditable = false): Element {
-  const clone = cloneVisibleRenderedElement(element);
+  const clone = cloneVisibleRenderedElement(element, new Map());
+  absorbCodeHeaders(clone);
+  removeFavicons(clone);
   const noiseSelectors = [
     ...Utils.NOISE_SELECTORS,
     'button',
@@ -544,13 +808,17 @@ function matchingElements<T extends Element>(element: Element, selector: string)
   ];
 }
 
-function cloneVisibleRenderedElement(element: Element): Element {
+function cloneVisibleRenderedElement(element: Element, literal: Map<Element, boolean>): Element {
   const clone = element.cloneNode(false) as Element;
-  appendVisibleRenderedChildren(element, clone);
+  appendVisibleRenderedChildren(element, clone, literal);
   return clone;
 }
 
-function appendVisibleRenderedChildren(source: Element, target: Element): void {
+function appendVisibleRenderedChildren(
+  source: Element,
+  target: Element,
+  literal: Map<Element, boolean>,
+): void {
   const nodes = source.shadowRoot
     ? Array.from(source.shadowRoot.childNodes)
     : Array.from(source.childNodes);
@@ -559,21 +827,27 @@ function appendVisibleRenderedChildren(source: Element, target: Element): void {
       if (!isComputedVisible(node)) continue;
       const assigned = node.assignedNodes({ flatten: true });
       for (const assignedNode of assigned.length ? assigned : Array.from(node.childNodes)) {
-        appendVisibleRenderedNode(assignedNode, target);
+        appendVisibleRenderedNode(assignedNode, target, literal);
       }
       continue;
     }
-    appendVisibleRenderedNode(node, target);
+    appendVisibleRenderedNode(node, target, literal);
   }
 }
 
-function appendVisibleRenderedNode(source: Node, target: Element): void {
+function appendVisibleRenderedNode(
+  source: Node,
+  target: Element,
+  literal: Map<Element, boolean>,
+): void {
   if (source instanceof Element) {
     if (!isComputedVisible(source)) return;
-    target.append(cloneVisibleRenderedElement(source));
+    target.append(mathReplacement(source) || cloneVisibleRenderedElement(source, literal));
     return;
   }
-  target.append(source.cloneNode(true));
+  const clone = source.cloneNode(true);
+  if (source.nodeType === Node.TEXT_NODE) clone.textContent = renderedText(source, literal);
+  target.append(clone);
 }
 
 function readVisibleValue(selectors: VisibleValueSelector[]): string {
@@ -592,17 +866,22 @@ function readVisibleValue(selectors: VisibleValueSelector[]): string {
 }
 
 function conversationTitle(config: AiConversationConfig): string {
+  const messages = [...config.turnRootSelectors, ...config.userSelectors, ...config.assistantSelectors];
   const visible = queryAll(document, config.titleSelectors || [])
-    .find(isComputedVisible)?.textContent?.trim() || '';
-  const title = (visible || Utils.getPageTitle()).replace(config.titleSuffix, '').trim();
+    .find((element) => isComputedVisible(element) && !closestMatch(element, messages))
+    ?.textContent?.trim() || '';
+  const title = (visible || conversationPageTitle()).replace(config.titleSuffix, '').trim();
   return title || config.titleFallback;
 }
 
 function hasUnrenderedHistory(config: AiConversationConfig, turns: Turn[]): boolean {
-  const signals = queryAll(document, [
-    ...(config.unrenderedHistorySelectors || []),
-    ...DEFAULT_UNRENDERED_SELECTORS,
-  ]).filter(isComputedVisible);
+  const signals = [
+    ...queryAll(document, [
+      ...(config.unrenderedHistorySelectors || []),
+      ...DEFAULT_UNRENDERED_SELECTORS,
+    ]),
+    ...historyControls(),
+  ].filter(isComputedVisible);
   if (!signals.length || !turns.length) return false;
 
   const turnContainers = Array.from(new Set(turns.map(({ container }) => container)));
@@ -689,12 +968,16 @@ function matchesAny(element: Element, selectors: string[]): boolean {
 }
 
 function closestTurn(element: Element, selectors: string[]): Element {
+  return closestMatch(element, selectors) || element;
+}
+
+function closestMatch(element: Element, selectors: string[]): Element | null {
   let current: Element | null = element;
   while (current) {
     if (matchesAny(current, selectors)) return current;
     current = composedParent(current);
   }
-  return element;
+  return null;
 }
 
 function sortElements<T extends Element>(elements: T[]): T[] {
