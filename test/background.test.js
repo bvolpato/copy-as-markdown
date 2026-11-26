@@ -235,9 +235,56 @@ async function testCancelledOptionFlow() {
   );
 }
 
+async function testNavigationDuringCopy() {
+  const failures = [
+    'A listener indicated an asynchronous response by returning true, but the message channel closed before a response was received',
+    'The page keeping the extension port is moved into back/forward cache, so the message channel is closed.',
+    undefined,
+  ];
+  for (const message of failures) {
+    const toolbar = createAction();
+    const runtime = { lastError: undefined };
+    let sendCount = 0;
+    let injectCount = 0;
+
+    const chrome = {
+      action: toolbar.action,
+      runtime,
+      scripting: {
+        async executeScript() {
+          injectCount += 1;
+        },
+      },
+      tabs: {
+        sendMessage(_tabId, _message, callback) {
+          sendCount += 1;
+          if (sendCount > 1) {
+            callback({ success: true });
+            return;
+          }
+          if (message) runtime.lastError = { message };
+          callback(undefined);
+          runtime.lastError = undefined;
+        },
+      },
+    };
+
+    runBackground(chrome, { ...console, error() {} });
+    toolbar.click({ id: 29 });
+
+    await waitFor(
+      () => toolbar.calls.some(([kind, details]) => kind === 'badge' && details.text === '!'),
+      `copy interrupted by navigation did not report failure: ${message}`,
+    );
+    assert.equal(sendCount, 1, 'copy interrupted by navigation was repeated on the next page');
+    assert.equal(injectCount, 0, 'copy interrupted by navigation was injected into the next page');
+  }
+}
+
 await testFirefoxCallbackFlow();
 await testChromePromiseInjectionFlow();
 await testRestrictedPageFeedback();
 await testCancelledOptionFlow();
+await testNavigationDuringCopy();
 testAutomaticContentScripts();
 console.log('✅ Background click, injection, and toolbar feedback checks passed');
