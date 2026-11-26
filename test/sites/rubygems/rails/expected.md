@@ -38,6 +38,7 @@ FIXTURE_P_0035
 5. FIXTURE_SPAN_0061
    1. FIXTURE_P_0062
       1. [FIXTURE_SPAN_0063FIXTURE_A_0064](https://example.invalid/fixture-link-0019) FIXTURE_SPAN_0065 FIXTURE_SPAN_0066
+
  [FIXTURE_A_0067](https://example.invalid/fixture-link-0020)
 
 ### FIXTURE_H3_0068

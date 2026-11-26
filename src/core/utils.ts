@@ -83,9 +83,20 @@ export function removeNoise(
 ): Element {
   const clone = element.cloneNode(true) as Element;
   selectors.forEach((sel) => {
-    clone.querySelectorAll(sel).forEach((el) => el.remove());
+    clone.querySelectorAll(sel).forEach((el) => {
+      if (sel === 'footer' && el.closest('blockquote')) return;
+      if (sel === 'header' && isSectionHeading(el)) return;
+      el.remove();
+    });
   });
   return clone;
+}
+
+/** A section header with a subheading is content. Page and article headers are not. */
+function isSectionHeading(header: Element): boolean {
+  return header.parentElement?.tagName === 'SECTION'
+    && header.querySelector('h2, h3, h4, h5, h6') !== null
+    && header.querySelector('h1, nav') === null;
 }
 
 /** Standard noise selectors to strip from content. */
@@ -121,6 +132,8 @@ export function formatDate(dateStr: string): string {
       year: 'numeric',
       month: 'long',
       day: 'numeric',
+      // JavaScript reads a date without a time as UTC. Do not shift it to another day.
+      timeZone: /^\d{4}(?:-\d{2}){0,2}$/.test(dateStr.trim()) ? 'UTC' : undefined,
     });
   } catch {
     return dateStr;

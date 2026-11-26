@@ -813,6 +813,95 @@ try {
   assert.match(coreMdChecks.body, /!\[Photo\]\(https:\/\/cdn\.example\.com\/w_1600,f_auto,q_auto\/pic\.jpg\)/);
   assert.match(coreMdChecks.body, /```java\nclass A \{\}\n```/);
 
+  // Verify that conversion keeps content, structure, and meaning in realistic markup.
+  const conversionCases = [
+    // Whitespace-only inline elements separate words in every container.
+    ['<table><tr><th>Developed<span>&nbsp;</span>by</th><td>March<span> </span>9</td></tr></table>', '| Developed by | March 9 |\n| --- | --- |'],
+    ['<p>a<b> </b>b <i>x</i><i> </i><i>y</i> a<a href="#x"> b </a>c</p>', 'a b *x* *y* a b c'],
+    ['<h2>a<span>&nbsp;</span>b</h2><ul><li>c<span> </span>d</li></ul>', '## a b\n\n- c d'],
+    ['<p>a<a href="https://example.com/x"></a>b (<a href="https://example.com/y"></a>).</p>', 'a https://example.com/x b (https://example.com/y).'],
+    // Table cells keep superscripts, nested cells, code lines, and empty rows without line break marks.
+    ['<table><tr><td>10<sup>5</sup> H<sub>2</sub>O</td><td><p><br></p></td></tr></table>', '| 10^(5) H_(2)O |  |\n| --- | --- |'],
+    ['<table><tr><td><table><tr><td>a</td><td>1</td></tr><tr><td>b</td><td>2</td></tr></table></td><td><pre>x:\n  y</pre></td></tr></table>', '| a 1; b 2 | `x:`<br>`  y` |\n| --- | --- |'],
+    ['<table><caption>Totals</caption><tr><th>A</th><th>B</th></tr><tr><td colspan="100%">All</td></tr><tr hidden><td>no</td><td>no</td></tr></table>', '*Totals*\n\n| A | B |\n| --- | --- |\n| All |  |'],
+    ['<table><tr><td>a<table><tbody hidden><tr><td>no</td></tr></tbody><tr><td>b</td></tr></table></td></tr></table><table><tr hidden><td><pre>no</pre></td></tr></table>', '| a b |\n| --- |'],
+    // Lists keep order, numbering, task state, and items outside valid markup.
+    ['<ul><li>a<ul><li>b</li></ul>c</li><ul><li>d</li></ul><a href="https://example.com/e">e</a></ul>', '- a\n  - b\n\n  c\n  - d\n- [e](https://example.com/e)'],
+    ['<ol reversed><li>c</li><li value="7">b</li><li hidden>no</li><div><li>a</li></div></ol>', '3. c\n7. b\n6. a'],
+    ['<ol><a href="https://example.com/a"><li>a</li></a><a href="https://example.com/no"><li hidden>no</li></a><li>b</li></ol>', '1. [a](https://example.com/a)\n2. b'],
+    ['<ul><li><input type="checkbox" checked> done</li><li><label><input type="checkbox"> open</label></li></ul>', '- [x] done\n- [ ] open'],
+    ['<ul><li><h3>Title</h3><p>One</p><p>Two</p></li></ul>', '- ### Title\n\n  One\n\n  Two'],
+    // Code keeps lines that exist only as elements and omits line numbers and controls.
+    ['<pre><code><span>a</span><br><span>  b</span><br></code></pre>', '```\na\n  b\n```'],
+    ['<pre><code><div><div class="ln" aria-hidden="true">1</div><div>a</div></div><div>b</div></code><button>Copy</button></pre>', '```\na\nb\n```'],
+    ['<div class="highlight-source-go"><pre><span class="ln">1</span>a\n<span class="ln">2</span>b</pre></div>', '```go\na\nb\n```'],
+    ['<table><caption>L</caption><tr><td><pre>1\n2</pre></td><td><pre>a\nb</pre></td></tr></table>', '*L*\n\n```\na\nb\n```'],
+    ['<table><tr><td class="gutter"><pre>7</pre></td><td><pre>a</pre></td></tr></table><table><tr><td>404</td><td><pre>a</pre></td></tr></table><table><tr><td><pre>3\n1</pre></td><td><pre>a\nb</pre></td></tr></table>', '```\na\n```\n\n| 404 | `a` |\n| --- | --- |\n\n| `3`<br>`1` | `a`<br>`b` |\n| --- | --- |'],
+    ['<pre><code><div>a</div>\n<div>b</div><div>\n</div><div>c</div><br><div>d</div></code></pre>', '```\na\nb\n\nc\n\nd\n```'],
+    ['<pre>$ <code>ls</code> -l</pre>', '```\n$ ls -l\n```'],
+    // Math appears once, as TeX when the page has it.
+    ['<p><span class="katex"><math><semantics><mi>E</mi><annotation encoding="application/x-tex">E=mc^2</annotation></semantics></math><span aria-hidden="true">E=mc2</span></span></p>', '$E=mc^2$'],
+    ['<p><math><mfrac><mn>1</mn><msup><mi>x</mi><mn>2</mn></msup></mfrac></math></p>', '1/(x^(2))'],
+    ['<p><img class="mwe-math-fallback-image-inline" aria-hidden="true" alt="{\\displaystyle x^{2}}" src="x.svg"></p>', '$x^{2}$'],
+    ['<table><tr><td><math alttext="\\frac{a}{b}"><mi>a</mi></math></td></tr></table>', '| $`\\frac{a}{b}`$ |\n| --- |'],
+    // Emphasis delimiters stay balanced around adjacent, nested, and block content.
+    ['<p><b>a</b><b>b</b> <i>c <em>d</em></i> <code>e</code><code>f</code></p>', '**ab** *c d* `ef`'],
+    ['<p><b><i>a</i></b><b><i>b</i></b> <b>c</b><b><i>d</i></b></p>', '***a******b*** **c*d***'],
+    ['<b><menu><li>a</li></menu></b><b><h2>Head<a href="#h">#</a></h2></b><p>See <a href="#s">\u00A7</a> 1<a href="#p">\u00B6</a></p>', '- a\n\n## Head\n\nSee \u00A7 1'],
+    ['<b><h2>Head</h2></b><strong><p>One</p><p>Two</p></strong><dl><dt><b>Term</b></dt><dd>Text</dd></dl>', '## Head\n\n**One**\n\n**Two**\n\n**Term**\n\n: Text'],
+    // Blocks do not absorb the text around them.
+    ['Text<hr>more<table><tr><td>a</td></tr></table>after<blockquote>q<footer>Source</footer></blockquote>end', 'Text\n\n---\n\nmore\n| a |\n| --- |\n\nafter\n> q\n> Source\n\nend'],
+    ['<details><summary>Sum</summary>body</details><header>H</header><address>A</address><p hidden="until-found">shown</p>', 'Sum\nbody\n\nH\n\nA\n\nshown'],
+    ['<svg><style>.a{fill:red}</style><text>A</text><text>B</text></svg><p><ruby>\u6F22\u5B57<rt>kanji</rt></ruby> <q>x</q></p>', 'A B\n\u6F22\u5B57(kanji) "x"'],
+    ['<ul><li><blockquote><pre>\u201Ca\u201D</pre></blockquote></li></ul><p>\u201Cb\u201D</p>', '- > ```\n  > \u201Ca\u201D\n  > ```\n\n"b"'],
+    ['<img alt="x" src="data:image/png;base64,AA" data-src="https://example.com/a.png">', '![x](https://example.com/a.png)'],
+  ];
+  const unicodeCases = {
+    literal: [
+      'x\u00B2 10\u207B\u2079 2\u00BD CO\u2082 1\u00BA Java\u2122 \u2460\u2461', // superscripts, fractions, and circled numbers
+      'it\u00B4s \u00AF\\_(\u30C4)_/\u00AF \u3042\u309B', // spacing accents
+      '\u0E19\u0E49\u0E33 \u0E99\u0EC9\u0EB3 \u0EDC', // Thai and Lao
+      '\u314B\u314B\u314B \u3160\u3160', // Hangul letters
+      '\u0627\u0644\u0633\u064E\u0651\u0644\u064E\u0627\u0645 \u0645\u06CC\u200C\u062E\u0648\u0627\u0647\u0645 \u0647\u200D.\u0642 \u06F1\u06F0\u200C\u0633\u0627\u0644\u0647', // Arabic and Persian
+      '\u05D0\u05B2\u05E0\u05B4\u05D9', // Hebrew
+      '\u0915\u094D\u200D\u0937 \u0D28\u0D4D\u200D \u09B6\u09CD\u09B0\u09C0', // Indic joiners
+      '\u2764\uFE0F 1\uFE0F\u20E3 \uD83C\uDFF3\uFE0F\u200D\uD83C\uDF08 \uD83D\uDC69\uD83C\uDFFD\u200D\uD83D\uDCBB \uD83D\uDC68\u200D\uD83D\uDC69\u200D\uD83D\uDC67\u200D\uD83D\uDC66 \uD83E\uDD37\uD83C\uDFFD\u200D\u2640\uFE0F \uD83C\uDFF4\uDB40\uDC67\uDB40\uDC62\uDB40\uDC65\uDB40\uDC6E\uDB40\uDC67\uDB40\uDC7F', // emoji sequences
+      'x\u0304 Ti\u1EBFng Vi\u1EC7t', // Latin with combining marks
+    ],
+    stripped: [
+      ['a\u200Db', 'ab'],
+      ['\u4E2D\u200C\u6587', '\u4E2D\u6587'],
+      ['\u0441\u200D\u043B', '\u0441\u043B'],
+      ['a\uFE0Fb', 'ab'],
+      ['\uD83D\uDE00\uFE0F\uFE0F\uDB40\uDD00', '\uD83D\uDE00\uFE0F'],
+      ['a\uDB40\uDC62', 'a'],
+      ['5\u203210\u2033', '5\'10"'],
+    ],
+  };
+  const conversionResults = await page.evaluate((htmlCases, textCases) => ({
+    html: htmlCases.map((html) => CopyAsMarkdown.htmlToMarkdown(html)),
+    text: textCases.map((text) => CopyAsMarkdown.normalizeUnicodeText(text)),
+    xhtml: CopyAsMarkdown.domToMarkdown(new DOMParser().parseFromString(
+      '<html xmlns="http://www.w3.org/1999/xhtml"><body><h1>T</h1><ul><li>a</li></ul><script>no()</script></body></html>',
+      'application/xhtml+xml',
+    ).documentElement),
+    metadata: CopyAsMarkdown.buildPageMarkdown({ title: '%T', license: 'MIT', author: 'Ann' }, 'Ann will commit.'),
+  }), conversionCases.map(([html]) => html), [...unicodeCases.literal, ...unicodeCases.stripped.map(([text]) => text)]);
+  conversionCases.forEach(([html, expected], index) => assert.equal(conversionResults.html[index], expected, html));
+  assert.deepEqual(conversionResults.text, [...unicodeCases.literal, ...unicodeCases.stripped.map(([, text]) => text)]);
+  assert.equal(conversionResults.xhtml, '# T\n\n- a');
+  assert.equal(conversionResults.metadata, '---\ntitle: "%T"\nlicense: MIT\n---\n\nAnn will commit.');
+
+  // Verify that noise removal keeps section content and dates keep their day in every time zone.
+  await page.emulateTimezone('America/Los_Angeles');
+  await page.setContent(`<!doctype html><html><head><meta name="generator" content="Ghost 5"></head><body>
+    <h1 class="gh-article-title">Post</h1><time datetime="2024-03-05">x</time>
+    <div class="gh-content"><header><h1>Post</h1></header>
+      <section><header><h2>Install</h2></header><p>Steps</p></section><footer>Chrome</footer>
+    </div></body></html>`);
+  const ghostMarkdown = await page.evaluate(async () => (await CopyAsMarkdown.loadExtractor('ghost')).extract());
+  assert.match(ghostMarkdown, /\*\*Published:\*\* March 5, 2024\n\n## Install\n\nSteps$/);
+
   // Verify linear-time link spacing without polynomial backtracking on repeated unclosed brackets/links.
   const linkSpacingChecks = await page.evaluate(() => {
     const glued = CopyAsMarkdown.cleanMarkdown('see[docs](https://example.com)now and mail[team](mailto:a@b.com)today');

@@ -17,7 +17,13 @@ url: "https://en.wiktionary.org/wiki/markdown"
 
 **FIXTURE_STRONG_0042**FIXTURE_SPAN_0043*FIXTURE_I_0044* **[FIXTURE_A_0045](https://example.invalid/fixture-link-0026)**FIXTURE_SPAN_0046
 
-1. FIXTURE_LI_0047 [FIXTURE_A_0048](https://example.invalid/fixture-link-0027) FIXTURE_LI_0049 [FIXTURE_A_0050](https://example.invalid/fixture-link-0028) FIXTURE_LI_0051 [FIXTURE_A_0052](https://example.invalid/fixture-link-0029) [FIXTURE_A_0053](https://example.invalid/fixture-link-0030) FIXTURE_LI_0054FIXTURE_A_0055 : FIXTURE_SPAN_0056 [FIXTURE_A_0057](https://example.invalid/fixture-link-0031) : FIXTURE_SPAN_0058 [FIXTURE_A_0059](https://example.invalid/fixture-link-0032) : FIXTURE_SPAN_0060 [FIXTURE_A_0061](https://example.invalid/fixture-link-0033)
+1. FIXTURE_LI_0047 [FIXTURE_A_0048](https://example.invalid/fixture-link-0027) FIXTURE_LI_0049 [FIXTURE_A_0050](https://example.invalid/fixture-link-0028) FIXTURE_LI_0051 [FIXTURE_A_0052](https://example.invalid/fixture-link-0029) [FIXTURE_A_0053](https://example.invalid/fixture-link-0030) FIXTURE_LI_0054FIXTURE_A_0055
+
+   : FIXTURE_SPAN_0056 [FIXTURE_A_0057](https://example.invalid/fixture-link-0031)
+
+   : FIXTURE_SPAN_0058 [FIXTURE_A_0059](https://example.invalid/fixture-link-0032)
+
+   : FIXTURE_SPAN_0060 [FIXTURE_A_0061](https://example.invalid/fixture-link-0033)
 
 #### FIXTURE_H4_0062
 
