@@ -63,9 +63,10 @@ register({
       if (dataType && dataType !== 'web') return;
       if (result.matches('.ad, [data-type="ad"]') || result.closest('.ad, [data-type="ad"]')) return;
 
-      const title = cleanText(result.querySelector(
-        '.search-snippet-title, .title, a.l1, h3 a, h2 a, [data-testid="result-title"], [data-testid="result-title"] a',
-      )?.textContent || '');
+      // The result link also wraps the site name and the URL, so prefer the title element.
+      const title = cleanText((result.querySelector('.search-snippet-title, .title') || result.querySelector(
+        'a.l1, h3 a, h2 a, [data-testid="result-title"], [data-testid="result-title"] a',
+      ))?.textContent || '');
       const link = firstSafeLink(result.querySelectorAll<HTMLAnchorElement>(
         'a.l1[href], h3 a[href], h2 a[href], [data-testid="result-title"] a[href], a[href]',
       ));

@@ -126,11 +126,11 @@ function extractSearchResults(url: string): string {
   if (cards.length) {
     parts.push('## Search Results', '');
     cards.forEach((card, index) => {
-      const cardTitle = card.querySelector('[data-testid="title"], h3')?.textContent?.replace(/\s+/g, ' ').trim() || '';
+      const cardTitle = spacedText(card.querySelector('[data-testid="title"], h3'));
       const cardLink = card.querySelector<HTMLAnchorElement>('[data-testid="title-link"], h3 a, a[href*="/hotel/"]')?.href || '';
-      const cardLocation = card.querySelector('[data-testid*="address"], [data-testid*="location"]')?.textContent?.replace(/\s+/g, ' ').trim() || '';
-      const cardRating = card.querySelector('[data-testid="review-score"], [aria-label*="Scored"]')?.textContent?.replace(/\s+/g, ' ').trim() || '';
-      const cardPrice = card.querySelector('[data-testid*="price"]')?.textContent?.replace(/\s+/g, ' ').trim() || '';
+      const cardLocation = spacedText(card.querySelector('[data-testid*="address"], [data-testid*="location"]'));
+      const cardRating = spacedText(card.querySelector('[data-testid="review-score"], [aria-label*="Scored"]'));
+      const cardPrice = spacedText(card.querySelector('[data-testid*="price"]'));
       if (cardTitle) {
         parts.push(`### ${index + 1}. ${cardTitle}`);
         if (cardLink) parts.push(`**URL:** ${cardLink}`);
@@ -149,11 +149,28 @@ type JsonRecord = Record<string, unknown>;
 
 function firstText(selectors: string[]): string {
   for (const selector of selectors) {
-    const element = document.querySelector(selector);
-    const text = element?.textContent?.replace(/\s+/g, ' ').trim() || '';
+    const text = spacedText(document.querySelector(selector));
     if (text) return text;
   }
   return '';
+}
+
+/** Separate adjacent blocks, and skip the visual copy of text that screen readers get in full. */
+function spacedText(element: Element | null): string {
+  if (!element) return '';
+  const read = (node: Node, skipped: string | null): string => {
+    if (node.nodeType === Node.TEXT_NODE) return node.textContent || '';
+    if (!(node instanceof Element) || node.matches('script, style')) return '';
+    if (node !== element && node.matches('[aria-hidden="true"]')) {
+      // Keep hidden text that has no accessible copy.
+      const copy = (node.textContent || '').replace(/\s+/g, ' ').trim();
+      if (skipped === null || skipped.includes(copy)) return ' ';
+    }
+    const inner = Array.from(node.childNodes, (child) => read(child, skipped)).join('');
+    return node.matches('a, abbr, b, bdi, em, i, s, small, span, strong, sub, sup, u') ? inner : ` ${inner} `;
+  };
+  const clean = (text: string) => text.replace(/\s+/g, ' ').trim();
+  return clean(read(element, clean(read(element, null))));
 }
 
 function extractRows(selectors: string[]): string[] {
@@ -161,7 +178,7 @@ function extractRows(selectors: string[]): string[] {
   const seen = new Set<string>();
   for (const selector of selectors) {
     for (const element of document.querySelectorAll(selector)) {
-      const text = (element.textContent || '').replace(/\s+/g, ' ').trim();
+      const text = spacedText(element);
       if (!text || seen.has(text)) continue;
       seen.add(text);
       result.push(text);

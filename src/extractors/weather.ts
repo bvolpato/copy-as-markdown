@@ -38,28 +38,29 @@ register({
       '[class*="CurrentConditions--location--"]',
       'h1',
     ], false, scope) || stringValue(payload?.location) || Utils.getPageTitle();
-    const temperature = firstText([
+    const current = currentConditions(scope);
+    const temperature = current.temperature || firstText([
       '[data-testid="TemperatureValue"]',
       '[data-testid*="TemperatureValue"]',
       '[data-testid*="Temperature"]',
       '[class*="CurrentConditions--tempValue--"]',
     ], false, scope) || valueFromPayload(payload, ['temperature', 'temperatureValue', 'temp']);
-    const condition = firstText([
+    const condition = current.condition || firstText([
       '[data-testid="wxPhrase"]',
       '[data-testid*="wxPhrase"]',
       '[data-testid*="Condition"]',
       '[class*="CurrentConditions--phraseValue--"]',
     ], false, scope) || valueFromPayload(payload, ['condition', 'phrase', 'wxPhrase']);
-    const feelsLike = firstText([
+    const feelsLike = current.feelsLike || firstText([
       '[data-testid="FeelsLike"]',
       '[data-testid*="FeelsLike"]',
       '[data-testid*="feelsLike"]',
     ], false, scope) || valueFromPayload(payload, ['feelsLike', 'feels_like']);
-    const humidity = firstText([
+    const humidity = current.humidity || firstText([
       '[data-testid="Humidity"]',
       '[data-testid*="Humidity"]',
     ], false, scope) || valueFromPayload(payload, ['humidity']);
-    const wind = firstText([
+    const wind = current.wind || firstText([
       '[data-testid="Wind"]',
       '[data-testid*="Wind"]',
     ], false, scope) || valueFromPayload(payload, ['wind', 'windSpeed']);
@@ -70,10 +71,10 @@ register({
     ], true, scope);
 
     const metadata: Record<string, string> = {
-      source: 'Weather.com', title: `${location} weather`, url, route,
+      source: 'Weather.com', title: /\b(?:weather|forecast)$/i.test(location) ? location : `${location} weather`, url, route,
       location, temperature, condition, feels_like: feelsLike, humidity, wind, updated,
     };
-    const parts: string[] = [`# ${location} Weather`, ''];
+    const parts: string[] = [/\b(?:weather|forecast)$/i.test(location) ? `# ${location}` : `# ${location} Weather`, ''];
     if (temperature) parts.push(`**Temperature:** ${temperature}`);
     if (condition) parts.push(`**Conditions:** ${condition}`);
     if (feelsLike) parts.push(`**Feels like:** ${feelsLike}`);
@@ -94,13 +95,16 @@ register({
       else parts.push('*No alert details currently visible.*');
       parts.push('');
     } else if (route === 'hourly') {
-      const rows = extractRows([
+      const days = extractHourlyDays(scope);
+      const rows = days.size ? [] : extractRows([
         '[data-testid*="HourlyForecast"] [data-testid*="Details"]',
         '[data-testid*="HourlyForecast"]',
         '[data-testid*="hourly"]',
         '[class*="HourlyForecast"]',
       ], scope);
       if (rows.length) parts.push('## Hourly Forecast', '', ...rows.map((row) => `- ${row}`), '');
+      if (days.size) parts.push('## Hourly Forecast', '');
+      days.forEach((hours, day) => parts.push(`### ${day}`, '', ...hours.map((hour) => `- ${hour}`), ''));
     } else if (route === 'daily') {
       const rows = extractRows(
         scope.querySelector('[data-testid="daily-item"]')
@@ -150,11 +154,13 @@ function routeKind(pathname: string): string {
 
 function firstText(selectors: string[], attributeMode = false, scope: ParentNode = document): string {
   for (const selector of selectors) {
-    const element = scope.querySelector(selector) || (scope !== document ? document.querySelector(selector) : null);
+    const find = (root: ParentNode) => Array.from(root.querySelectorAll(selector))
+      .find((candidate) => !candidate.closest('[data-testid="daily-item"]'));
+    const element = find(scope) || (scope !== document ? find(document) : null);
     if (!element) continue;
     const value = attributeMode
       ? element.getAttribute('content') || element.getAttribute('datetime') || element.textContent || ''
-      : element.textContent || '';
+      : rowText(element);
     const text = value.trim();
     if (text) return text;
   }
@@ -177,12 +183,60 @@ function extractRows(selectors: string[], scope: ParentNode = document): string[
   const seenText = new Set<string>();
   const rows: string[] = [];
   for (const element of leafElements) {
-    const text = (element.textContent || '').replace(/\s+/g, ' ').trim();
+    const text = rowText(element);
     if (!text || seenText.has(text)) continue;
     seenText.add(text);
     rows.push(text);
   }
   return rows;
+}
+
+/** Text of a forecast row, with one space between adjacent cells and without icon titles. */
+function rowText(element: Element | null | undefined): string {
+  if (!element) return '';
+  const walker = document.createTreeWalker(element, NodeFilter.SHOW_TEXT);
+  const chunks: string[] = [];
+  for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+    const parent = node.parentElement;
+    if (parent?.closest('svg, script, style') || parent?.className === 'hidden') continue;
+    const chunk = (node.textContent || '').replace(/\s+/g, ' ').trim();
+    if (chunk) chunks.push(chunk);
+  }
+  return chunks.join(' ').replace(/\s+([°%])/g, '$1');
+}
+
+function extractHourlyDays(scope: ParentNode): Map<string, string[]> {
+  const days = new Map<string, string[]>();
+  const row = Array.from(scope.querySelectorAll('[class*="/hourlyItem"]'))
+    .find((item) => item.querySelector('[data-testid="TemperatureValue"]'));
+  let day = 'Forecast';
+  // Date headings are siblings of the hour rows.
+  for (const child of row?.parentElement?.parentElement?.children || []) {
+    if (child.querySelector('[class*="/hourlyItem"] [data-testid="TemperatureValue"]')) {
+      days.set(day, [...(days.get(day) || []), rowText(child)]);
+    } else if (child.childElementCount === 1 && child.firstElementChild?.tagName === 'P') {
+      day = rowText(child);
+    }
+  }
+  return days;
+}
+
+function currentConditions(scope: ParentNode): Record<'temperature' | 'condition' | 'feelsLike' | 'humidity' | 'wind', string> {
+  const card = scope.querySelector('[data-testid="current-conditions"]');
+  const widget = (metric: string): string => {
+    const link = scope.querySelector(`[data-testid="current-widgets"] a[href$="#metric=${metric}"]`);
+    return rowText(link).slice(rowText(link?.querySelector('p')).length).trim();
+  };
+  return {
+    // The value counts down from an earlier reading, so the last one is current.
+    temperature: Array.from(card?.querySelectorAll('[data-testid="TemperatureValue"]') || [])
+      .filter((value) => !value.closest('[data-testid="current-conditions-temperatures"]'))
+      .map(rowText).pop() || '',
+    condition: rowText(card?.querySelector('p')),
+    feelsLike: widget('feelsLike'),
+    humidity: widget('humidity'),
+    wind: widget('wind'),
+  };
 }
 
 function firstWeatherPayload(): JsonRecord | null {

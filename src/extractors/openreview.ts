@@ -28,7 +28,11 @@ export const openreviewExtractor = register({
       document.querySelector('.note_content_title, .forum-header h2, h2.citation_title, main h1')?.textContent
         || Utils.getPageTitle().replace(/\s*\|\s*OpenReview$/i, ''),
     );
-    const authors = Array.from(document.querySelectorAll('.forum-authors a, .signatures a, .meta_row a[href*="/profile"]'))
+    const forumAuthors = document.querySelectorAll('.forum-authors a');
+    // Replies also have signatures, so use them only when the paper has no author line.
+    const authors = Array.from(forumAuthors.length > 0
+      ? forumAuthors
+      : document.querySelectorAll('.signatures a, .meta_row a[href*="/profile"]'))
       .map((el) => Markdown.normalizeWhitespace(el.textContent || ''))
       .filter(Boolean);
     const uniqueAuthors = [...new Set(authors)];

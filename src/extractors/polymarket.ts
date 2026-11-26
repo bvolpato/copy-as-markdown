@@ -49,18 +49,31 @@ register({
   async extract() {
     const url = Utils.getCanonicalUrl();
 
+    // After in-app navigation, the previous event stays in the page as hidden content with its own JSON-LD.
+    const isVisible = Utils.createVisibilityChecker();
+    const slug = window.location.pathname.match(/^\/event\/([^/]+)/)?.[1] || '';
+    const isOtherEvent = (value: unknown): boolean => {
+      const eventSlug = stringValue(value).match(/\/event\/([^/?#]+)/)?.[1];
+      return Boolean(slug && eventSlug && eventSlug !== slug);
+    };
+
     // ---------- 1. Parse JSON-LD blocks (supporting arrays and @graph) ----------
-    const jsonLdScripts = document.querySelectorAll('script[type="application/ld+json"]');
+    const jsonLdScripts = Array.from(document.querySelectorAll('script[type="application/ld+json"]'))
+      .filter((script) => slug || document.head.contains(script) || isVisible(script.parentElement));
     let eventData: JsonRecord | null = null;
     let discussionData: JsonRecord | null = null;
     let faqData: JsonRecord | null = null;
     let breadcrumbData: JsonRecord | null = null;
 
+    // Event pages compare the URL. The FAQ and the breadcrumb have none, and follow the event that they describe.
+    let skipGroup = false;
     for (const script of jsonLdScripts) {
       try {
         const parsed: unknown = JSON.parse(script.textContent || '');
         for (const node of flattenJsonLd(parsed)) {
           const types = nodeTypes(node['@type']);
+          if (types.includes('Event')) skipGroup = isOtherEvent(node.url);
+          if (skipGroup || isOtherEvent(node.url)) continue;
           if (types.includes('Event')) eventData = node;
           else if (types.includes('DiscussionForumPosting')) discussionData = node;
           else if (types.includes('FAQPage')) faqData = node;
@@ -69,7 +82,7 @@ register({
       } catch { /* ignore */ }
     }
 
-    const nextMarket = readNextDataMarket();
+    const nextMarket = readNextDataMarket(slug);
 
     // ---------- 2. Extract from Open Graph / meta ----------
     const getMeta = (name: string): string =>
@@ -86,6 +99,7 @@ register({
     // ---------- 3. Derive title ----------
     const title = stringValue(eventData?.name)
       || stringValue(nextMarket?.title || nextMarket?.question)
+      || (slug && Array.from(document.querySelectorAll('h1')).find(isVisible)?.textContent?.trim())
       || ogTitle
       || document.querySelector('h1')?.textContent?.trim()
       || Utils.getPageTitle();
@@ -135,6 +149,7 @@ register({
 
     // ---------- 6. Outcomes from FAQ, __NEXT_DATA__, or DOM ----------
     let emittedOdds = false;
+    let knownOutcomes: Array<[string, string]> = [];
     const faqEntities = Array.isArray(faqData?.mainEntity)
       ? faqData.mainEntity.map(asRecord).filter((entry): entry is JsonRecord => Boolean(entry))
       : [];
@@ -148,20 +163,17 @@ register({
       const answerText = stringValue(asRecord(oddsQuestion?.acceptedAnswer)?.text);
       if (answerText) {
         const outcomeMatches = answerText.matchAll(/"([^"]+)"\s+(?:at|is)\s+((?:<\s*)?\d+(?:\.\d+)?%)/gi);
-        const outcomes: Array<[string, string]> = [...outcomeMatches].map((m) => [m[1], m[2]]);
-        if (outcomes.length > 0) {
-          appendOddsTable(parts, outcomes);
-          emittedOdds = true;
-        }
+        knownOutcomes = [...outcomeMatches].map((m) => [m[1], m[2]]);
       }
     }
 
-    if (!emittedOdds && nextMarket) {
-      const nextOutcomes = extractNextDataOutcomes(nextMarket);
-      if (nextOutcomes.length > 0) {
-        appendOddsTable(parts, nextOutcomes);
-        emittedOdds = true;
-      }
+    // The FAQ names only the leading outcomes of a market with many outcomes.
+    for (const outcomes of [nextMarket ? extractNextDataOutcomes(nextMarket) : [], extractOutcomeRows(isVisible)]) {
+      if (outcomes.length > knownOutcomes.length) knownOutcomes = outcomes;
+    }
+    if (knownOutcomes.length > 0) {
+      appendOddsTable(parts, knownOutcomes);
+      emittedOdds = true;
     }
 
     if (!emittedOdds) {
@@ -170,6 +182,7 @@ register({
       );
       const domOutcomes: Array<[string, string]> = [];
       outcomeEls.forEach((el) => {
+        if (!isVisible(el)) return;
         const txt = el.textContent?.replace(/\s+/g, ' ').trim() || '';
         const match = txt.match(/^(.*?)\s*((?:<\s*)?\d+(?:\.\d+)?[%¢])$/);
         if (match && match[1].trim()) {
@@ -210,17 +223,21 @@ register({
       }
     }
 
-    // ---------- 8. Resolution rules & timeline from FAQ ----------
-    if (faqEntities.length) {
-      const rulesQ = faqEntities.find((q) => {
-        const name = stringValue(q.name).toLowerCase();
-        return name.includes('resolved') || name.includes('resolution');
-      });
-      const rulesText = stringValue(asRecord(rulesQ?.acceptedAnswer)?.text);
-      if (rulesText) {
-        parts.push('## Resolution Rules\n', rulesText, '');
-      }
+    // ---------- 8. Resolution rules & timeline ----------
+    // The FAQ answer can only point to the rules tab, so prefer the tab itself.
+    const rulesEl = Array.from(document.querySelectorAll('[role="tabpanel"][id$="-panel-rules"]'))
+      .find((panel) => !panel.parentElement || isVisible(panel.parentElement))?.querySelector('span');
+    const rulesQ = faqEntities.find((q) => {
+      const name = stringValue(q.name).toLowerCase();
+      return name.includes('resolved') || name.includes('resolution');
+    });
+    const rulesText = (rulesEl ? Markdown.elementToMarkdown(rulesEl) : '')
+      || stringValue(asRecord(rulesQ?.acceptedAnswer)?.text);
+    if (rulesText) {
+      parts.push('## Resolution Rules\n', rulesText, '');
+    }
 
+    if (faqEntities.length) {
       const closeQ = faqEntities.find((q) => {
         const name = stringValue(q.name).toLowerCase();
         return name.includes('close') || name.includes('when does');
@@ -320,14 +337,16 @@ function nodeTypes(value: unknown): string[] {
   return typeof value === 'string' ? [value] : [];
 }
 
-function readNextDataMarket(): JsonRecord | null {
+function readNextDataMarket(slug: string): JsonRecord | null {
   const script = document.getElementById('__NEXT_DATA__');
   const raw = script?.textContent || '';
-  if (!raw || raw.length > 8_000_000) return null;
+  // The data of the first page stays in place after in-app navigation.
+  if (!raw || raw.length > 8_000_000 || !raw.includes(slug)) return null;
   if (!/(?:"outcomes"|"outcomePrices"|"markets"|"question")/.test(raw)) return null;
   try {
-    const parsed: unknown = JSON.parse(raw);
-    return findMarketObject(parsed);
+    const market = findMarketObject(JSON.parse(raw));
+    const isOther = slug && Array.isArray(market?.markets) && market.slug && market.slug !== slug;
+    return isOther ? null : market;
   } catch {
     return null;
   }
@@ -355,6 +374,21 @@ function findMarketObject(root: unknown, depth = 0): JsonRecord | null {
     if (found) return found;
   }
   return null;
+}
+
+function extractOutcomeRows(isVisible: (element: Element) => boolean): Array<[string, string]> {
+  const results = new Map<string, string>();
+  document.querySelectorAll('[data-scroll-anchor^="event-detail-accordion-item"]').forEach((row) => {
+    if (!isVisible(row)) return;
+    const texts = Array.from(row.querySelectorAll('p'))
+      .map((el) => Markdown.normalizeWhitespace(el.textContent || ''));
+    // An outcome name can be a percentage too.
+    const [name = '', ...details] = texts;
+    const value = details.find((text) => /^[<>]?\s*\d+(?:\.\d+)?%$/.test(text))
+      || details.find((text) => /^(?:Yes|No)$/.test(text)) || '';
+    if (name && value && !results.has(name)) results.set(name, value);
+  });
+  return [...results];
 }
 
 function extractNextDataOutcomes(market: JsonRecord): Array<[string, string]> {

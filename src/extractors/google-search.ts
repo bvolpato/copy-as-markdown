@@ -84,6 +84,8 @@ register({
     const addCandidate = (el: Element) => {
       if (seenContainers.has(el)) return;
       if (el.closest('#tads, #tadsb, [data-text-ad], .uEierd')) return;
+      // "People also ask" answers hold result markup, but they are not ranked results.
+      if (el.closest('.related-question-pair') || el.querySelector('.related-question-pair')) return;
       seenContainers.add(el);
       candidates.push(el);
     };
@@ -158,7 +160,7 @@ register({
 function firstMatchingText(selectors: string[]): string {
   for (const selector of selectors) {
     const element = document.querySelector(selector);
-    const text = cleanText(element?.textContent || '');
+    const text = element ? cleanText(Utils.removeNoise(element, ['script', 'style']).textContent || '') : '';
     if (text) return text;
   }
   return '';

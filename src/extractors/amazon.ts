@@ -72,12 +72,11 @@ register({
     const priceScope = document.querySelector(
       '#corePrice_feature_div, #corePriceDisplay_desktop_feature_div, #apex_desktop, #buybox',
     );
-    const priceSelectors = '.a-price .a-offscreen, #priceblock_dealprice, #priceblock_ourprice, .a-price-whole';
-    const priceEl = priceScope?.querySelector(priceSelectors) || document.querySelector(priceSelectors);
+    const priceText = priceIn(priceScope) || priceIn(document);
     const ldOffer = asRecord(Array.isArray(productLd?.offers) ? productLd?.offers[0] : productLd?.offers);
     const ldPrice = stringValue(ldOffer?.price);
     const ldCurrency = stringValue(ldOffer?.priceCurrency);
-    const price = priceEl?.textContent?.trim()
+    const price = priceText
       || (ldPrice ? (ldCurrency ? `${ldCurrency} ${ldPrice}` : ldPrice) : '');
     if (price) parts.push(`**Price:** ${price}`);
 
@@ -160,7 +159,9 @@ register({
       reviewEls.forEach((review) => {
         const reviewer = review.querySelector('.a-profile-name')?.textContent?.trim() || '';
         const stars = review.querySelector('[data-hook="review-star-rating"] .a-icon-alt, .a-icon-star span')?.textContent?.trim() || '';
-        const reviewTitle = review.querySelector('[data-hook="review-title"] span:last-child, .review-title')?.textContent?.trim() || '';
+        // The title link also holds the star rating, so use its own last span.
+        const reviewTitle = review.querySelector('[data-hook="review-title"] > span:last-child')?.textContent?.trim()
+          || review.querySelector('[data-hook="review-title"] span:last-child, .review-title')?.textContent?.trim() || '';
         const reviewDate = review.querySelector('[data-hook="review-date"]')?.textContent?.trim() || '';
         const reviewBody = review.querySelector('[data-hook="review-body"] span, .review-text-content span')?.textContent?.trim() || '';
 
@@ -173,6 +174,19 @@ register({
     return Markdown.buildPageMarkdown(metadata, parts.join('\n'));
   },
 });
+
+function priceIn(scope: ParentNode | null): string {
+  if (!scope) return '';
+  const selectors = ['.priceToPay', '.apexPriceToPay', '.a-price', '#priceblock_dealprice', '#priceblock_ourprice'];
+  for (const element of selectors.flatMap((selector) => Array.from(scope.querySelectorAll(selector)))) {
+    // Current layouts leave the offscreen copy blank and split the visible price into parts.
+    const text = element.querySelector('.a-offscreen')?.textContent?.trim()
+      || element.querySelector('[aria-hidden="true"]')?.textContent?.replace(/\s+/g, '').replace(/(\d)[.,](?!\d)/, '$1')
+      || element.textContent?.trim() || '';
+    if (text) return text;
+  }
+  return '';
+}
 
 function cleanDetailLabel(value: string): string {
   return value.replace(/[\u200e\u200f]/g, '').replace(/\s+/g, ' ').replace(/:\s*$/, '').trim();

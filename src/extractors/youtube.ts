@@ -46,25 +46,37 @@ register({
   },
 
   async extract() {
-    const url = Utils.getCanonicalUrl();
     const route = routeKind(window.location.pathname);
-    const ld = firstJsonLd();
-    const playerVideo = readPlayerVideoDetails();
+    const videoId = videoIdFromUrl(window.location.href);
+    const canonicalUrl = Utils.getCanonicalUrl();
+    const canonicalId = videoIdFromUrl(canonicalUrl);
+    const url = videoId && canonicalId && canonicalId !== videoId ? window.location.href : canonicalUrl;
+    // In-app navigation keeps the head metadata and JSON-LD of the first video.
+    const headId = document.querySelector('meta[itemprop="identifier"], meta[itemprop="videoId"]')?.getAttribute('content')
+      || videoIdFromUrl(Utils.getMeta('url'));
+    const staleHead = Boolean(videoId && headId && headId !== videoId);
+    const ld = staleHead ? null : firstJsonLd();
+    const playerVideo = readPlayerVideoDetails(videoId);
+    // YouTube keeps earlier watch, Shorts, and channel pages in the DOM with the hidden attribute.
     const scope: ParentNode = (route === 'short'
-      ? document.querySelector('ytd-reel-video-renderer[is-active]')
-      : null) || document;
+      ? document.querySelector('ytd-reel-video-renderer[is-active]') || document.querySelector('ytd-shorts:not([hidden])')
+      : document.querySelector('ytd-watch-flexy:not([hidden])')) || document;
 
     const title = firstText([
       'h1.ytd-watch-metadata yt-formatted-string',
       'h1.ytd-video-primary-info-renderer',
-      'h2.ytShortsVideoTitleViewModelShortsVideoTitle',
+      '.ytShortsVideoTitleViewModelShortsVideoTitle',
       'h1.title',
       'h1',
-    ], false, 'content', scope) || stringValue(playerVideo?.title) || stringValue(ld?.name) || Utils.getMeta('title') || Utils.getPageTitle();
+    ], false, 'content', scope) || stringValue(playerVideo?.title) || stringValue(ld?.name)
+      || (staleHead ? '' : Utils.getMeta('title')) || document.title.replace(/\s+-\s+YouTube$/, '');
 
-    const channelEl = scope.querySelector<HTMLAnchorElement>(
-      'ytd-channel-name yt-formatted-string a, #channel-name a, #owner a, a.ytd-channel-name, ytd-reel-player-header-renderer a[href^="/@"]',
-    );
+    const channelLinks = Array.from((scope.querySelector('#owner') || scope).querySelectorAll<HTMLAnchorElement>(
+      'ytd-channel-name yt-formatted-string a, #channel-name a, #owner a, a.ytd-channel-name, ytd-reel-player-header-renderer a[href^="/@"], '
+      + '.ytReelChannelBarViewModelChannelName a',
+    ));
+    // The first owner link wraps the avatar and has no text.
+    const channelEl = channelLinks.find((link) => link.textContent?.trim()) || channelLinks[0];
     const channel = channelEl?.textContent?.trim() ||
       stringValue(playerVideo?.author) ||
       stringValue(asRecord(ld?.author)?.name) ||
@@ -79,20 +91,20 @@ register({
     ], false, 'content', scope) || stringValue(playerVideo?.viewCount) || stringValue(ld?.interactionCount) || interactionCount(ld);
     const date = firstText([
       '#date-text',
-      'meta[itemprop="datePublished"]',
-      'meta[itemprop="uploadDate"]',
+      ...(staleHead ? [] : ['meta[itemprop="datePublished"]', 'meta[itemprop="uploadDate"]']),
       'time[datetime]',
       'ytd-watch-info-text span:nth-child(3)',
       'ytd-watch-info-text yt-formatted-string',
-    ], true, 'content', scope) || stringValue(ld?.datePublished) || Utils.getMeta('datePublished');
+    ], true, 'content', scope) || stringValue(ld?.datePublished) || (staleHead ? '' : Utils.getMeta('datePublished'));
     const duration = firstText([
-      'meta[itemprop="duration"]',
-      '.ytp-time-duration',
-      'ytd-thumbnail-overlay-time-status-renderer span',
+      ...(staleHead ? [] : ['meta[itemprop="duration"]']),
+      // An ad shows its own duration, and thumbnails belong to other videos.
+      '.ytp-time-duration:not(.ad-showing *)',
     ], true, 'content', scope) || stringValue(ld?.duration);
     const likes = extractLikes(scope);
-    const description = extractDescription(scope, playerVideo);
-    const thumbnail = Utils.getMeta('image') || stringValue(ld?.thumbnailUrl);
+    const description = extractDescription(scope, playerVideo, videoId);
+    const headImage = Utils.getMeta('image');
+    const thumbnail = (!videoId || headImage.includes(`/${videoId}/`) ? headImage : '') || stringValue(ld?.thumbnailUrl);
 
     const metadata: Record<string, string> = {
       source: 'YouTube',
@@ -124,7 +136,9 @@ register({
       }
     }
 
-    const comments = Array.from(document.querySelectorAll('ytd-comment-thread-renderer'));
+    // The Shorts comment panel is outside the active reel.
+    const panelScope = (route === 'short' && document.querySelector('ytd-shorts:not([hidden])')) || scope;
+    const comments = Array.from(panelScope.querySelectorAll('ytd-comment-thread-renderer'));
     if (comments.length) {
       parts.push('## Comments', '');
       comments.forEach((comment) => {
@@ -138,7 +152,7 @@ register({
       });
     }
 
-    const transcript = extractTranscript();
+    const transcript = extractTranscript(panelScope);
     if (transcript.length) {
       parts.push('## Transcript', '', ...transcript, '');
     }
@@ -157,14 +171,32 @@ function routeKind(pathname: string): string {
   return 'watch';
 }
 
-function readPlayerVideoDetails(): JsonLd | null {
+function videoIdFromUrl(value: string): string {
+  try {
+    const url = new URL(value, document.baseURI);
+    const pathId = /(?:^|\.)youtu\.be$/i.test(url.hostname)
+      ? url.pathname.match(/^\/([\w-]+)/)
+      : url.pathname.match(/^\/(?:shorts|live|embed)\/([\w-]+)/);
+    return url.searchParams.get('v') || pathId?.[1] || '';
+  } catch {
+    return '';
+  }
+}
+
+function readPlayerVideoDetails(videoId: string): JsonLd | null {
   try {
     const win = window as unknown as { ytInitialPlayerResponse?: unknown };
-    const response = asRecord(win.ytInitialPlayerResponse);
-    return asRecord(response?.videoDetails);
+    const player = document.querySelector('#movie_player') as { getPlayerResponse?: () => unknown } | null;
+    // The initial response stays in place after in-app navigation, so the ID must match.
+    for (const response of [player?.getPlayerResponse?.(), win.ytInitialPlayerResponse]) {
+      const details = asRecord(asRecord(response)?.videoDetails);
+      const detailsId = stringValue(details?.videoId);
+      if (details && (!videoId || !detailsId || detailsId === videoId)) return details;
+    }
   } catch {
-    return null;
+    // Ignore restricted window globals.
   }
+  return null;
 }
 
 function extractLikes(scope: ParentNode): string {
@@ -179,9 +211,9 @@ function extractLikes(scope: ParentNode): string {
     const el = scope.querySelector(selector);
     if (!el) continue;
     const aria = el.getAttribute('aria-label') || '';
-    const ariaMatch = aria.match(/along with\s+([\d,.]+(?:\s*[KMB])?)/i)
-      || aria.match(/([\d,.]+(?:\s*[KMB])?)\s*likes?/i)
-      || aria.match(/([\d,.]+(?:\s*[KMB])?)/i);
+    const ariaMatch = aria.match(/along with\s+(\d[\d,.]*(?:\s*(?:thousand|million|billion|[KMB])\b)?)/i)
+      || aria.match(/(\d[\d,.]*(?:\s*(?:thousand|million|billion|[KMB]))?)\s*likes?/i)
+      || aria.match(/(\d[\d,.]*(?:\s*(?:thousand|million|billion|[KMB])\b)?)/i);
     if (ariaMatch) return ariaMatch[1].trim();
     const labelText = el.querySelector('.yt-spec-button-shape-next__button-text-content')?.textContent?.trim()
       || el.textContent?.trim() || '';
@@ -191,14 +223,49 @@ function extractLikes(scope: ParentNode): string {
   return '';
 }
 
-function extractDescription(scope: ParentNode, playerVideo: JsonLd | null): string {
+/** Read the live nodes. Cloning runs YouTube's element constructors, which drop the text. */
+function attributedText(element: Element | null): string {
+  const parts: string[] = [];
+  const visit = (node: Node): void => {
+    if (node.nodeType === Node.TEXT_NODE) {
+      parts.push(node.textContent || '');
+    } else if (node instanceof Element && !node.hasAttribute('hidden')) {
+      const label = node instanceof HTMLAnchorElement ? Markdown.normalizeWhitespace(node.textContent || '') : '';
+      // A timestamp or a hashtag needs no URL, and the chapter list reads plain timestamps.
+      const target = node instanceof HTMLAnchorElement && !/^(?:#|\d+(?::\d{2})+$)/.test(label) ? linkTarget(node.href) : '';
+      if (!target) node.childNodes.forEach(visit);
+      else parts.push(/^https?:/i.test(label) || !label ? target : `[${Markdown.escapeMarkdownLinkText(label)}](${target})`);
+    }
+  };
+  if (element) visit(element);
+  return parts.join('').trim();
+}
+
+function linkTarget(href: string): string {
+  try {
+    const url = new URL(href);
+    const target = url.pathname === '/redirect' ? url.searchParams.get('q') || '' : href;
+    return safeHttpUrl(target).replace(/\(/g, '%28').replace(/\)/g, '%29');
+  } catch {
+    return '';
+  }
+}
+
+function extractDescription(scope: ParentNode, playerVideo: JsonLd | null, videoId: string): string {
+  const playerDescription = stringValue(playerVideo?.shortDescription);
+  if (playerDescription && videoId && stringValue(playerVideo?.videoId) === videoId) return playerDescription;
   const selectors = [
     'ytd-text-inline-expander > yt-attributed-string',
     '#description-inline-expander',
     '#description',
   ];
-  let domDescription = '';
-  for (const selector of selectors) {
+  let domDescription = attributedText(scope.querySelector('#description-inline-expander #expanded yt-attributed-string'));
+  if (!domDescription) {
+    domDescription = attributedText(scope.querySelector('#description-inline-expander #snippet-text'));
+    // A collapsed description shows only its first lines.
+    if (domDescription && scope.querySelector('#description-inline-expander #ellipsis:not([hidden])')) domDescription += ' …';
+  }
+  for (const selector of domDescription ? [] : selectors) {
     const el = scope.querySelector(selector);
     if (!el) continue;
     const cleaned = Utils.removeNoise(el, [
@@ -210,16 +277,15 @@ function extractDescription(scope: ParentNode, playerVideo: JsonLd | null): stri
       break;
     }
   }
-  const playerDescription = stringValue(playerVideo?.shortDescription);
   if (playerDescription && playerDescription.length > domDescription.length) {
     return playerDescription;
   }
   return domDescription;
 }
 
-function extractTranscript(): string[] {
+function extractTranscript(scope: ParentNode): string[] {
   const lines: string[] = [];
-  const legacySegments = Array.from(document.querySelectorAll('ytd-transcript-segment-renderer'));
+  const legacySegments = Array.from(scope.querySelectorAll('ytd-transcript-segment-renderer'));
   if (legacySegments.length) {
     legacySegments.forEach((segment) => {
       const time = segment.querySelector('.segment-timestamp')?.textContent?.trim() || '';
@@ -229,7 +295,7 @@ function extractTranscript(): string[] {
     return lines;
   }
 
-  const modernSegments = Array.from(document.querySelectorAll('transcript-segment-view-model'));
+  const modernSegments = Array.from(scope.querySelectorAll('transcript-segment-view-model'));
   modernSegments.forEach((segment) => {
     const time = segment.querySelector('.ytwTranscriptSegmentViewModelTimestamp, [class*="Timestamp"]')?.textContent?.trim() || '';
     const text = segment.querySelector('.yt-core-attributed-string, yt-formatted-string, [class*="SegmentText"]')?.textContent?.trim() || '';
@@ -245,7 +311,8 @@ function firstText(
   scope: ParentNode = document,
 ): string {
   for (const selector of selectors) {
-    const element = scope.querySelector(selector) || (scope !== document ? document.querySelector(selector) : null);
+    const element = scope.querySelector(selector)
+      || (scope !== document && selector.startsWith('meta') ? document.querySelector(selector) : null);
     if (!element) continue;
     const value = attributeMode
       ? element.getAttribute(attribute) || element.getAttribute('datetime') || element.textContent || ''
@@ -295,6 +362,7 @@ function stringValue(value: unknown): string {
 }
 
 function safeHttpUrl(value: string): string {
+  if (!value) return '';
   try {
     const url = new URL(value, document.baseURI);
     return /^https?:$/.test(url.protocol) ? url.href : '';

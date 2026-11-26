@@ -61,6 +61,8 @@ register({
     let resultCount = 0;
     const seen = new Set<string>();
     results.forEach((result) => {
+      // Current results nest a second .c-container inside the result that holds the target URL.
+      if (result.parentElement?.closest('[mu]')) return;
       if (isBaiduAd(result)) return;
       const title = cleanText(result.querySelector('h3 a, h3, [data-testid="result-title"]')?.textContent || '');
       const muUrl = safeHttpUrl(result.getAttribute('mu') || '');
@@ -118,7 +120,7 @@ function safeHttpUrl(value: string): string {
   try {
     const url = new URL(value, document.baseURI);
     if (!/^https?:$/.test(url.protocol)) return '';
-    if (/^(?:e|pos|cpro)\.baidu\.com$/i.test(url.hostname)) return '';
+    if (/^(?:e|pos|cpro|nourl\.ubs)\.baidu\.com$/i.test(url.hostname)) return '';
     if (/(?:^|\.)baidu\.(?:com|cn)$/i.test(url.hostname)) {
       if (url.pathname === '/s' || url.pathname === '/s/' || url.pathname === '/baidu.php') return '';
     }
