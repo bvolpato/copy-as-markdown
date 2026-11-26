@@ -190,11 +190,12 @@ async function extractBlob(
 
 /** The cloud source viewer renders only the visible lines, so read the file itself. */
 async function fetchRawSource(): Promise<string> {
-  const match = window.location.pathname.match(/^\/[^/]+\/[^/]+\/src\//);
-  if (window.location.hostname !== 'bitbucket.org' || !match) return '';
+  const { hostname, origin, pathname } = window.location;
+  const rawPath = pathname.replace(/^(\/[^/]+\/[^/]+)\/src\//, '$1/raw/');
+  if (hostname !== 'bitbucket.org' || rawPath === pathname) return '';
   try {
     const response = await Utils.fetchWithTimeout(
-      new URL(window.location.pathname.replace('/src/', '/raw/'), window.location.origin).href,
+      new URL(rawPath, origin).href,
       { credentials: 'same-origin', headers: { Accept: 'text/plain' } },
     );
     if (!response.ok || /^text\/html\b/i.test(response.headers.get('content-type') || '')) return '';
@@ -221,10 +222,10 @@ function extractWorkItem(
   const state = text('[data-testid="issue-status"], [data-testid="pull-request-status"], [data-qa="status"], .issue-status')
     || (branchesAndState.length > 3 ? normalize(branchesAndState[branchesAndState.length - 1].textContent || '') : '');
   const author = text('[data-testid="author-name"], [data-qa="author"], .author-name, [data-qa="pr-header-author"]');
-  const created = Array.from(document.querySelectorAll('time[datetime]'))
-    .find((time) => !time.closest('[data-testid="comment"], [data-qa="comment"], [data-qa="pull-request-activity"], .comment'))
-    ?.getAttribute('datetime')?.trim()
-    || text('[data-testid="pr-header"]').match(/\bCreated (\d{4}-\d{2}-\d{2})\b/)?.[1]
+  const created = text('[data-testid="pr-header"]').match(/\bCreated (\d{4}-\d{2}-\d{2})\b/)?.[1]
+    || Array.from(document.querySelectorAll('time[datetime]'))
+      .find((time) => !time.closest('[data-testid="comment"], [data-qa="comment"], [data-qa="pull-request-activity"], .comment'))
+      ?.getAttribute('datetime')?.trim()
     || '';
   if (state) metadata.state = state;
   if (author) metadata.author = author;
@@ -417,6 +418,7 @@ function appendDiffs(parts: string[], metadata: Record<string, string | number>,
 }
 
 function extractDiffLines(diff: Element): string {
+  if (!diff.querySelector('[data-qa="code-line"] pre')) return '';
   const lines: string[] = [];
   for (const element of diff.querySelectorAll('[data-qa="code-line"] pre, div')) {
     const text = element.textContent || '';

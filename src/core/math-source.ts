@@ -1,13 +1,16 @@
 /**
  * Replace rendered math in a detached clone with its TeX source.
- * These renderers hide the source, draw it as SVG, or repeat it. The converter reads KaTeX and LaTeXML itself.
+ * These renderers hide the source, draw it as SVG, or repeat it. The converter reads KaTeX, LaTeXML, and plain MathML itself.
  */
 export function restoreMathSource(root: Element): void {
   const replace = (target: Element, tex: string, isBlock: boolean): void => {
     const source = cleanTex(tex);
     if (!source) return;
-    const replacement = target.ownerDocument.createElement(isBlock ? 'div' : 'span');
-    replacement.textContent = isBlock ? `$$${source}$$` : `$${source}$`;
+    // The converter escapes the backslashes of cell text, but not those of a math element.
+    const inCell = target.closest('td, th') !== null;
+    const replacement = target.ownerDocument.createElement(inCell ? 'math' : isBlock ? 'div' : 'span');
+    if (inCell) replacement.setAttribute('alttext', source);
+    else replacement.textContent = isBlock ? `$$${source}$$` : `$${source}$`;
     target.replaceWith(replacement);
   };
 
@@ -17,7 +20,10 @@ export function restoreMathSource(root: Element): void {
   for (const element of wikiMath) {
     const isBlock = element.matches('.mwe-math-element-block, .mwe-math-fallback-image-display, [display="block"]')
       || Boolean(element.querySelector('.mwe-math-mathml-display, .mwe-math-fallback-image-display'));
-    replace(element.closest('.mwe-math-mathml-a11y') || element, wikiTex(element, root), isBlock);
+    const hidden = element.closest('.mwe-math-mathml-a11y');
+    const tex = wikiTex(element, root);
+    if (tex) replace(hidden || element, tex, isBlock);
+    else hidden?.replaceWith(element);
   }
   // MathJax redraws MediaWiki math beside the hidden element.
   if (wikiMath.length > 0) root.querySelectorAll('mjx-container').forEach((element) => element.remove());
@@ -32,15 +38,10 @@ export function restoreMathSource(root: Element): void {
 
   // MathJax 2 keeps the source in a script after its preview and its output.
   root.querySelectorAll('script[type^="math/tex"]').forEach((script) => {
-    while (script.previousElementSibling?.matches('[class^="MathJax"], [class^="MJX"]')) {
+    while (script.previousElementSibling?.matches('[class^="MathJax"], [class^="MJX"], .MathJax_CHTML, .MJXc-display')) {
       script.previousElementSibling.remove();
     }
     replace(script, script.textContent || '', /mode\s*=\s*display/.test(script.getAttribute('type') || ''));
-  });
-
-  root.querySelectorAll('mjx-container').forEach((element) => {
-    const math = element.querySelector('mjx-assistive-mml math');
-    if (math) replace(element, mathmlToTex(math), element.getAttribute('display') === 'true');
   });
 }
 
@@ -60,7 +61,7 @@ function wikiTex(element: Element, root: Element): string {
     || element.querySelector('annotation[encoding="application/x-tex"]')?.textContent
     || element.querySelector('math[alttext]')?.getAttribute('alttext')
     || (element.matches('img') ? element : element.querySelector('img[alt]'))?.getAttribute('alt')
-    || mathmlToTex(element);
+    || '';
 }
 
 function extensionSource(dataMw: string | null | undefined): string {
@@ -70,28 +71,5 @@ function extensionSource(dataMw: string | null | undefined): string {
     return typeof source === 'string' ? source : '';
   } catch {
     return '';
-  }
-}
-
-function mathmlToTex(node: Node): string {
-  if (node.nodeType === Node.TEXT_NODE) return (node.textContent || '').trim();
-  if (!(node instanceof Element)) return '';
-  const children = Array.from(node.childNodes, mathmlToTex).filter(Boolean);
-  const [first = '', second = '', third = ''] = children;
-  switch (node.localName) {
-    case 'msub':
-    case 'munder': return `${first}_{${second}}`;
-    case 'msup':
-    case 'mover': return `${first}^{${second}}`;
-    case 'msubsup':
-    case 'munderover': return `${first}_{${second}}^{${third}}`;
-    case 'mfrac': return `\\frac{${first}}{${second}}`;
-    case 'msqrt': return `\\sqrt{${children.join('')}}`;
-    case 'mroot': return `\\sqrt[${second}]{${first}}`;
-    case 'mtr': return children.join(' & ');
-    case 'mtable': return children.join(' \\\\ ');
-    case 'annotation':
-    case 'annotation-xml': return '';
-    default: return children.join('');
   }
 }

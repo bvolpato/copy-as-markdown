@@ -115,6 +115,17 @@ export const GITHUB_CASES = [
     ordered: ['### reviewer (2026-10-02T12:00:00Z)', 'Please rename this.', '### opener (2026-10-03T12:00:00Z)', 'Renamed.'],
   },
   {
+    id: 'github-formula-and-embedded-code-in-tables',
+    name: 'GitHub',
+    url: 'https://github.com/acme/project/issues/14',
+    html: `<main><h1><span data-testid="issue-title">Tables</span></h1><div data-testid="issue-body"><div data-testid="issue-body-viewer"><table>
+      <tr><th>Rate</th><th>Code</th></tr>
+      <tr><td><math-renderer class="js-inline-math"><math data-latex="\\frac{\\alpha}{b}"><mfrac><mi>α</mi><mi>b</mi></mfrac></math></math-renderer></td>
+        <td><div class="blob-wrapper"><table><tr><td class="blob-num"></td><td class="blob-code blob-code-inner">const a = 1;\n</td></tr></table></div></td></tr>
+    </table></div></div></main>`,
+    expected: ['| Rate | Code |\n| --- | --- |\n| $`\\frac{\\alpha}{b}`$ | `const a = 1;` |'],
+  },
+  {
     id: 'github-discussion-authors-and-answer-preview',
     name: 'GitHub',
     url: 'https://github.com/acme/project/discussions/12',

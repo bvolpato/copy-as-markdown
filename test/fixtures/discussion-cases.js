@@ -151,13 +151,14 @@ export const DISCUSSION_CASES = [
     name: 'Stack Overflow',
     url: 'https://math.stackexchange.com/questions/123/example',
     html: `<div id="question-header"><h1><a>Roots</a></h1></div>
-      <div class="question"><div class="s-prose"><p>Let <span class="math-container"><span class="MathJax_Preview"></span><span class="MathJax">x2</span><script type="math/tex">x^2</script></span> be even.</p></div></div>
+      <div class="question"><div class="s-prose"><p>Let <span class="math-container"><span class="MathJax_Preview"></span><span class="MathJax">x2</span><script type="math/tex">x^2</script></span> and
+        <span class="math-container"><span class="MathJax_Preview"></span><span class="mjx-chtml MathJax_CHTML">y2</span><script type="math/tex">y^2</script></span> be even.</p></div></div>
       <div class="answer accepted-answer"><div class="js-vote-count">3</div><div class="s-prose"><p>Yes.</p></div>
         <div class="post-signature owner"><div class="user-info"><div class="user-gravatar32"><a href="/users/1/ada"><img alt=""></a></div>
           <div class="user-details"><a href="/users/1/ada">Ada</a></div></div></div></div>
       <div class="answer"><div class="js-vote-count">0</div><div class="s-prose"><p>No.</p></div>
         <div class="post-signature"><div class="user-info"><div class="user-gravatar32"></div><div class="user-details">user12345 <div class="-flair"></div></div></div></div></div>`,
-    expected: ['Let $x^2$ be even.', '### ✅ Answer 1 (3 votes) by Ada', '### Answer 2 (0 votes) by user12345'],
+    expected: ['Let $x^2$ and $y^2$ be even.', '### ✅ Answer 1 (3 votes) by Ada', '### Answer 2 (0 votes) by user12345'],
   },
   {
     id: 'discourse-current-post-header',

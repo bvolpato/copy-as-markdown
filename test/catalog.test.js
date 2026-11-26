@@ -269,14 +269,14 @@ try {
   });
   await check('Bitbucket reads source files and current pull request headers', async () => {
     await fixture({
-      name: 'Bitbucket', url: 'https://bitbucket.org/team/project/src/main/app.js', html: '<main><div role="code"></div></main>',
-      resources: { '/team/project/raw/main/app.js': { contentType: 'text/plain', body: 'run();\n' } }, expected: ['```js\nrun();\n```'],
+      name: 'Bitbucket', url: 'https://bitbucket.org/team/src/src/main/app.js', html: '<main><div role="code"></div></main>',
+      resources: { '/team/src/raw/main/app.js': { contentType: 'text/plain', body: 'run();\n' } }, expected: ['```js\nrun();\n```'],
     });
     await fixture({
       name: 'Bitbucket', url: 'https://bitbucket.org/team/project/pull-requests/9/diff',
       html: `<main><div data-testid="pr-header"><div data-qa="pr-header-author"><span hidden>Ada Example</span></div><div data-qa="pr-branches-and-state-styles"><div>from</div><div>To</div><div>main</div><div>Merged</div></div><span>#9 • Created 2026-08-24 • Last updated 2026-09-01</span></div>
         <article data-qa="branch-diff-file"><h2 data-qa="bk-filepath">app.js</h2><div><div>@@ -1 +1 @@</div><div data-qa="code-line"><pre><span>-</span><span>old();</span></pre></div><div data-qa="code-line"><pre><span>+</span><span>run();</span></pre></div></div></article>
-        <div data-testid="pr-diff-placeholder-wrapper"></div>
+        <div data-testid="pr-diff-placeholder-wrapper"></div><div data-testid="pr-cards-list"><time datetime="2026-09-02"></time></div>
         <div data-testid="comment"><span data-testid="comment-header"><span role="presentation">Grace</span></span><time datetime="2026-09-01"></time><div data-testid="comment-content"><p>Looks right.</p></div></div></main>`,
       expected: ['**Status:** Merged', '**Author:** Ada Example', '**Created:** 2026-08-24', '```diff\n@@ -1 +1 @@\n-old();\n+run();\n```', '*1 changed files are not rendered yet.', '### Grace (2026-09-01)'],
     });
@@ -351,14 +351,14 @@ try {
   await check('Wikipedia preserves citations and reference targets', () => fixture({
     name: 'Wikipedia', url: 'https://en.wikipedia.org/wiki/Audit', html: '<h1 id="firstHeading">Audit</h1><main id="mw-content-text"><p>Claim<sup class="reference"><a href="#cite-note-1">[1]</a></sup></p><div class="reflist"><ol><li id="cite-note-1"><a href="https://source.example/paper">Reference title</a></li></ol></div></main>', expected: ['[1]', 'Reference title', 'https://source.example/paper'],
   }));
-  for (const [renderer, math] of Object.entries({
-    legacy: '<span class="mwe-math-element"><span class="mwe-math-mathml-inline mwe-math-mathml-a11y" style="display: none"><math alttext="{\\displaystyle E=mc^{2}}"></math></span><img class="mwe-math-fallback-image-inline" aria-hidden="true" alt="{\\displaystyle E=mc^{2}}" src="https://example.org/math.svg"></span>',
-    Parsoid: `<span class="mwe-math-mathml-a11y" style="display: none"><math class="mwe-math-element" data-mw='{"body":{"extsrc":"E=mc^{2}"}}'><mi>E</mi></math></span><mjx-container><svg></svg></mjx-container>`,
-    MathML: '<math class="mwe-math-element"><mi>E</mi><mo>=</mo><mi>m</mi><msup><mi>c</mi><mn>2</mn></msup></math>',
-  })) {
-    await check(`Wikipedia keeps the source of ${renderer} math`, () => fixture({
+  for (const [renderer, math, expected = 'Formula $E=mc^{2}$ here.'] of [
+    ['legacy', '<span class="mwe-math-element"><span class="mwe-math-mathml-inline mwe-math-mathml-a11y" style="display: none"><math alttext="{\\displaystyle E=mc^{2}}"></math></span><img class="mwe-math-fallback-image-inline" aria-hidden="true" alt="{\\displaystyle E=mc^{2}}" src="https://example.org/math.svg"></span>'],
+    ['Parsoid', `<span class="mwe-math-mathml-a11y" style="display: none"><math class="mwe-math-element" data-mw='{"body":{"extsrc":"E=mc^{2}"}}'><mi>E</mi></math></span><mjx-container><svg></svg></mjx-container>`],
+    ['MathML', '<span class="mwe-math-mathml-a11y" style="display: none"><math class="mwe-math-element"><mi>E</mi><mo>=</mo><mi>m</mi><msup><mi>c</mi><mn>2</mn></msup></math></span>', 'Formula E=mc^(2) here.'],
+  ]) {
+    await check(`Wikipedia keeps ${renderer} math`, () => fixture({
       name: 'Wikipedia', url: 'https://en.wikipedia.org/wiki/Energy', html: `<h1 id="firstHeading">Energy</h1><main id="mw-content-text"><p>Formula ${math} here.</p></main>`,
-      expected: ['Formula $E=mc^{2}$ here.'],
+      expected: [expected],
     }));
   }
   await check('MDN reads code examples and compatibility tables from nested shadow roots', () => fixture({
@@ -370,7 +370,7 @@ try {
       lazy.innerHTML = '<mdn-compat-table></mdn-compat-table>';
       lazy.firstChild.attachShadow({ mode: 'open' }).innerHTML = '<table class="bc-table"><tr><th>Feature</th></tr><tr><td>Chrome 1</td></tr></table>';
     }),
-    expected: ['**Status:** Baseline Widely available', '## Syntax\n\n```js\nrun();\n```', '| Chrome 1 |'], excluded: ['Support text'],
+    expected: ['**Status:** Baseline Widely available', '## Syntax\n\n```js\nrun();\n```', 'Support text', '| Chrome 1 |'], occurrences: { 'Widely available': 1 },
   }));
   await check('Datadog documentation fallback retains code-toolbar contents', () => fixture({
     name: 'Datadog Documentation', url: 'https://docs.datadoghq.com/audit/', html: '<main id="mainContent"><h1>Audit</h1><div class="code-toolbar"><pre><code class="language-python">print("CODE_END")</code></pre><div class="toolbar"><button>Copy noise</button></div></div></main>', expected: ['CODE_END', '```python'], excluded: ['Copy noise'],

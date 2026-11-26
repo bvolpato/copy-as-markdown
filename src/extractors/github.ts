@@ -944,7 +944,8 @@ function bodyToMarkdown(element: Element, noise: string[] = []): string {
     if (pre && language && !pre.querySelector('code')) pre.classList.add(`language-${language}`);
   }
   for (const table of clone.querySelectorAll('table')) {
-    const cells = Array.from(table.querySelectorAll('td.blob-code-inner, td.blob-code'));
+    const cells = Array.from(table.querySelectorAll('td.blob-code-inner, td.blob-code'))
+      .filter((cell) => cell.closest('table') === table);
     if (cells.length === 0) continue;
     const isDiff = cells.some((cell) => diffMarker(cell) !== ' ');
     const pre = table.ownerDocument.createElement('pre');
