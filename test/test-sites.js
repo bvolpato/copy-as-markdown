@@ -396,16 +396,19 @@ async function runRegressionChecks(browser, scriptContent) {
           },
         },
       });
-      document.execCommand = () => false;
     });
-    const failure = await toolbarPage.evaluate(() => new Promise(resolve => {
-      window.__camMessageListener(
-        { action: 'copy-as-markdown' },
-        {},
-        response => resolve(response),
-      );
-    }));
-    assertCheck(failure.success === false, 'clipboard denial was reported as success');
+    // Browsers return true from execCommand even when nothing reaches the clipboard.
+    for (const commandResult of [true, false]) {
+      const failure = await toolbarPage.evaluate(result => new Promise(resolve => {
+        document.execCommand = () => result;
+        window.__camMessageListener(
+          { action: 'copy-as-markdown' },
+          {},
+          response => resolve(response),
+        );
+      }), commandResult);
+      assertCheck(failure.success === false, `clipboard denial was reported as success: ${commandResult}`);
+    }
     const failureToast = await toolbarPage.$eval('#cam-toast', element => element.textContent);
     assertCheck(failureToast.includes('Copy failed'), 'clipboard denial did not show page feedback');
     log('✅', 'Toolbar waits for clipboard result and reports denied writes');
@@ -1740,11 +1743,17 @@ DD_SITE=datadoghq.com
   const strictCsp = "script-src 'unsafe-inline'; require-trusted-types-for 'script'; trusted-types 'none'";
   const selectionPage = await createFixturePage(browser, scriptContent, {
     url: 'https://fixture.test/selection',
-    csp: strictCsp,
+    csp: `${strictCsp}; style-src 'self'`,
     html: `<!doctype html><html><head><title>Selection fixture</title></head><body>
       <main>
+        <ol><li>first item</li><li>second item</li><li>third item</li></ol>
+        <table><tbody><tr><td>A1</td><td>B1</td></tr><tr><td>A2</td><td>B2</td></tr></tbody></table>
         <p id="selected">alpha\u2028beta / 10\u202F000 / می\u200Cروم / 👩\u200D💻 / \u2066isolated\u2069 / A\u00A0B\u1680C\u2007D\u205FE\u3000F / \u201Cdouble\u201D \u2018single\u2019 \u2014 \u2013 \u2212 \u2026 / ＦＵＬＬ ﬁ / water\u200Bmark\u200Ctest\u200Dvalue\u2060\uFE0F\u{E0100}\u{E0061}</p>
         <p>must not copy</p>
+        <ul id="nested"><li>Parent one</li><ul><li>Nested child</li></ul><li>Parent two</li></ul>
+        <ul id="wrapped"><div><li>wrapped one</li></div><div><li>wrapped two</li></div></ul>
+        <table id="steps"><tbody><tr><td><h2>Step one</h2><pre>make build</pre></td></tr><tr><td>Step two</td></tr></tbody></table>
+        <footer id="footer">Footer text</footer>
       </main>
     </body></html>`,
   });
@@ -1767,7 +1776,52 @@ DD_SITE=datadoghq.com
     assertCheck(markdown.includes('watermarktestvalue'), `Invisible watermark characters were not removed: ${JSON.stringify(markdown)}`);
     assertCheck(!/[\u200B\u2060\uFE0F\u{E0100}\u{E0061}]/u.test(markdown), 'Invisible watermark code points survived normalization');
     assertCheck(!markdown.includes('must not copy'), 'Selected-text fallback copied unselected content');
-    log('✅', 'Strict Trusted Types selection works and Unicode output is sanitized');
+
+    const position = await selectionPage.$eval('.cam-floating-wrapper', wrapper => getComputedStyle(wrapper).position);
+    assertCheck(position === 'fixed', `Strict style policy left the button unstyled: ${position}`);
+    const copySelection = async (first, last) => {
+      await selectionPage.evaluate((first, last) => {
+        const [start, end] = [document.querySelector(first), document.querySelector(last)];
+        window.getSelection().setBaseAndExtent(start, 0, end, end.childNodes.length);
+      }, first, last);
+      return clickAndCapture(selectionPage);
+    };
+    const items = await copySelection('li:nth-child(2)', 'li:nth-child(3)');
+    assertCheck(items.endsWith('\n2. second item\n3. third item'), `Partial list selection lost its items: ${JSON.stringify(items)}`);
+    const rows = await copySelection('tr:first-child > td', 'tr:last-child > td:last-child');
+    assertCheck(rows.endsWith('| A1 | B1 |\n| --- | --- |\n| A2 | B2 |'), `Partial table selection lost its cells: ${JSON.stringify(rows)}`);
+    for (const [first, last, expected] of [
+      ['tr:first-child > td:last-child', 'tr:last-child > td:last-child', '|  | B1 |\n| --- | --- |\n| A2 | B2 |'],
+      ['#nested > li', '#nested > li:last-child', '- Parent one\n  - Nested child\n- Parent two'],
+      ['#wrapped li', '#wrapped > div:last-child > li', '- wrapped one\n- wrapped two'],
+      ['#steps td', '#steps tr:last-child > td', '## Step one\n\n```\nmake build\n```\n\nStep two'],
+    ]) {
+      const partial = await copySelection(first, last);
+      assertCheck(partial.endsWith(`\n---\n\n${expected}`), `Partial selection of ${first} lost content: ${JSON.stringify(partial)}`);
+    }
+    await selectionPage.evaluate(() => {
+      const range = document.createRange();
+      range.selectNode(document.querySelector('#footer'));
+      window.getSelection().removeAllRanges();
+      window.getSelection().addRange(range);
+    });
+    const unconverted = await clickAndCapture(selectionPage);
+    assertCheck(unconverted.endsWith('\n---\n\nFooter text'), `A selection without Markdown output copied the page: ${JSON.stringify(unconverted)}`);
+    // Firefox selects several ranges. Chrome keeps one, so provide the same interface.
+    await selectionPage.evaluate(() => {
+      const values = ['li:nth-child(1)', 'li:nth-child(3)'].map(selector => {
+        const range = document.createRange();
+        range.selectNodeContents(document.querySelector(selector));
+        return range;
+      });
+      window.getSelection = () => ({
+        rangeCount: 2, isCollapsed: false, anchorNode: values[0].startContainer,
+        getRangeAt: index => values[index], toString: () => values.join(' '),
+      });
+    });
+    const ranges = await clickAndCapture(selectionPage);
+    assertCheck(/first item\s+third item$/.test(ranges), `Separate ranges were joined: ${JSON.stringify(ranges)}`);
+    log('✅', 'Strict CSP selection keeps structure and Unicode output is sanitized');
   } finally {
     await selectionPage.close();
   }
@@ -2876,7 +2930,7 @@ async function runExpandedPlatformChecks(browser, scriptContent) {
       url: 'https://huggingface.co/datasets/HuggingFaceFW/fineweb/tree/main',
       html: `<main><div data-target="ViewerIndexTreeList" data-props='${JSON.stringify({
         entries: [
-          { path: 'data', type: 'directory', lastCommit: { date: '2026-08-20' } },
+          { path: 'data', type: 'directory', size: 0, lastCommit: { date: '2026-08-20' } },
           { path: 'README.md', type: 'file', size: 2048, lastCommit: { date: '2026-08-21' } },
           { path: 'notes\\unsafe|name.md', type: 'file', size: 8 },
           { path: 'a)b.md', type: 'file', size: 4 },
@@ -2892,6 +2946,27 @@ async function runExpandedPlatformChecks(browser, scriptContent) {
         '[bad name.md](https://huggingface.co/datasets/HuggingFaceFW/fineweb/blob/main/bad%0Aname.md)',
         '2.05 kB', 'Listing includes current directory entries exposed by rendered page',
       ],
+      excluded: ['0 B'],
+    },
+    {
+      name: 'Hugging Face file',
+      extractor: 'Hugging Face',
+      url: 'https://huggingface.co/fixture/model/blob/main/config.json',
+      html: `<main><div>HF_FILE_TOOLBAR_NOISE</div><div class="blob-content"><table><tbody>
+        <tr id="L1"><td></td><td><span>{</span></td></tr><tr id="L2"><td></td><td>  <span>"size"</span>: 1</td></tr><tr id="L3"><td></td><td>}</td></tr>
+      </tbody></table></div></main>`,
+      expected: ['# fixture/model: config.json', '```json\n{\n  "size": 1\n}\n```'],
+      excluded: ['HF_FILE_TOOLBAR_NOISE'],
+    },
+    {
+      name: 'Hugging Face commit',
+      extractor: 'Hugging Face',
+      url: 'https://huggingface.co/fixture/model/commit/abc123',
+      html: `<main><table class="d2h-diff-table"><tbody>
+        <tr><td></td><td><div class="d2h-code-side-line">@@ -1 +1 @@</div></td></tr>
+        <tr><td>1</td><td><div class="d2h-code-side-line"><span class="d2h-code-line-prefix">+</span><span class="d2h-code-line-ctn">    indented()</span></div></td></tr>
+      </tbody></table></main>`,
+      expected: ['```diff\n@@ -1 +1 @@\n+    indented()\n```'],
     },
     {
       name: 'Artificial Analysis',
@@ -3059,6 +3134,25 @@ async function runExpandedPlatformChecks(browser, scriptContent) {
       exactOccurrences: { '### Intelligence': 1 },
     },
     {
+      name: 'Artificial Analysis leaderboard',
+      extractor: 'Artificial Analysis',
+      url: 'https://artificialanalysis.ai/leaderboards/models',
+      html: `<main><section><h1>LLM Leaderboard</h1><p>Compare fixture models.</p></section><table>
+        <thead><tr><th><button><span>Model</span></button></th><th><button><span><span>Cost</span><span>USD</span></span></button></th></tr></thead>
+        <tbody><tr><td><button>Fixture Frontier</button></td><td>$4.00</td></tr></tbody></table></main>
+        <script type="application/ld+json">{"@type":"Dataset","name":"Intelligence","data":null}</script>
+        <script type="application/ld+json">{"@type":"FAQPage","mainEntity":[{"name":"Which model leads?","acceptedAnswer":{"text":"Fixture Frontier leads."}}]}</script>`,
+      expected: ['| Model | Cost USD |', '| Fixture Frontier | $4.00 |', '### Which model leads?'],
+    },
+    {
+      name: 'Artificial Analysis article',
+      extractor: 'Artificial Analysis',
+      url: 'https://artificialanalysis.ai/insights/fixture-article',
+      html: `<main><article><h1>Fixture article</h1><p>Fixture finding.</p>
+        <table><tbody><tr><th><button>Model</button></th></tr><tr><td>Fixture Frontier</td></tr></tbody></table><p>Fixture conclusion.</p></article></main>`,
+      expected: ['Fixture finding.', '| Model |', 'Fixture conclusion.'],
+    },
+    {
       name: 'OpenRouter',
       extractor: 'OpenRouter',
       url: 'https://openrouter.ai/fixture/model-v1',
@@ -3127,6 +3221,7 @@ async function runExpandedPlatformChecks(browser, scriptContent) {
                   completion: '0.000001875',
                   input_cache_read: '0.0000000375',
                   web_search: '0.014',
+                  image: '-1',
                 },
                 top_provider: {
                   context_length: 1048576,
@@ -3168,7 +3263,7 @@ async function runExpandedPlatformChecks(browser, scriptContent) {
         '# Fixture: Model V1', 'Fixture model description from JSON-LD.',
         '| Model ID | fixture/model-v1 |', '| Canonical slug | fixture/model-v1-20260814 |',
         '| input_modalities | text, image |',
-        '| prompt | 0.000000375 | $0.375 / 1M input tokens |',
+        '| prompt | 0.000000375 | $0.375 / 1M input tokens |', '| image | -1 | Variable |',
         'structured_outputs', '| supported_efforts | low, high |',
         '| artificial_analysis.intelligence_index | 88.5 |',
         '| future_definition.routing_class | exact |',
@@ -3294,13 +3389,15 @@ async function runExpandedPlatformChecks(browser, scriptContent) {
             <div class="sm:hidden"><span>74%±4%</span><span>Avg cost $11.84</span><span>Out tok 118k</span><span>Steps 99</span></div>
             <div class="hidden sm:block"><span>74%±4%</span><span>$11.84</span><span>118k</span><span>99</span></div>
           </div>
+          <div data-chart-pin-source><span class="font-medium text-foreground">fixture-large-model</span><span>70%±1%</span>
+            <span>Avg cost $1,234.50</span><span>Out tok 1.2M</span><span>Steps <span>1,024</span></span><span>70%±1%</span></div>
           <svg role="img"><text>FALLBACK_SVG_NOISE</text></svg>
         </section>
       </main>`,
       expected: [
         '# DeepSWE', '| Version | v1.1 |',
         '| fixture-fallback-model | high | 74% | 70% to 78%',
-        '| $11.84 | 118,000 | 99 |',
+        '| $11.84 | 118,000 | 99 |', '| $1,234.50 | 1,200,000 | 1,024 |',
       ],
       excluded: ['FALLBACK_SVG_NOISE', '74%±4%74%±4%'],
       exactOccurrences: { 'fixture-fallback-model': 1, '$11.84': 1, '118,000': 1 },
@@ -3434,6 +3531,15 @@ async function runExpandedPlatformChecks(browser, scriptContent) {
           <a data-print-reference data-reference-title="Markdown guide" href="https://example.com/markdown-guide">Reference</a></div>
       </article></main>`,
       expected: ['LeetLLM lesson fixture body.', 'print("hello")', 'Markdown guide'],
+    },
+    {
+      name: 'LeetLLM blog index',
+      extractor: 'LeetLLM',
+      url: 'https://www.leetllm.com/blog',
+      html: `<meta name="description" content="Practical fixture notes."><main><header><h1>Fixture Blog</h1><p>Practical fixture notes.</p></header>
+        <section><a href="/blog/first"><article><h2>First post</h2></article></a></section>
+        <section><a href="/blog/second"><article><h3>Second post about <span class="katex"><math><semantics><mi>x2</mi><annotation encoding="application/x-tex">x^2</annotation></semantics></math></span></h3></article></a></section></main>`,
+      expected: ['# Fixture Blog', 'Practical fixture notes.', 'First post', 'Second post about $x^2$'],
     },
     {
       name: 'WhatsApp',
@@ -3705,6 +3811,8 @@ async function runExpandedPlatformChecks(browser, scriptContent) {
     ['Notion public settings', 'https://workspace.notion.site/settings'],
     ['Notion private settings', 'https://www.notion.so/settings'],
     ['OpenRouter models index', 'https://openrouter.ai/models'],
+    ['OpenRouter blog', 'https://openrouter.ai/blog/announcements'],
+    ['Hugging Face profile tab', 'https://huggingface.co/google/models'],
   ];
   for (const [name, url] of nonContentRoutes) {
     const page = await createFixturePage(browser, scriptContent, {
@@ -4744,6 +4852,12 @@ async function runProductionUiChecks(browser, scriptContent) {
     await optOutPage.waitForFunction(() => !document.querySelector('#cam-copy-btn'), { timeout: 4000 });
     await optOutPage.evaluate(() => document.getElementById('copy_as_markdown_btn').remove());
     await optOutPage.waitForSelector('#cam-copy-btn', { timeout: 5000 });
+    await optOutPage.evaluate(() => { document.querySelector('main').id = 'copy_as_markdown_btn'; });
+    await optOutPage.waitForFunction(() => !document.querySelector('#cam-copy-btn'), { timeout: 4000 });
+    await optOutPage.evaluate(() => document.body.replaceWith(document.createElement('body')));
+    await optOutPage.waitForSelector('#cam-copy-btn', { timeout: 5000 });
+    await optOutPage.evaluate(() => { document.body.innerHTML = '<div id="copy_as_markdown_btn"></div>'; });
+    await optOutPage.waitForFunction(() => !document.querySelector('#cam-copy-btn'), { timeout: 4000 });
     log('✅', 'Site-owned button contract suppresses injected UI dynamically');
   } finally {
     await optOutPage.close();
@@ -4753,7 +4867,11 @@ async function runProductionUiChecks(browser, scriptContent) {
     url: 'https://floating.fixture.test/regression',
     html: `<!doctype html>
       <html>
-        <head><title>Fallback page</title></head>
+        <head>
+          <title>Fallback page</title>
+          <style>button { min-width: 44px; min-height: 44px; } * { transition: all 0.2s; }</style>
+          <script>var CSS = {};</script>
+        </head>
         <body>
           <main><h1>Fallback article</h1><p>Enough text for fallback extraction.</p></main>
           <button id="talk-widget" style="position: fixed; right: 16px; bottom: 16px; width: 64px; height: 64px;">Talk with us</button>
@@ -4840,10 +4958,20 @@ async function runProductionUiChecks(browser, scriptContent) {
         title: button.title,
       };
     });
-    assertCheck(Math.abs(dragged.left - layout.button.left) > 100, 'floating button did not move after drag');
+    assertCheck(
+      Math.abs(dragged.left + 19 - 80) < 5 && Math.abs(dragged.top + 19 - 180) < 5,
+      `floating button did not follow the pointer: ${dragged.left}, ${dragged.top}`,
+    );
     assertCheck(dragged.copyCount === 0, 'dragging floating button triggered copy');
     assertCheck(Number.isFinite(dragged.stored?.left) && Number.isFinite(dragged.stored?.top), 'floating position was not persisted');
     assertCheck(dragged.title.includes('Drag to reposition'), 'floating button does not advertise drag behavior');
+
+    await floatingPage.setViewport({ width: 300, height: 120 });
+    await floatingPage.waitForFunction(() => {
+      const rect = document.querySelector('.cam-floating-wrapper').getBoundingClientRect();
+      return rect.bottom <= innerHeight;
+    }, { timeout: 2000 });
+    await floatingPage.setViewport({ width: 390, height: 844 });
 
     await floatingPage.addScriptTag({ content: scriptContent });
     await new Promise(r => setTimeout(r, 800));
@@ -4872,6 +5000,52 @@ async function runProductionUiChecks(browser, scriptContent) {
     log('✅', 'Floating button hides when printing, avoids widgets, drags safely, and remains singleton');
   } finally {
     await floatingPage.close();
+  }
+
+  const threadSchema = [[
+    { '@type': 'Product', offers: { price: null, priceCurrency: 'USD' }, aggregateRating: { ratingValue: null } },
+    { '@type': 'Product', name: 'Schema title', author: [{ name: 'Ann' }, { name: 'Bob' }], aggregateRating: { ratingValue: '9.1', bestRating: 10, reviewCount: 200 } },
+  ]];
+  const threadPage = await createFixturePage(browser, scriptContent, {
+    url: 'https://thread.fixture.test/regression',
+    html: `<!doctype html><html><head><title>Thread</title>
+      <script type="application/ld+json">${JSON.stringify(threadSchema)}</script></head><body><div><div>
+      ${[1, 2, 3].map(id => `<div class="post"><div class="post-body"><div><p>${`Reply ${id} has its own text. `.repeat(12)}</p></div></div></div>`).join('')}
+      </div></div></body></html>`,
+  });
+  try {
+    const thread = await clickAndCapture(threadPage, 'fallback thread');
+    assertCheck([1, 2, 3].every(id => thread.includes(`Reply ${id} has its own text.`)), 'fallback copied one post of a thread');
+    assertCheck(
+      ['title: Schema title', 'author: Ann, Bob', 'rating: 9.1/10 (200 reviews)'].every(line => thread.includes(line)) && !thread.includes('null'),
+      `fallback misread JSON-LD: ${thread.slice(0, 200)}`,
+    );
+    await threadPage.evaluate(() => {
+      const prose = 'Application text in plain blocks. '.repeat(12);
+      const prompt = 'This site uses cookies and similar technologies. '.repeat(8);
+      document.body.innerHTML = `<div><div><span>${prose}</span></div></div><div class="cookie-notice"><div><p>${prompt}</p></div></div>`;
+    });
+    const app = await clickAndCapture(threadPage, 'fallback consent prompt');
+    assertCheck(app.includes('Application text in plain blocks.'), 'fallback copied only a consent prompt');
+
+    const prose = (label, count) => `<p>${label} has a sentence that is long enough to count as prose.</p>`.repeat(count);
+    const copyBody = async (html) => {
+      await threadPage.evaluate(value => { document.body.innerHTML = value; }, html);
+      return clickAndCapture(threadPage, 'fallback content choice');
+    };
+    const consent = await copyBody(`<div id="informed-consent">${prose('Study', 10)}</div><div class="promo">${prose('Promo', 3)}</div>`);
+    assertCheck(consent.includes('Study has'), 'fallback dropped short content with a consent ID');
+    for (const html of [
+      `<div><div class="col" id="content">${prose('Main', 10)}</div><div class="col" id="comments">${prose('Other', 4)}</div></div>`,
+      `<div class="wrapper"><div>${prose('Main', 10)}</div></div><div class="wrapper"><div>${prose('Other', 4)}</div></div>`,
+      `<div><div class="block"><article>${prose('Main', 10)}</article></div><div class="block"><div>${prose('Other', 4)}</div></div></div>`,
+    ]) {
+      const content = await copyBody(html);
+      assertCheck(content.includes('Main has') && !content.includes('Other has'), `fallback joined unrelated blocks: ${html.slice(0, 40)}`);
+    }
+    log('✅', 'Fallback keeps thread posts and app text, and reads JSON-LD scalars');
+  } finally {
+    await threadPage.close();
   }
 
   const anchorPage = await browser.newPage();

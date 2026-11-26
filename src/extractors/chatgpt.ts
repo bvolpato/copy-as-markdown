@@ -8,13 +8,16 @@ import { register } from '../core/registry';
 import * as Markdown from '../core/markdown';
 import * as Utils from '../core/utils';
 import { addExtractionMetadata, limitCollection, limitMarkdown } from '../core/context';
+import {
+  cloneMessage, conversationPageTitle, conversationUrl, createTurnOwner, hasHistoryControl,
+  isAriaHidden, isFaviconUrl, isInText, isPageAnchor, messageToMarkdown, renderedBlocks, type Role,
+} from '../core/ai-conversation';
 
 const MAX_TURNS = 200;
 const CURRENT_USER = '[data-user-message-bubble]';
-const CURRENT_ASSISTANT = '[data-markdown-text-style="assistant-message"]';
+const CURRENT_ASSISTANT = '[data-markdown-text-style="assistant-message"], [data-assistant-markdown-root]';
 
-type Role = 'user' | 'assistant';
-type Turn = { role: Role; element: Element; container: Element };
+type Turn = { role: Role; element: Element; container: Element; blocks?: Element[] };
 
 register({
   name: 'ChatGPT',
@@ -39,7 +42,7 @@ register({
   },
 
   async extract() {
-    const url = Utils.getCanonicalUrl();
+    const url = conversationUrl();
     const title = conversationTitle();
     const metadata: Record<string, string | number> = {
       source: 'ChatGPT',
@@ -59,20 +62,25 @@ register({
     let assistantCount = 0;
     let imageCount = 0;
     let codeBlockCount = 0;
+    const owns = createTurnOwner(turns.items);
 
     for (const turn of turns.items) {
-      const cleaned = clean(turn.element);
-      let content = Markdown.elementToMarkdown(cleaned);
-      const images = standaloneImages(turn.container, turn.element);
+      const contentNodes = turn.blocks || [turn.element];
+      const cleanedNodes = contentNodes.map((node) => clean(node));
+      let content = cleanedNodes.map(messageToMarkdown).filter(Boolean).join('\n\n');
+      const images = standaloneImages(turn.container, contentNodes, (node) => owns(turn, node));
       if (images.length) content = `${content}\n\n${images.join('\n')}`.trim();
       if (!content) continue;
 
-      const citations = extractCitations(turn.container);
+      const citations = extractCitations(turn.container, (link) => owns(turn, link, turn.role));
       citations.forEach((citation) => citationUrls.add(citation.href));
       if (turn.role === 'user') userCount += 1;
       else assistantCount += 1;
-      imageCount += cleaned.querySelectorAll('img[src]').length + images.length;
-      codeBlockCount += cleaned.querySelectorAll('pre').length;
+      imageCount += images.length;
+      for (const node of cleanedNodes) {
+        imageCount += node.querySelectorAll('img[src]').length;
+        codeBlockCount += node.querySelectorAll('pre').length;
+      }
 
       parts.push('', `## ${turn.role === 'user' ? '👤 User' : '🤖 Assistant'}`, '', content);
       if (turn.role === 'assistant' && citations.length) {
@@ -88,7 +96,7 @@ register({
     if (!captured) {
       const fallback = document.querySelector('[data-chatgpt-conversation-selection-target], [data-thread-find-target="conversation"]')
         || document.querySelector('main, [role="main"], [class*="thread"], #__next');
-      if (fallback) parts.push('', Markdown.elementToMarkdown(clean(fallback)));
+      if (fallback) parts.push('', messageToMarkdown(clean(fallback)));
     }
 
     metadata.turn_count = captured;
@@ -129,7 +137,19 @@ function collectTurns(): Turn[] {
     for (const root of roots) {
       const explicitRole = roleFor(root);
       if (explicitRole) {
-        result.push({ role: explicitRole, element: messageContent(root) || root, container: root });
+        // One turn can hold several messages, such as a preamble before a tool call.
+        const messages = renderedBlocks(
+          Array.from(root.querySelectorAll(`[data-message-author-role="${explicitRole}"]`)),
+        );
+        const blocks = messages.length > 1
+          ? messages.map((message) => messageContent(message) || message)
+          : undefined;
+        result.push({
+          role: explicitRole,
+          element: blocks?.[0] || messageContent(messages[0] || root) || messageContent(root) || root,
+          container: root,
+          blocks,
+        });
         continue;
       }
       const user = queryFirst(root, [
@@ -223,11 +243,14 @@ function dedupeTurns(turns: Turn[]): Turn[] {
   return unique.filter((turn) => !unique.some((other) => (
     other.role === turn.role
     && other.element !== turn.element
-    && other.element.contains(turn.element)
+    && (other.blocks || [other.element]).some((block) => block === turn.element || block.contains(turn.element))
   )));
 }
 
-function extractCitations(container: Element): Array<{ label: string; href: string }> {
+function extractCitations(
+  container: Element,
+  ownsNode: (node: Element) => boolean,
+): Array<{ label: string; href: string }> {
   const links = container.querySelectorAll<HTMLAnchorElement>([
     'a[data-citation][href]',
     '[data-testid*="citation"] a[href]',
@@ -238,6 +261,7 @@ function extractCitations(container: Element): Array<{ label: string; href: stri
   const seen = new Set<string>();
   const result: Array<{ label: string; href: string }> = [];
   for (const link of links) {
+    if (isPageAnchor(link) || !ownsNode(link)) continue;
     const href = safeHttpUrl(link.href);
     if (!href || seen.has(href)) continue;
     seen.add(href);
@@ -249,17 +273,24 @@ function extractCitations(container: Element): Array<{ label: string; href: stri
   return result;
 }
 
-function standaloneImages(container: Element, content: Element): string[] {
+function standaloneImages(
+  container: Element,
+  contentNodes: Element[],
+  ownsNode: (node: Element) => boolean,
+): string[] {
+  const inText = (image: Element) => isInText(contentNodes, image);
   const seenSources = new Set(
-    Array.from(content.querySelectorAll<HTMLImageElement>('img[src]'))
+    contentNodes
+      .flatMap((node) => Array.from(node.querySelectorAll<HTMLImageElement>('img[src]')))
+      .filter(inText)
       .map((image) => safeImageUrl(imageSource(image)))
       .filter(Boolean),
   );
   const images: string[] = [];
   container.querySelectorAll<HTMLImageElement>('img[src]').forEach((image) => {
-    if (content.contains(image) || image.getAttribute('aria-hidden') === 'true') return;
+    if (inText(image) || isAriaHidden(container, image) || !ownsNode(image)) return;
     const source = safeImageUrl(imageSource(image));
-    if (!source || seenSources.has(source)) return;
+    if (!source || seenSources.has(source) || isFaviconUrl(source)) return;
     const rect = image.getBoundingClientRect();
     const width = Math.max(image.naturalWidth, image.width, rect.width);
     const height = Math.max(image.naturalHeight, image.height, rect.height);
@@ -276,13 +307,14 @@ function standaloneImages(container: Element, content: Element): string[] {
 }
 
 function clean(element: Element): Element {
-  const clone = Utils.removeNoise(element, [
+  const clone = Utils.removeNoise(cloneMessage(element), [
     ...Utils.NOISE_SELECTORS,
     'button', '[data-testid*="actions"]', '[data-testid*="feedback"]',
     '[class*="toolbar"]:not(.code-toolbar)', 'textarea',
     '[data-testid="writing-block-header-sticky-container"]',
     '[class*="avatar"]', '[class*="profile"]',
     '[data-markdown-copy="exclude"]', '[data-d-component="favicon"]',
+    '[data-assistant-reasoning-summary]', 'h4.sr-only, h5.sr-only, h6.sr-only',
   ]);
 
   clone.querySelectorAll('[contenteditable="true"]').forEach((editable) => {
@@ -323,7 +355,7 @@ function queryFirst(root: Element, selectors: string[]): Element | null {
 }
 
 function closestTurn(element: Element): Element {
-  return element.closest('[data-chatgpt-search-unit-key], section[data-testid^="conversation-turn-"], [data-message-id], article') || element;
+  return element.closest('[data-chatgpt-search-unit-key], section[data-testid^="conversation-turn-"], [data-message-role], [data-message-id], article') || element;
 }
 
 function compareDomOrder(left: Element, right: Element): number {
@@ -332,8 +364,8 @@ function compareDomOrder(left: Element, right: Element): number {
 }
 
 function hasUnrenderedHistory(): boolean {
-  return Boolean(document.querySelector(
-    '[data-testid*="load-more"], button[aria-label*="older" i], button[aria-label*="previous" i], [data-virtualized="true"]',
+  return hasHistoryControl() || Boolean(document.querySelector(
+    '[data-testid*="load-more"], [data-virtualized="true"], [data-transcript-spacer]',
   )) || Array.from(document.querySelectorAll('[role="status"]')).some((status) => (
     /loading (?:older|previous) messages/i.test(status.textContent || '')
   ));
@@ -344,7 +376,7 @@ function conversationTitle(): string {
     CURRENT_USER, CURRENT_ASSISTANT, '[data-message-author-role]', '[data-message-id]',
     '[data-testid^="conversation-turn-"]', '.markdown',
   ].join(',')));
-  return cleanTitle(heading?.textContent?.trim() || Utils.getPageTitle()) || 'ChatGPT Conversation';
+  return cleanTitle(heading?.textContent?.trim() || conversationPageTitle()) || 'ChatGPT Conversation';
 }
 
 function conversationRoute(path: string): string {

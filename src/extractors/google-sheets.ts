@@ -368,11 +368,14 @@ function parseExportedHtmlGrid(html: string): string[][] {
   const parsed = Markdown.parseHtmlDocument(html);
   const table = parsed.querySelector('table');
   if (!table) return [];
-  return Array.from(table.querySelectorAll('tr')).map((row) =>
+  const rows = Array.from(table.querySelectorAll('tr')).map((row) =>
     Array.from(row.querySelectorAll(':scope > th, :scope > td')).map((cell) =>
       normalizeCell(cell.textContent || ''),
     ),
   );
+  // The query view adds an empty label row when it finds no header in the data.
+  if (rows.length > 1 && rows[0].every((cell) => !cell)) rows.shift();
+  return rows;
 }
 
 function parseCsv(csv: string): string[][] {
@@ -529,20 +532,17 @@ function gridToMarkdownTable(
 
 function getRangeStart(range: string): { row: number; column: number } {
   const reference = (range.includes('!') ? range.slice(range.lastIndexOf('!') + 1) : range).trim();
-  const rangeMatch = reference.match(/^\$?([A-Z]+)\$?(\d+)(?::\$?([A-Z]+)\$?(\d+))?/i);
+  // Whole columns (C:E) and whole rows (5:8) omit one coordinate. Named ranges have none.
+  const rangeMatch = reference.match(/^\$?([A-Z]{1,3})\$?(\d+)$/i)
+    || reference.match(/^\$?([A-Z]{1,3})?\$?(\d+)?:\$?([A-Z]{1,3})?\$?(\d+)?$/i);
   if (!rangeMatch) return { row: 1, column: 0 };
 
-  const startCol = columnIndex(rangeMatch[1]);
-  const startRow = Number(rangeMatch[2]) || 1;
-  if (rangeMatch[3] && rangeMatch[4]) {
-    const endCol = columnIndex(rangeMatch[3]);
-    const endRow = Number(rangeMatch[4]) || 1;
-    return {
-      row: Math.min(startRow, endRow),
-      column: Math.min(startCol, endCol),
-    };
-  }
-  return { row: startRow, column: startCol };
+  const columns = [rangeMatch[1], rangeMatch[3]].filter(Boolean).map(columnIndex);
+  const rows = [rangeMatch[2], rangeMatch[4]].map(Number).filter((row) => row > 0);
+  return {
+    row: rows.length > 0 ? Math.min(...rows) : 1,
+    column: columns.length > 0 ? Math.min(...columns) : 0,
+  };
 }
 
 function columnIndex(letters: string): number {

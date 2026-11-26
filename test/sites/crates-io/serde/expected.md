@@ -20,7 +20,7 @@ FIXTURE_P_0021
 - [FIXTURE_A_0027](https://example.invalid/fixture-link-0015)
 - [FIXTURE_A_0028](https://example.invalid/fixture-link-0016)
 
-## https://example.invalid/fixture-link-0017FIXTURE_H2_0029
+## https://example.invalid/fixture-link-0017 FIXTURE_H2_0029
 
 ```rust
 FIXTURE_SPAN_0030FIXTURE_SPAN_0031FIXTURE_SPAN_0032FIXTURE_SPAN_0033FIXTURE_SPAN_0034FIXTURE_SPAN_0035FIXTURE_SPAN_0036FIXTURE_SPAN_0037
@@ -48,6 +48,6 @@ FIXTURE_SPAN_0105FIXTURE_SPAN_0106FIXTURE_SPAN_0107FIXTURE_SPAN_0108
 FIXTURE_SPAN_0109
 ```
 
-## https://example.invalid/fixture-link-0018FIXTURE_H2_0110
+## https://example.invalid/fixture-link-0018 FIXTURE_H2_0110
 
 FIXTURE_P_0111 [FIXTURE_A_0112](https://example.invalid/fixture-link-0019) FIXTURE_P_0113 [FIXTURE_A_0114](https://example.invalid/fixture-link-0020) FIXTURE_P_0115 [FIXTURE_A_0116](https://example.invalid/fixture-link-0021) FIXTURE_P_0117 [FIXTURE_A_0118](https://example.invalid/fixture-link-0022) FIXTURE_P_0119 [FIXTURE_A_0120](https://example.invalid/fixture-link-0023) FIXTURE_P_0121 [FIXTURE_A_0122](https://example.invalid/fixture-link-0024) FIXTURE_P_0123 [FIXTURE_A_0124](https://example.invalid/fixture-link-0025) FIXTURE_P_0125 [FIXTURE_A_0126](https://example.invalid/fixture-link-0026) FIXTURE_P_0127 [FIXTURE_A_0128](https://example.invalid/fixture-link-0027) FIXTURE_P_0129 [FIXTURE_A_0130](https://example.invalid/fixture-link-0028) FIXTURE_P_0131

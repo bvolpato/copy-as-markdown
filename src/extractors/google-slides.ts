@@ -31,6 +31,7 @@ type PresentationExtraction = {
 };
 
 type SlideBlock = {
+  element: HTMLElement;
   markdown: string;
   text: string;
   top: number;
@@ -174,11 +175,11 @@ register({
 
     if (optionId === 'current') {
       const normalizedSlideId = normalizeSlideId(activeSlideId);
-      const exportedSlide = (activeSlideNumber
-        ? extraction.slides.find((slide) => slide.number === activeSlideNumber)
+      const exportedSlide = (normalizedSlideId
+        ? extraction.slides.find((slide) => normalizeSlideId(slide.id || '') === normalizedSlideId)
         : undefined)
-        || (normalizedSlideId
-          ? extraction.slides.find((slide) => normalizeSlideId(slide.id || '') === normalizedSlideId)
+        || (activeSlideNumber
+          ? extraction.slides.find((slide) => slide.number === activeSlideNumber)
           : undefined);
       const visibleSlide = extractVisibleSlides(activeSlideNumber)[0];
       if (visibleSlide && !visibleSlide.notes && liveNotes) {
@@ -359,6 +360,7 @@ async function fetchSlidesResource(url: string, kind: 'html' | 'text'): Promise<
 
 function parseHtmlPresentation(html: string): Slide[] {
   const parsed = Markdown.parseHtmlDocument(html);
+  normalizePresentationMarkup(parsed);
   const slideElements = Array.from(parsed.querySelectorAll<HTMLElement>([
     '.slide',
     '[data-slide-number]',
@@ -367,6 +369,42 @@ function parseHtmlPresentation(html: string): Slide[] {
     !all.some((candidate, candidateIndex) => candidateIndex < index && candidate.contains(slide)),
   );
   return slideElements.map((slide, index) => extractHtmlSlide(slide, index + 1));
+}
+
+function normalizePresentationMarkup(parsed: Document): void {
+  // The presentation view encodes a soft line break as U+FFFD.
+  const walker = parsed.createTreeWalker(parsed.body, NodeFilter.SHOW_TEXT);
+  const softBreaks: Text[] = [];
+  while (walker.nextNode()) {
+    if (walker.currentNode.nodeValue?.includes('\uFFFD')) softBreaks.push(walker.currentNode as Text);
+  }
+  softBreaks.forEach((text) => {
+    text.replaceWith(...text.data.split('\uFFFD').flatMap((line, index) =>
+      index ? [parsed.createElement('br'), line] : [line],
+    ));
+  });
+
+  // Nested lists are children of the outer list, where list conversion skips them.
+  parsed.querySelectorAll('ul > ul, ul > ol, ol > ul, ol > ol').forEach((list) => {
+    let owner = list.previousElementSibling;
+    if (owner?.tagName !== 'LI') {
+      owner = parsed.createElement('li');
+      list.before(owner);
+    }
+    owner.append(list);
+  });
+
+  parsed.querySelectorAll('a[href*="google.com/url"]').forEach((link) => {
+    try {
+      const url = new URL(link.getAttribute('href') || '', window.location.origin);
+      const target = url.searchParams.get('q');
+      if (/^(?:www\.)?google\.com$/.test(url.hostname) && url.pathname === '/url' && target) {
+        link.setAttribute('href', target);
+      }
+    } catch {
+      // keep original href
+    }
+  });
 }
 
 function extractSvgText(svg: Element): string {
@@ -408,16 +446,19 @@ function elementToSlideMarkdown(element: HTMLElement): string {
 
 function extractHtmlSlide(slide: HTMLElement, fallbackNumber: number): Slide {
   const content = slide.querySelector<HTMLElement>('.slide-content') || slide;
-  const slideId = slide.id || slide.getAttribute('data-slide-id') || content.id || '';
+  const slideId = slide.id
+    || slide.getAttribute('data-slide-id')
+    || content.id
+    || content.getAttribute('style')?.match(/[?&]pageid=([^&"')]+)/)?.[1]
+    || '';
   const label = slide.getAttribute('title') || content.getAttribute('aria-label') || '';
   const parsedNumber = Number(label.match(/(?:slide\s*)?(\d+)/i)?.[1]);
   const number = Number.isFinite(parsedNumber) && parsedNumber > 0 ? parsedNumber : fallbackNumber;
   const blocks = extractPositionedBlocks(content);
   const titleBlock = chooseTitleBlock(blocks);
-  const title = titleBlock?.text.replace(/[\r\n]+/g, ' ').trim() || '';
+  const { title, rest } = titleBlock ? splitTitleBlock(titleBlock) : { title: '', rest: '' };
   const body = blocks
-    .filter((block) => block !== titleBlock)
-    .map((block) => block.markdown)
+    .map((block) => (block === titleBlock ? rest : block.markdown))
     .filter(Boolean)
     .join('\n\n');
   const notesElement = slide.querySelector<HTMLElement>('.slide-notes, [data-speaker-notes]');
@@ -433,6 +474,25 @@ function extractHtmlSlide(slide: HTMLElement, fallbackNumber: number): Slide {
     };
   }
   return { id: slideId || undefined, number, title, body, notes };
+}
+
+/** Use the first paragraph of a text box as the title, and keep the others in the body. */
+function splitTitleBlock(block: SlideBlock): { title: string; rest: string } {
+  const lineSelector = 'p, li, h1, h2, h3, h4, h5, h6';
+  const clone = block.element.cloneNode(true) as HTMLElement;
+  const lines = Array.from(clone.querySelectorAll(lineSelector))
+    .filter((line) => !line.querySelector(lineSelector) && elementText(line));
+  if (lines.length < 2) return { title: block.text, rest: '' };
+  const title = elementText(lines[0]);
+  lines[0].remove();
+  return { title, rest: elementToSlideMarkdown(clone) };
+}
+
+function elementText(element: Element): string {
+  const clone = element.cloneNode(true) as Element;
+  clone.querySelectorAll('br').forEach((lineBreak) => lineBreak.replaceWith(' '));
+  clone.querySelectorAll('p, li, td, th').forEach((block) => block.append(' '));
+  return normalizeText(clone.textContent || '');
 }
 
 function extractPositionedBlocks(content: HTMLElement): SlideBlock[] {
@@ -452,8 +512,9 @@ function extractPositionedBlocks(content: HTMLElement): SlideBlock[] {
   const blocks = candidates.map((element) => {
     const markdown = elementToSlideMarkdown(element);
     return {
+      element,
       markdown,
-      text: normalizeText(element.textContent || ''),
+      text: elementText(element),
       top: numericStyle(element.style.top),
       left: numericStyle(element.style.left),
       fontSize: largestFontSize(element),
@@ -464,7 +525,8 @@ function extractPositionedBlocks(content: HTMLElement): SlideBlock[] {
   return blocks
     .sort((left, right) => left.top - right.top || left.left - right.left)
     .filter((block) => {
-      const key = normalizeText(block.markdown);
+      // Separate boxes can repeat the same text, so compare positions too.
+      const key = `${block.top}|${block.left}|${normalizeText(block.markdown)}`;
       if (seen.has(key)) return false;
       seen.add(key);
       return true;
@@ -472,8 +534,9 @@ function extractPositionedBlocks(content: HTMLElement): SlideBlock[] {
 }
 
 function chooseTitleBlock(blocks: SlideBlock[]): SlideBlock | undefined {
-  const candidates = blocks.filter((block) => block.text.length <= 240 && block.top <= 320);
-  if (candidates.length === 0) return blocks[0];
+  const textBlocks = blocks.filter((block) => !block.element.matches('table'));
+  const candidates = textBlocks.filter((block) => block.text.length <= 240 && block.top <= 320);
+  if (candidates.length === 0) return textBlocks[0];
   return candidates.reduce((best, block) => {
     const bestScore = best.fontSize * 100 - best.top * 0.1 - best.text.length * 0.01;
     const score = block.fontSize * 100 - block.top * 0.1 - block.text.length * 0.01;
@@ -580,11 +643,11 @@ function attachLiveNotes(
 ): { scope: string; unassigned: string } {
   if (!notes) return { scope: 'not available from export or visible DOM', unassigned: '' };
   const normalizedId = normalizeSlideId(activeSlideId);
-  const target = (activeSlideNumber
-    ? slides.find((slide) => slide.number === activeSlideNumber)
+  const target = (normalizedId
+    ? slides.find((slide) => normalizeSlideId(slide.id || '') === normalizedId)
     : undefined)
-    || (normalizedId
-      ? slides.find((slide) => normalizeSlideId(slide.id || '') === normalizedId)
+    || (activeSlideNumber
+      ? slides.find((slide) => slide.number === activeSlideNumber)
       : undefined)
     || (slides.length === 1 ? slides[0] : undefined);
   if (target) {
@@ -633,7 +696,7 @@ function renderSlide(slide: Slide): string {
   const parts = [heading];
   if (slide.body) parts.push(slide.body);
   if (slide.notes) parts.push(`### Speaker notes\n\n${slide.notes}`);
-  if (!slide.body && !slide.notes) parts.push('*No text on this slide.*');
+  if (!slide.title && !slide.body && !slide.notes) parts.push('*No text on this slide.*');
   return parts.join('\n\n');
 }
 

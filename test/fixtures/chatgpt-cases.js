@@ -128,4 +128,54 @@ export const CHATGPT_CASES = [
     excludes: ['older or virtualized history was not loaded'],
     occurrences: { '## 👤 User': 1, '## 🤖 Assistant': 1 },
   },
+  {
+    id: 'chatgpt',
+    extractor: 'ChatGPT',
+    url: 'https://chatgpt.com/share/transcript-renderer',
+    html: `<!doctype html><html><head><title>Transcript parser</title><meta property="og:title" content="Check out this chat"></head><body><main>
+      <ol data-conversation-transcript>
+        <li data-message-role="user"><div data-transcript-spacer aria-hidden="true"></div></li>
+        <li data-message-role="user"><h4 aria-label="You said:">You said:</h4>
+          <div data-user-message-bubble><p data-user-message-copy style="white-space: pre-wrap">def f():
+    return 1</p></div></li>
+        <li data-message-role="assistant"><h4 aria-label="ChatGPT said:">ChatGPT said:</h4>
+          <div data-assistant-markdown-root>
+            <div data-assistant-reasoning-summary>Worked for 26s</div>
+            <h1>Answer heading</h1>
+            <p>Cost is <span data-assistant-math-rendered="inline"><span class="katex"><math><semantics><mrow><mi>O</mi><msup><mi>n</mi><mn>2</mn></msup></mrow><annotation encoding="application/x-tex">O(n^2)</annotation></semantics></math></span></span>.</p>
+            <div><div><button>Copy code</button></div><div><span>json</span></div><pre><code data-code-language="json">{}</code></pre></div>
+          </div></li>
+      </ol>
+    </main></body></html>`,
+    ordered: [
+      '# Transcript parser', '## 👤 User', 'def f():\n    return 1',
+      '## 🤖 Assistant', '# Answer heading', 'Cost is $O(n^2)$.', '```json\n{}\n```',
+    ],
+    contains: ['older or virtualized history was not loaded'],
+    excludes: ['Check out this chat', 'said:', 'Worked for', 'Copy code', '\njson\n'],
+  },
+  {
+    id: 'chatgpt',
+    extractor: 'ChatGPT',
+    url: 'https://chatgpt.com/c/tool-calls',
+    html: `<!doctype html><html><head><title>Tool calls - ChatGPT</title></head><body>
+      <nav><button aria-label="New folder"></button></nav><main>
+      <section data-testid="conversation-turn-1" data-turn="user"><h5 class="sr-only">You said:</h5>
+        <div data-message-author-role="user"><button aria-label="Open image"><img alt="Uploaded image" src="https://images.example/upload.png"></button></div></section>
+      <section data-testid="conversation-turn-2" data-turn="assistant">
+        <div data-message-author-role="assistant" data-message-id="1"><div class="markdown"><p>Preamble.</p></div></div>
+        <div>Searched the web</div>
+        <div style="display: none"><div data-message-author-role="assistant"><div class="markdown"><p>Hidden answer.</p></div></div></div>
+        <div data-message-author-role="assistant"><div data-message-author-role="assistant" data-message-id="2"><div class="markdown"><p>Final answer for <span role="math" data-math-source="h_r"><span class="katex"><span class="katex-html" aria-hidden="true">hr</span></span></span>.
+          <span data-testid="webpage-citation-pill"><a href="https://docs.example/a"><img alt="" src="https://www.google.com/s2/favicons?domain=docs.example">Docs</a></span><sup><a href="#fn-1">1</a></sup></p></div></div></div>
+        <button aria-label="Previous response"></button></section>
+    </main></body></html>`,
+    ordered: [
+      '## 👤 User', '![Uploaded image](https://images.example/upload.png)',
+      '## 🤖 Assistant', 'Preamble.', 'Final answer for $h_r$.', '### Sources', '- [Docs](https://docs.example/a)',
+    ],
+    contains: ['unloaded page history is not included'],
+    excludes: ['You said:', 'favicons', '#fn-1', 'older or virtualized history', 'Hidden answer.'],
+    occurrences: { '## 🤖 Assistant': 1, '### Sources': 1, 'Final answer': 1 },
+  },
 ];
