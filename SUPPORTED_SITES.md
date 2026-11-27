@@ -1,6 +1,6 @@
 # Supported sites
 
-<!-- count -->97<!-- /count --> sites and platforms have their own extractor. On every other site, the general extractor finds the main content or copies your selection.
+Copy as Markdown has its own extractor for <!-- count -->97<!-- /count --> sites and platforms. On every other site, the general extractor finds the main content or copies your selection.
 
 This list is generated from [docs/sites.json](docs/sites.json). Edit that file, and then run `pnpm build:site`.
 

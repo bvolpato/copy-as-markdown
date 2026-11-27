@@ -103,7 +103,7 @@ Sizes are in characters. HTML is the page after it loads, which can be larger or
 
 ## Supported sites
 
-<!-- count -->97<!-- /count --> sites and platforms have their own extractor. See [what each one copies](https://github.com/bvolpato/copy-as-markdown/blob/main/SUPPORTED_SITES.md).
+Copy as Markdown has its own extractor for <!-- count -->97<!-- /count --> sites and platforms. See [what each one copies](https://github.com/bvolpato/copy-as-markdown/blob/main/SUPPORTED_SITES.md).
 
 <!-- sites:start -->
 
